@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { Upload, Download, Trash2, Loader2, FileJson, Plus, Eye, Check, ChevronDown, ChevronRight, Image as ImageIcon } from "lucide-react";
 
-const LOGO_DATA_URL = "data:image/jpeg;base64,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";
+const LOGO_DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBAUEBAYFBQUGBgYHCQ4JCQgICRINDQoOFRIWFhUSFBQXGiEcFxgfGRQUHScdHyIjJSUlFhwpLCgkKyEkJST/2wBDAQYGBgkICREJCREkGBQYJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCT/wAARCAA0AKADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDvLi+W3ZUJBJOOe1TQ3CTglWBI6gV5942luLvxXFprXFwsXkPMUSQqpYHA6GsTwz4iuLDxQllPNMyy/u2WRycN1U/yqNS2j2GiopRBPkAjB6mip5TI8Y8WTNH4w13DkA3sw/8AHzWLZyMb0HccZBNbXitwfFmu+v22b/0M1iWf/H8v1FT1OmXwn0ZpviazsvDelCWUblsoeASTgIBmiua8E2dvqXh0XdyN0u5Ix32qoH9CKKy5UTdj/G/wq0nWNbur5JLuG4uHMkjLNncT35BFc/8A8Kf02JgyajqAYHIIlHB/75or0/xRGltrTRRDbGEUgHnGRn+ZNYjLgZAUH6V4sajPTcUegfDPRYNJ8M2dpC8jJEh+ZyNzMSST09SaKpfDqdriwkSU5MJVVPsRn+lFbo5JyaZ//9k=";
 
 const CATEGORIES = ["숙박비", "식대", "유류대", "기타"];
 
@@ -37,10 +37,54 @@ export default function ReceiptApp() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+  const [capturing, setCapturing] = useState(false);
+  const [lastError, setLastError] = useState(null);
+  const [savedFlash, setSavedFlash] = useState({}); // id -> timestamp
+  const [openMonthly, setOpenMonthly] = useState(false);
+  const [openCategory, setOpenCategory] = useState(false);
+  const [toast, setToast] = useState(null); // {type:'info'|'error', msg:string}
+  const [modal, setModal] = useState(null); // {type, ...}
+  const [userNames, setUserNames] = useState(() => {
+    try { return localStorage.getItem("receiptApp_userNames") || "노경호, 김영일"; }
+    catch { return "노경호, 김영일"; }
+  });
+  const [reportDate, setReportDate] = useState("");
+
+  const updateUserNames = (newNames) => {
+    setUserNames(newNames);
+    try { localStorage.setItem("receiptApp_userNames", newNames); } catch {}
+  };
+
+  const formatReportDate = (iso) => {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-");
+    return `${y}년 ${Number(m)}월 ${Number(d)}일`;
+  };
+
+  const headerTitle = `법인카드 영수증 정산 (${userNames}${reportDate ? " - " + formatReportDate(reportDate) : ""})`;
+
+  const showToast = (msg, type = "info") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const updateRow = (id, key, val) => {
+    setRows(rs => rs.map(r => r.id === id ? { ...r, [key]: val } : r));
+    setSavedFlash(s => ({ ...s, [id]: Date.now() }));
+    setTimeout(() => {
+      setSavedFlash(s => {
+        if (s[id] && Date.now() - s[id] >= 1500) {
+          const { [id]: _, ...rest } = s;
+          return rest;
+        }
+        return s;
+      });
+    }, 1600);
+  };
+
   const fileRef = useRef(null);
   const captureRef = useRef(null);
   const categoryCaptureRef = useRef(null);
-  const [capturing, setCapturing] = useState(false);
 
   const loadHtml2Canvas = () => new Promise((resolve, reject) => {
     if (window.html2canvas) return resolve(window.html2canvas);
@@ -122,22 +166,50 @@ export default function ReceiptApp() {
     }
   };
 
+  // 이미지 파일을 항상 JPEG로 변환 + 크기 축소하여 base64 반환
+  // (HEIC/HEIF 포맷, 대용량 파일, iOS Safari 호환성 문제 해결)
   const fileToBase64 = (file) =>
-    new Promise((res, rej) => {
-      if (!file) return rej(new Error("파일이 없습니다"));
-      const r = new FileReader();
-      r.onload = () => {
-        const result = r.result;
-        if (typeof result !== "string" || !result.includes(",")) {
-          return rej(new Error("파일 읽기 결과가 올바르지 않습니다"));
-        }
-        res({ data: result.split(",")[1], dataUrl: result, type: file.type });
-      };
-      r.onerror = () => rej(new Error("FileReader 오류: " + (r.error?.message || "알 수 없음")));
-      r.readAsDataURL(file);
-    });
+    new Promise((resolve, reject) => {
+      if (!file) return reject(new Error("파일이 없습니다"));
 
-  const extract = async (file) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("파일 읽기 실패"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("이미지 디코딩 실패 (HEIC 등 지원되지 않는 포맷일 수 있음)"));
+        img.onload = () => {
+          try {
+            // 최대 긴 변 2048px로 축소 (영수증 글자 가독성 유지)
+            const MAX_DIM = 2048;
+            let { width, height } = img;
+            if (width > MAX_DIM || height > MAX_DIM) {
+              const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
+              width = Math.round(width * ratio);
+              height = Math.round(height * ratio);
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            // 흰 배경으로 칠해서 투명 배경 방지
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            // 항상 JPEG로 통일 (HEIC 등 호환성 문제 해결)
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+            resolve({
+              data: dataUrl.split(",")[1],
+              dataUrl,
+              type: "image/jpeg",
+            });
+          } catch (e) {
+            reject(new Error("이미지 변환 실패: " + e.message));
+          }
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });const extract = async (file) => {
     const { data, dataUrl, type } = await fileToBase64(file);
     const mediaType = type && type.startsWith("image/") ? type : "image/jpeg";
     const prompt = `이 이미지에는 하나 또는 여러 개의 한국 영수증이 있을 수 있습니다. 이미지에 보이는 각 영수증마다 아래 필드를 뽑아 JSON 배열 하나로만 출력하세요. 설명/코드펜스/머리말 금지.
@@ -157,7 +229,7 @@ export default function ReceiptApp() {
     let rawText = "";
     let parsedArr = [];
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      const resp = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -221,8 +293,6 @@ export default function ReceiptApp() {
     return { rows: filteredRows, failed };
   };
 
-  const [lastError, setLastError] = useState(null);
-
   const handleFiles = async (files) => {
     if (!files || !files.length) return;
     setLoading(true);
@@ -246,55 +316,13 @@ export default function ReceiptApp() {
     }
   };
 
-  const [savedFlash, setSavedFlash] = useState({}); // id -> timestamp
-  const [openMonthly, setOpenMonthly] = useState(false);
-  const [openCategory, setOpenCategory] = useState(false);
-  const [toast, setToast] = useState(null); // {type:'info'|'error', msg:string}
-  const [modal, setModal] = useState(null); // {type, ...}
-  const [userNames, setUserNames] = useState(() => {
-    try { return localStorage.getItem("receiptApp_userNames") || "노경호, 김영일"; }
-    catch { return "노경호, 김영일"; }
-  });
-  const [reportDate, setReportDate] = useState("");
-
-  const updateUserNames = (newNames) => {
-    setUserNames(newNames);
-    try { localStorage.setItem("receiptApp_userNames", newNames); } catch {}
-  };
-
-  const formatReportDate = (iso) => {
-    if (!iso) return "";
-    const [y, m, d] = iso.split("-");
-    return `${y}년 ${Number(m)}월 ${Number(d)}일`;
-  };
-
-  const headerTitle = `법인카드 영수증 정산 (${userNames}${reportDate ? " - " + formatReportDate(reportDate) : ""})`;
-
-  const showToast = (msg, type = "info") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  const updateRow = (id, key, val) => {
-    setRows(rs => rs.map(r => r.id === id ? { ...r, [key]: val } : r));
-    setSavedFlash(s => ({ ...s, [id]: Date.now() }));
-    setTimeout(() => {
-      setSavedFlash(s => {
-        if (s[id] && Date.now() - s[id] >= 1500) {
-          const { [id]: _, ...rest } = s;
-          return rest;
-        }
-        return s;
-      });
-    }, 1600);
-  };
-  const delRow = (id) => setRows(rs => rs.filter(r => r.id !== id));
   const addBlank = () => setRows(rs => [...rs, {
     id: crypto.randomUUID(), imageUrl: "", date: "", merchant: "", biznum: "",
     supply: 0, vat: 0, total: 0, items: "", category: "기타", note: "",
   }]);
+  const delRow = (id) => setRows(rs => rs.filter(r => r.id !== id));
 
-  const exportRows = () => rows.map(({ imageUrl, id, ...r }) => r);
+  const exportRows = () => rows.map(({ imageUrl, id, sourceFile, ...r }) => r);
 
   // iOS/모바일 안정 저장: Web Share API 우선, 실패 시 다운로드 폴백
   const saveBlob = async (blob, fileName, shareTitle) => {
@@ -374,7 +402,7 @@ export default function ReceiptApp() {
     setModal({
       type: "save",
       defaultName: `정산_${new Date().toISOString().slice(0,10).replace(/-/g,"")}`,
-      location: "browser", // "browser" | "file"
+      location: "browser",
     });
   };
 
@@ -421,9 +449,7 @@ export default function ReceiptApp() {
   const loadWork = () => {
     const items = getSavedList();
     setModal({ type: "load", items });
-  };
-
-  const loadFromFile = (e) => {
+  };const loadFromFile = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     const reader = new FileReader();
@@ -474,8 +500,8 @@ export default function ReceiptApp() {
   const fmt = (n) => Number(n || 0).toLocaleString("ko-KR");
 
   // 합계: 월별(월→용도별), 용도별(용도→일자별), 각 그룹별 건수 포함
-  const monthlyGrouped = {}; // { "2026-01": { total, count, byCat: {식대: {amt, cnt}, ...} } }
-  const categoryGrouped = {}; // { 식대: { total, count, byDate: {"2026-01-30": {amt, cnt}, ...} } }
+  const monthlyGrouped = {};
+  const categoryGrouped = {};
   let grand = 0;
   rows.forEach(r => {
     const amt = Number(r.total) || 0;
@@ -628,30 +654,7 @@ export default function ReceiptApp() {
                           {cats.map(([c,v],i) => (
                             <tr key={m+c} className={i===0?"border-t":""}>
                               <td className="py-1 font-medium">{i===0?m:""}</td>
-                              <td className="py-1 text-slate-600">
-                                {c}
-                                {v.notes.length > 0 && <span className="ml-2 text-[10px] text-slate-400">({v.notes.join(", ")})</span>}
-                              </td>
-                              <td className="py-1 text-right text-slate-500">{v.cnt}건</td>
-                              <td className="py-1 text-right">{fmt(v.amt)}원</td>
-                            </tr>
-                          ))}
-                          <tr className="bg-slate-50">
-                            <td className="py-1" colSpan={2}><span className="text-xs text-slate-500">└ {m} 소계</span></td>
-                            <td className="py-1 text-right text-xs text-slate-500">{monthlyGrouped[m].count}건</td>
-                            <td className="py-1 text-right font-semibold">{fmt(monthlyGrouped[m].total)}원</td>
-                          </tr>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-3 gap-2 mb-2">
+                              <td className="py-1 text-sla<div className="grid grid-cols-3 gap-2 mb-2">
           <button onClick={() => fileRef.current?.click()} className="flex items-center justify-center gap-1 px-2 py-2 bg-slate-900 text-white rounded-lg text-xs sm:text-sm hover:bg-slate-700">
             <Upload size={14}/> 사진 업로드
           </button>
