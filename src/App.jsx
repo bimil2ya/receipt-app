@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Settings, Download,
+  Settings,
   FolderOpen, RefreshCw, User, Calendar, RotateCcw, ChevronRight, Cloud, Loader2
 } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
@@ -16,6 +16,7 @@ import ReceiptRow from './components/receipts/ReceiptRow';
 import SettingsModal from './components/settings/SettingsModal';
 import SummaryTab from './components/summary/SummaryTab';
 import ImagesTab from './components/images/ImagesTab';
+import DateRangePicker from './components/calendar/DateRangePicker';
 
 // Constants
 const ALL_CATS = ['숙박비', '식비', '기타', '유류비'];
@@ -48,7 +49,6 @@ export default function App() {
   const [showDateModal, setShowDateModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
-  const [showSaveModal, setShowSaveModal] = useState(false);
   const [showBudgetCalcModal, setShowBudgetCalcModal] = useState(false);
   const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -217,15 +217,8 @@ export default function App() {
     }));
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const fn = `출장비_${TODAY.replace(/-/g, '')}.json`;
-    if (await shareFile(blob, fn, 'application/json')) { setShowSaveModal(false); return; }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click(); setShowSaveModal(false);
-  };
-
-  const downloadXLSX = async () => {
-    const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(receipts.map(r => ({ 날짜: r.date, 사용처: r.storeName, 금액: r.totalAmount, 용도: r.category, 비고: r.note })));
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '영수증');
-    XLSX.writeFile(wb, `영수증_${TODAY}.xlsx`); setShowSaveModal(false);
+    if (await shareFile(blob, fn, 'application/json')) return;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fn; a.click();
   };
 
   const loadFromFile = async (e) => {
@@ -320,14 +313,30 @@ export default function App() {
           {/* ── 목록 탭 */}
           {tab === 'list' && (
             <div className="space-y-3">
-              <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-2 grid grid-cols-2 gap-2 shadow-lg">
-                <button onClick={() => document.getElementById('cam-i').click()} className="bg-blue-600 hover:bg-blue-500 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-2 active:scale-95 shadow-md">📸 촬영</button>
-                <button onClick={() => document.getElementById('file-i').click()} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-2 active:scale-95">🖼️ 업로드</button>
-                <button onClick={() => setShowManualModal(true)} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-2 active:scale-95">⌨️ 직접입력</button>
-                <label className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer">
-                  📂 불러오기
-                  <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
-                </label>
+              <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-3 space-y-3 shadow-lg">
+                {/* 영수증 입력 섹션 */}
+                <div>
+                  <p className="text-xs text-slate-500 font-bold mb-1.5 px-1">영수증 입력</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => document.getElementById('cam-i').click()} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">📸 촬영</button>
+                    <button onClick={() => document.getElementById('file-i').click()} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">🖼️ 업로드</button>
+                    <button onClick={() => setShowManualModal(true)} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">⌨️ 직접입력</button>
+                  </div>
+                </div>
+                {/* 자료관리 섹션 */}
+                <div>
+                  <p className="text-xs text-slate-500 font-bold mb-1.5 px-1">자료관리</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 text-slate-300">💾 저장하기</button>
+                    <label className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-slate-300">
+                      📂 불러오기
+                      <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
+                    </label>
+                    <button onClick={uploadToDrive} disabled={driveUploading} className={`py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 border ${driveUploading ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'}`}>
+                      {driveUploading ? <><Loader2 size={13} className="animate-spin shrink-0" />{uploadProgress}%</> : '📤 전송하기'}
+                    </button>
+                  </div>
+                </div>
                 <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
                 <input id="cam-i" type="file" capture="environment" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
               </div>
@@ -335,12 +344,8 @@ export default function App() {
               {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700"><RefreshCw size={24} className="animate-spin text-blue-400" /><span className="text-base font-bold">{procMsg}</span></div>}
 
               {receipts.length > 0 && (
-                <div className="flex items-center gap-2 px-1">
-                  <button onClick={() => setShowSaveModal(true)} className="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold border border-slate-600">내보내기</button>
-                  <button onClick={uploadToDrive} disabled={driveUploading} className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 transition-all ${driveUploading ? 'bg-emerald-800 text-emerald-300' : 'bg-emerald-600 text-white'}`}>
-                    {driveUploading ? <><Loader2 size={14} className="animate-spin" />{uploadProgress}% 전송 중...</> : '📤 전송하기'}
-                  </button>
-                  <span className="ml-auto text-xs text-slate-500">{receipts.length}건 • {formatCurrency(grandTotal)}</span>
+                <div className="text-center text-xs text-slate-500 px-1">
+                  {receipts.length}건 • {formatCurrency(grandTotal)}
                 </div>
               )}
 
@@ -471,37 +476,16 @@ export default function App() {
         </Modal>
       )}
 
-      {/* ── 저장/내보내기 모달 */}
-      {showSaveModal && (
-        <Modal title="💾 저장/내보내기" onClose={() => setShowSaveModal(false)}>
-          <div className="space-y-4 p-2">
-            <button onClick={saveToJSON} className="w-full flex items-center justify-between bg-slate-800 border-2 border-slate-700 p-5 rounded-2xl text-white">
-              <div className="flex items-center gap-4"><FolderOpen size={24} className="text-blue-400" /><span className="text-lg font-black">JSON 백업</span></div>
-              <Download size={20} />
-            </button>
-            <button onClick={downloadXLSX} className="w-full flex items-center justify-between bg-slate-800 border-2 border-slate-700 p-5 rounded-2xl text-white">
-              <div className="flex items-center gap-4"><Download size={24} className="text-green-400" /><span className="text-lg font-black">엑셀(XLSX)</span></div>
-              <Download size={20} />
-            </button>
-          </div>
-        </Modal>
-      )}
-
       {/* ── 예산 설정 모달 */}
       {showBudgetCalcModal && (
         <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)}>
           <div className="space-y-5 p-4">
-            {/* 날짜 선택 */}
-            <div className="space-y-4">
-              <div className="flex flex-col">
-                <label className="text-xs text-slate-500 font-black mb-1.5">출장 시작일</label>
-                <input type="date" value={tripStartDate} onChange={e => setTripStartDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-xs text-slate-500 font-black mb-1.5">출장 종료일</label>
-                <input type="date" value={tripEndDate} onChange={e => setTripEndDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" />
-              </div>
-            </div>
+            {/* 날짜 범위 캘린더 */}
+            <DateRangePicker
+              startDate={tripStartDate}
+              endDate={tripEndDate}
+              onChange={(s, e) => { setTripStartDate(s); setTripEndDate(e); }}
+            />
             {/* 자동계산 미리보기 */}
             {(() => {
               const s = new Date(tripStartDate), e = new Date(tripEndDate);
