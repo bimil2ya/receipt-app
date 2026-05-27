@@ -50,6 +50,7 @@ export default function App() {
   const [showManualModal, setShowManualModal] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showBudgetCalcModal, setShowBudgetCalcModal] = useState(false);
+  const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   // ── 수정 상태
@@ -137,8 +138,16 @@ export default function App() {
     const start = new Date(tripStartDate); const end = new Date(tripEndDate);
     const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
     if (diffDays <= 0) { alert('날짜 오류'); return; }
-    const calc = diffDays * 130000;
-    setWeeklyBudget(calc); localStorage.setItem('weekly_budget', String(calc)); setShowBudgetCalcModal(false);
+    // 마지막 날 70,000원, 나머지 130,000원
+    const calc = diffDays <= 1 ? 70000 : (diffDays - 1) * 130000 + 70000;
+    setTempBudget(calc);  // 모달 입력란에 반영만 (저장은 saveBudget)
+  };
+
+  const saveBudget = () => {
+    const val = Math.max(0, parseInt(tempBudget) || 0);
+    setWeeklyBudget(val);
+    localStorage.setItem('weekly_budget', String(val));
+    setShowBudgetCalcModal(false);
   };
 
   // ── Drive 업로드
@@ -292,7 +301,7 @@ export default function App() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-lg font-bold">{formatCurrency(budgetTotal)}</span>
                   <span className="text-xs text-slate-500">/ {formatCurrency(weeklyBudget)}</span>
-                  <button onClick={() => setShowBudgetCalcModal(true)} className="ml-1 text-slate-500">⚙️</button>
+                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 text-slate-500">⚙️</button>
                 </div>
               </div>
               <div className="w-full h-8 bg-slate-900 rounded-xl overflow-hidden border border-slate-700 flex relative">
@@ -478,15 +487,51 @@ export default function App() {
         </Modal>
       )}
 
-      {/* ── 예산 자동 계산 모달 */}
+      {/* ── 예산 설정 모달 */}
       {showBudgetCalcModal && (
-        <Modal title="📅 예산 자동 계산" onClose={() => setShowBudgetCalcModal(false)}>
-          <div className="space-y-6 p-4">
-            <div className="space-y-5">
-              <div className="flex flex-col items-center"><label className="text-xs text-slate-500 font-black mb-1.5">출장 시작일</label><input type="date" value={tripStartDate} onChange={e => setTripStartDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" /></div>
-              <div className="flex flex-col items-center"><label className="text-xs text-slate-500 font-black mb-1.5">출장 종료일</label><input type="date" value={tripEndDate} onChange={e => setTripEndDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" /></div>
+        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)}>
+          <div className="space-y-5 p-4">
+            {/* 날짜 선택 */}
+            <div className="space-y-4">
+              <div className="flex flex-col">
+                <label className="text-xs text-slate-500 font-black mb-1.5">출장 시작일</label>
+                <input type="date" value={tripStartDate} onChange={e => setTripStartDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" />
+              </div>
+              <div className="flex flex-col">
+                <label className="text-xs text-slate-500 font-black mb-1.5">출장 종료일</label>
+                <input type="date" value={tripEndDate} onChange={e => setTripEndDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-3 py-4 text-xl text-white font-black text-center" />
+              </div>
             </div>
-            <button onClick={handleBudgetCalc} className="w-full bg-blue-600 py-4 rounded-2xl text-lg font-black">계산 설정</button>
+            {/* 자동계산 미리보기 */}
+            {(() => {
+              const s = new Date(tripStartDate), e = new Date(tripEndDate);
+              const n = Math.ceil((e - s) / 86400000) + 1;
+              if (n <= 0) return null;
+              const auto = n <= 1 ? 70000 : (n - 1) * 130000 + 70000;
+              const desc = n === 1
+                ? '1일 출장 (마지막날만 적용)'
+                : `${n}일 출장: ${n - 1}일 × 13만 + 마지막날 7만`;
+              return (
+                <div className="bg-slate-900/80 rounded-2xl p-4 border border-slate-700">
+                  <p className="text-xs text-slate-500 font-bold mb-2">{desc}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl font-black text-blue-400">{auto.toLocaleString('ko-KR')}원</span>
+                    <button onClick={handleBudgetCalc} className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-xl text-sm font-black">이 값 적용 ↓</button>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* 직접 입력 */}
+            <div>
+              <label className="text-xs text-slate-500 font-black mb-1.5 block">예산 직접 입력 (원)</label>
+              <input
+                type="number"
+                value={tempBudget}
+                onChange={e => setTempBudget(e.target.value)}
+                className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-xl text-white font-black text-right"
+              />
+            </div>
+            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-lg font-black">설정 저장</button>
           </div>
         </Modal>
       )}
