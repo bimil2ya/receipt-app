@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Settings,
   FolderOpen, RefreshCw, ChevronRight, Cloud, Loader2
@@ -20,6 +20,39 @@ import DateRangePicker from './components/calendar/DateRangePicker';
 
 // Constants
 const ALL_CATS = ['숙박비', '식비', '기타', '유류비'];
+
+// 예산 통계 — 같은 줄일 때만 "/" 표시
+function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal }) {
+  const budgetRef = useRef(null);
+  const fuelRef = useRef(null);
+  const [showSep, setShowSep] = useState(true);
+
+  useEffect(() => {
+    const check = () => {
+      if (!budgetRef.current || !fuelRef.current) return;
+      const b = budgetRef.current.getBoundingClientRect();
+      const f = fuelRef.current.getBoundingClientRect();
+      setShowSep(Math.abs(Math.round(b.top) - Math.round(f.top)) < 4);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    const parent = budgetRef.current?.parentElement;
+    if (parent) ro.observe(parent);
+    return () => ro.disconnect();
+  }, [weeklyBudget, budgetTotal, fuelTotal]);
+
+  return (
+    <div className="flex flex-wrap items-baseline mt-3 text-xs font-bold gap-x-1 gap-y-0.5">
+      <span ref={budgetRef} className="text-slate-400 whitespace-nowrap">
+        총예산 {Math.round(weeklyBudget / 10000)}만원 중 {(budgetTotal / 10000).toFixed(1)}만원 사용({Math.round(budgetRatio)}%)
+      </span>
+      {showSep && <span className="text-slate-600 shrink-0">/</span>}
+      <span ref={fuelRef} className="text-emerald-400 whitespace-nowrap shrink-0">
+        유류비 {formatCurrency(fuelTotal)}
+      </span>
+    </div>
+  );
+}
 
 export default function App() {
   const { receipts, loading, saveReceipts, deleteReceipt, resetAll, fetchAllReceipts, syncStatus, getImageUrl } = useReceipts();
@@ -294,11 +327,12 @@ export default function App() {
                   <span className="text-[11px] font-black text-white drop-shadow-md">잔액 {formatCurrency(weeklyBudget - budgetTotal)}</span>
                 </div>
               </div>
-              <div className="flex flex-wrap items-baseline mt-3 text-xs font-bold gap-x-1 gap-y-0.5">
-                <span className="text-slate-400 whitespace-nowrap">총예산 {Math.round(weeklyBudget / 10000)}만원 중 {(budgetTotal / 10000).toFixed(1)}만원 사용({Math.round(budgetRatio)}%)</span>
-                <span className="text-slate-600 shrink-0">/</span>
-                <span className="text-emerald-400 whitespace-nowrap shrink-0">유류비 {formatCurrency(fuelTotal)}</span>
-              </div>
+              <BudgetStats
+                weeklyBudget={weeklyBudget}
+                budgetTotal={budgetTotal}
+                budgetRatio={budgetRatio}
+                fuelTotal={fuelTotal}
+              />
             </div>
           )}
 
