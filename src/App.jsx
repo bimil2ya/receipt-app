@@ -327,7 +327,7 @@ export default function App() {
                 <div>
                   <p className="text-xs text-slate-500 font-bold mb-1.5 px-1">자료관리</p>
                   <div className="grid grid-cols-3 gap-2">
-                    <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 text-slate-300">💾 저장하기</button>
+                    <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 text-slate-300">💾 백업</button>
                     <label className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-slate-300">
                       📂 불러오기
                       <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
