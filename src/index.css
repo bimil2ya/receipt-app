@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  overscroll-behavior-y: contain;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS 노치/Dynamic Island 안전 영역 */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+}
+
+/* iOS 입력 포커스 시 자동 줌 방지 */
+input, select, textarea {
+  font-size: max(16px, 1em);
+}
+
+/* 화면 가로 스크롤 및 자동 줌 방지 */
+html, body {
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  touch-action: pan-y;
+}
+#root {
+  overflow-x: hidden;
+  width: 100%;
+}
