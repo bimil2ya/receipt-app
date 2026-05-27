@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Settings,
-  FolderOpen, RefreshCw, User, Calendar, RotateCcw, ChevronRight, Cloud, Loader2
+  FolderOpen, RefreshCw, ChevronRight, Cloud, Loader2
 } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
@@ -37,7 +37,6 @@ export default function App() {
   const [names, setNames] = useState(() => localStorage.getItem('receipt_names') || '노경호, 김영일');
   const [reportDate, setReportDate] = useState(() => localStorage.getItem('receipt_date') || '');
   const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(localStorage.getItem('weekly_budget') || '1000000'));
-  const [userRole, setUserRole] = useState(() => localStorage.getItem('user_role') || 'worker');
 
   // ── 관리자 뷰
   const [isAdminView, setIsAdminView] = useState(false);
@@ -45,9 +44,6 @@ export default function App() {
 
   // ── 모달 토글
   const [showSettings, setShowSettings] = useState(false);
-  const [showNamesModal, setShowNamesModal] = useState(false);
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [showResetModal, setShowResetModal] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showBudgetCalcModal, setShowBudgetCalcModal] = useState(false);
   const [tempBudget, setTempBudget] = useState(0);
@@ -56,8 +52,6 @@ export default function App() {
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
-  const [tempNames, setTempNames] = useState('');
-  const [tempDate, setTempDate] = useState('');
   const [tripStartDate, setTripStartDate] = useState(TODAY);
   const [tripEndDate, setTripEndDate] = useState(TODAY);
   const [mf, setMf] = useState({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
@@ -262,10 +256,7 @@ export default function App() {
             {syncStatus === 'success' && <Cloud size={14} className="text-emerald-400 shrink-0" />}
           </div>
           <div className="flex items-center shrink-0">
-            {userRole === 'admin' && <button onClick={() => setIsAdminView(!isAdminView)} className={`p-1.5 ${isAdminView ? 'text-blue-400' : 'text-slate-500'}`}><FolderOpen size={16}/></button>}
-            <button onClick={() => { setTempNames(names); setShowNamesModal(true); }} className="p-1.5 text-slate-400"><User size={16}/></button>
-            <button onClick={() => { setTempDate(reportDate); setShowDateModal(true); }} className="p-1.5 text-slate-400"><Calendar size={16}/></button>
-            <button onClick={() => setShowResetModal(true)} className="p-1.5 text-red-400"><RotateCcw size={16}/></button>
+            <button onClick={() => setIsAdminView(!isAdminView)} className={`p-1.5 ${isAdminView ? 'text-blue-400' : 'text-slate-500'}`}><FolderOpen size={16}/></button>
             <button onClick={() => setShowSettings(true)} className="p-1.5 text-slate-400"><Settings size={16}/></button>
           </div>
         </header>
@@ -393,43 +384,13 @@ export default function App() {
       <SettingsModal
         show={showSettings}
         onClose={() => setShowSettings(false)}
-        weeklyBudget={weeklyBudget}
-        setWeeklyBudget={setWeeklyBudget}
-        userRole={userRole}
-        setUserRole={setUserRole}
-        setIsAdminView={setIsAdminView}
         showToast={showToast}
+        names={names}
+        onNamesChange={(v) => { setNames(v); localStorage.setItem('receipt_names', v); }}
+        reportDate={reportDate}
+        onDateChange={(v) => { setReportDate(v); localStorage.setItem('receipt_date', v); }}
+        onReset={() => { resetAll(); }}
       />
-
-      {/* ── 이름 모달 */}
-      {showNamesModal && (
-        <Modal title="👤 이름" onClose={() => setShowNamesModal(false)}>
-          <div className="p-2">
-            <input value={tempNames} onChange={e => setTempNames(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 mb-6 text-xl text-white font-black" />
-            <button onClick={() => { setNames(tempNames); localStorage.setItem('receipt_names', tempNames); setShowNamesModal(false); }} className="w-full bg-blue-600 py-5 rounded-2xl text-lg font-black">확인</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── 날짜 모달 */}
-      {showDateModal && (
-        <Modal title="📅 날짜" onClose={() => setShowDateModal(false)}>
-          <div className="p-2">
-            <input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 mb-6 text-xl text-white font-black" />
-            <button onClick={() => { setReportDate(tempDate); localStorage.setItem('receipt_date', tempDate); setShowDateModal(false); }} className="w-full bg-blue-600 py-5 rounded-2xl text-lg font-black">확인</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── 초기화 모달 */}
-      {showResetModal && (
-        <Modal title="⚠️ 초기화" onClose={() => setShowResetModal(false)}>
-          <div className="p-2 flex gap-4">
-            <button onClick={() => setShowResetModal(false)} className="flex-1 bg-slate-700 py-5 rounded-2xl font-black">취소</button>
-            <button onClick={() => { resetAll(); setShowResetModal(false); }} className="flex-1 bg-red-600 py-5 rounded-2xl font-black">삭제</button>
-          </div>
-        </Modal>
-      )}
 
       {/* ── 인라인 수정 모달 */}
       {editState.id && (
