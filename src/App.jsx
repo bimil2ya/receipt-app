@@ -294,9 +294,10 @@ export default function App() {
                   <span className="text-[11px] font-black text-white drop-shadow-md">잔액 {formatCurrency(weeklyBudget - budgetTotal)}</span>
                 </div>
               </div>
-              <div className="flex justify-between mt-3 items-center gap-1 text-xs font-bold text-slate-400">
-                <span>총예산 {Math.round(weeklyBudget / 10000)}만원 중 {(budgetTotal / 10000).toFixed(1)}만원 사용({Math.round(budgetRatio)}%)</span>
-                <span className="text-emerald-400">유류비: {formatCurrency(fuelTotal)}</span>
+              <div className="flex flex-wrap items-baseline mt-3 text-xs font-bold gap-x-1 gap-y-0.5">
+                <span className="text-slate-400 whitespace-nowrap">총예산 {Math.round(weeklyBudget / 10000)}만원 중 {(budgetTotal / 10000).toFixed(1)}만원 사용({Math.round(budgetRatio)}%)</span>
+                <span className="text-slate-600 shrink-0">/</span>
+                <span className="text-emerald-400 whitespace-nowrap shrink-0">유류비 {formatCurrency(fuelTotal)}</span>
               </div>
             </div>
           )}
