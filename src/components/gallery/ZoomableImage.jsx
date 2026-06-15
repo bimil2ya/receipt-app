@@ -62,7 +62,7 @@ export default function ZoomableImage({ src, alt, initialRotation = 0, onRotate 
                 }
               }
             } catch (e) {
-              console.warn('EXIF 파싱 실패', e);
+              if (import.meta.env.DEV) console.warn('EXIF 파싱 실패', e);
             }
           }
         }
@@ -150,7 +150,7 @@ export default function ZoomableImage({ src, alt, initialRotation = 0, onRotate 
   const swapped = userRot === 90 || userRot === 270;
   return (
     <div style={{ position: 'relative', overflow: 'hidden', height: '100%', backgroundColor: '#000' }}>
-      <button onClick={rotate} style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, background: 'rgba(0,0,0,0.5)', border: '1px solid #fff3', borderRadius: 8, padding: '4px 8px', color: '#fff' }}>↻</button>
+      <button onClick={rotate} aria-label="이미지 회전" style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, background: 'rgba(15,23,42,0.85)', border: '1px solid #334155', borderRadius: 12, width: 48, height: 48, color: '#fff', fontSize: 20, fontWeight: 900 }}>↻</button>
       <div ref={ref} style={{ height: '100%', overflow: 'hidden', touchAction: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <img src={displaySrc || src} alt={alt} style={{ width: swapped ? 'auto' : '100%', height: swapped ? '70vw' : 'auto', maxWidth: '100%', transform: `rotate(${userRot}deg) scale(${scale}) translate(${pos.x / scale}px,${pos.y / scale}px)`, transition: scale === 1 ? 'transform 0.3s' : 'none', pointerEvents: 'none' }} />
       </div>

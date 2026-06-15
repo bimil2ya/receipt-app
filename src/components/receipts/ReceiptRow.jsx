@@ -9,78 +9,69 @@ const CAT_STYLE = {
   '기타': { bg: '#1e293b', text: '#94a3b8', border: '#334155' },
 };
 
-function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete }) {
-  const cs = CAT_STYLE[receipt.category] || CAT_STYLE['기타'];
+function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowIndex = 0 }) {
+  const category = receipt.category || '기타';
+  const cs = CAT_STYLE[category] || CAT_STYLE['기타'];
+  const zebra = rowIndex % 2 === 0 ? 'bg-white/[0.03]' : 'bg-white/[0.12]';
 
   return (
     <div
       id={`receipt-row-${receipt.id}`}
-      className={`border-t border-slate-700/40 active:bg-slate-700/30 select-none transition-colors ${isSelected ? 'bg-slate-700/20' : ''}`}
-      style={{ padding: '12px 14px' }}
+      className={`active:bg-slate-700/30 select-none transition-colors px-4 py-2 ${isSelected ? 'bg-blue-500/10' : zebra}`}
     >
-      <div className="flex items-center gap-1.5 min-w-0">
+      <div className="grid grid-cols-[3.5rem_1fr_auto] gap-x-3 gap-y-0.5 min-w-0">
         {/* 날짜 (MM/DD 형식) */}
-        <span
-          onClick={() => onEdit(receipt.id, 'date', receipt.date)}
-          className="w-12 text-slate-500 text-xs whitespace-nowrap cursor-pointer shrink-0 text-center font-bold"
-        >
+        <span className="text-slate-400 text-sm whitespace-nowrap shrink-0 text-center font-black leading-none pt-0.5">
           {formatDateSlash(receipt.date)}
         </span>
 
         {/* 사용처 (공간 확장) */}
-        <div className="flex-1 min-w-0 ml-1">
-          <span
-            onClick={() => onEdit(receipt.id, 'storeName', receipt.storeName)}
-            className="text-slate-100 text-base font-bold truncate block cursor-pointer"
-          >
+        <div className="min-w-0">
+          <span className="text-slate-50 text-[1rem] font-black truncate block leading-tight">
             {receipt.storeName}
           </span>
           {receipt.note && (
-            <span className="text-[10px] text-slate-500 truncate block">{receipt.note}</span>
+            <span className="text-sm text-slate-400 truncate block mt-0.5 leading-tight">{receipt.note}</span>
           )}
         </div>
 
         {/* 용도 */}
-        <div className="w-12 shrink-0 flex justify-center">
+        <div className="shrink-0 flex justify-end">
           <span
-            onClick={() => onEdit(receipt.id, 'category', receipt.category)}
-            className="text-[10px] px-1.5 py-0.5 rounded-full whitespace-nowrap cursor-pointer font-black"
+            className="text-sm px-3 py-1 rounded-full whitespace-nowrap font-black leading-none"
             style={{ background: cs.bg, color: cs.text, border: `1px solid ${cs.border}` }}
           >
-            {receipt.category.slice(0, 2)}
+            {category.slice(0, 2)}
           </span>
         </div>
 
-        {/* 금액 */}
-        <div className="w-16 shrink-0 text-right">
-          <span
-            onClick={() => onEdit(receipt.id, 'totalAmount', String(receipt.totalAmount))}
-            className="text-green-400 text-sm font-black whitespace-nowrap cursor-pointer"
-          >
+        <div className="col-start-2 col-end-4 flex items-center justify-between gap-2">
+          <div className="text-green-400 text-[0.95rem] font-black whitespace-nowrap leading-none">
             {formatCurrency(receipt.totalAmount).replace('원','')}
-          </span>
-        </div>
-
-        {/* 액션 버튼들: 삭제 -> 수정 -> 이미지 (밀착 배치) */}
-        <div className="flex items-center shrink-0 ml-1">
-          <button 
-            onClick={() => onDelete(receipt.id)} 
-            className="p-1 text-amber-500/70 active:bg-amber-500/20 rounded"
-          >
-            <Trash2 size={15} />
-          </button>
-          <button 
-            onClick={() => onEdit(receipt.id, 'detail')} 
-            className="p-1 text-slate-500 active:bg-slate-700 rounded"
-          >
-            <Pencil size={15} />
-          </button>
-          <button 
-            onClick={() => onViewImage(receipt.id)} 
-            className={`p-1 rounded ${isSelected ? 'text-blue-400' : 'text-slate-500 active:bg-slate-700'}`}
-          >
-            <ImageIcon size={15} />
-          </button>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => onDelete(receipt.id)}
+              className="w-[34px] h-[34px] flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-amber-300"
+              aria-label="삭제"
+            >
+              <Trash2 size={12} />
+            </button>
+            <button
+              onClick={() => onEdit(receipt.id, 'detail')}
+              className="w-[34px] h-[34px] flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-slate-300"
+              aria-label="수정"
+            >
+              <Pencil size={12} />
+            </button>
+            <button
+              onClick={() => onViewImage(receipt.id)}
+              className={`w-[34px] h-[34px] flex items-center justify-center rounded-xl border ${isSelected ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+              aria-label="이미지 보기"
+            >
+              <ImageIcon size={12} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

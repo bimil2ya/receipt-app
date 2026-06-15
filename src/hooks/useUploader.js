@@ -2,15 +2,16 @@ import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
 import { TODAY, mergeCardNumbers } from '../utils/formatter';
 import { decryptData } from '../utils/crypto';
+import { readStorageItem } from '../utils/storage';
 
 export default function useUploader({ onUploadSuccess, onUploadError }) {
   const [processing, setProcessing] = useState(false);
   const [procMsg, setProcMsg] = useState('');
 
   const handleFiles = useCallback(async (files, existingReceipts = []) => {
-    const encryptedKey = localStorage.getItem('claude_api_key_v2') || '';
+    const encryptedKey = readStorageItem('claude_api_key_v2');
     const apiKey = await decryptData(encryptedKey);
-    const biznoKey = localStorage.getItem('bizno_api_key') || '';
+    const biznoKey = readStorageItem('bizno_api_key');
     
     setProcessing(true);
     const added = [];
@@ -33,7 +34,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || `서버 오류 (${res.status})`);
+          throw new Error(err.detail || err.error || `서버 오류 (${res.status})`);
         }
 
         const result = await res.json();
@@ -63,7 +64,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
                 }
               }
             } catch (e) {
-              console.error('Bizno lookup failed:', e);
+              if (import.meta.env.DEV) console.error('Bizno lookup failed:', e);
             }
           }
 
@@ -113,7 +114,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         }
 
       } catch (e) {
-        console.error('Process error:', e);
+        if (import.meta.env.DEV) console.error('Process error:', e);
         failCount++;
         failedFiles.push({ name: file.name, error: e.message });
       }

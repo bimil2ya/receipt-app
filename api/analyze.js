@@ -62,15 +62,25 @@ export default async function handler(req) {
 
     // 우선순위가 높은 모델부터 계정 가용 여부 확인
     const candidates = [
+      'claude-sonnet-4-6',
+      'claude-opus-4-7',
+      'claude-haiku-4-5-20251001',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-sonnet-20240620',
       'claude-3-5-haiku-20241022',
       'claude-3-haiku-20240307',
       'claude-3-sonnet-20240229'
     ];
-    
-    let modelsToTry = candidates.filter(c => availableIds.includes(c));
-    if (modelsToTry.length === 0) modelsToTry = availableIds.length > 0 ? [availableIds[0]] : candidates;
+
+    const modelsToTry = candidates.filter(c => availableIds.includes(c));
+    if (modelsToTry.length === 0) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '지원 모델 없음',
+        detail: `이 계정에서 사용 가능한 영수증 인식 모델이 없습니다. 가용 모델: ${availableIds.join(', ') || '없음'}`,
+        suggestion: 'Anthropic 콘솔에서 Claude Sonnet 또는 Opus 모델 접근 권한을 확인해 주세요.'
+      }), { status: 400, headers: resHeaders });
+    }
 
     const prompt = `<system_instructions>
 너는 20년 경력의 대한민국 영수증 데이터 추출 전문가야. 이미지에서 상호명(storeName), 날짜(date), 금액(totalAmount), 용도(suggestedCategory), 사업자번호(bizNum), 승인번호(approvalNum), 카드번호(cardNumber)를 정밀하게 추출해야 해.

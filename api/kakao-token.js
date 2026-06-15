@@ -12,7 +12,10 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const REST_API_KEY  = process.env.KAKAO_REST_API_KEY;
   const CLIENT_SECRET = process.env.KAKAO_CLIENT_SECRET || '';
-  const REDIRECT_URI  = `https://receipt-app-rho.vercel.app/api/kakao-token`;
+  const REQUIRED_SCOPE = 'talk_message';
+  const proto = (req.headers['x-forwarded-proto'] || 'https').toString();
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString();
+  const REDIRECT_URI = host ? `${proto}://${host}/api/kakao-token` : 'https://receipt-app-rho.vercel.app/api/kakao-token';
 
   if (!REST_API_KEY) {
     return res.status(500).send('KAKAO_REST_API_KEY 환경변수가 없습니다.');
@@ -26,7 +29,8 @@ export default async function handler(req, res) {
       `https://kauth.kakao.com/oauth/authorize` +
       `?response_type=code` +
       `&client_id=${REST_API_KEY}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&scope=${encodeURIComponent(REQUIRED_SCOPE)}`;
     return res.redirect(authUrl);
   }
 
@@ -78,16 +82,21 @@ export default async function handler(req, res) {
   <div class="token-box" id="rt">${data.refresh_token}</div>
   <button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('rt').textContent).then(()=>this.textContent='✅ 복사됨!')">📋 복사</button>
 
+  <div class="step" style="margin-top:16px">
+    <strong>요청한 권한:</strong> <code>${REQUIRED_SCOPE}</code><br>
+    <strong>발급된 권한:</strong> <code>${data.scope || '카카오 응답에 scope 정보 없음'}</code>
+  </div>
+
   <div class="step" style="margin-top:24px">
     <strong>저장 방법:</strong><br>
     1. <a href="https://vercel.com/bimil2yas-projects/receipt-app/settings/environment-variables" target="_blank" style="color:#6ee7b7">Vercel 환경변수 페이지</a> 열기<br>
     2. <code>KAKAO_MANAGER_REFRESH_TOKEN</code> → Edit → 위 값 붙여넣기<br>
-    3. Save 후 재배포: <code>vercel --prod</code>
+    3. Save 후 Vercel에서 <strong>Redeploy</strong>
   </div>
 
   <details style="margin-top:16px">
     <summary style="cursor:pointer;color:#9ca3af">전체 토큰 정보 보기</summary>
-    <pre style="font-size:12px;color:#6b7280">${JSON.stringify({ access_token: data.access_token?.slice(0,20)+'...', refresh_token: data.refresh_token?.slice(0,20)+'...', expires_in: data.expires_in, refresh_token_expires_in: data.refresh_token_expires_in }, null, 2)}</pre>
+    <pre style="font-size:12px;color:#6b7280">${JSON.stringify({ access_token: data.access_token?.slice(0,20)+'...', refresh_token: data.refresh_token?.slice(0,20)+'...', expires_in: data.expires_in, refresh_token_expires_in: data.refresh_token_expires_in, scope: data.scope }, null, 2)}</pre>
   </details>
 </body>
 </html>`);

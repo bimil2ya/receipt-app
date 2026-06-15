@@ -7,6 +7,15 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+html {
+  font-size: 16px;
+}
+
+body {
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
 /* iOS 노치/Dynamic Island 안전 영역 */
 :root {
   --sat: env(safe-area-inset-top);
@@ -16,6 +25,18 @@ html, body {
 /* iOS 입력 포커스 시 자동 줌 방지 */
 input, select, textarea {
   font-size: max(16px, 1em);
+}
+
+button {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 /* 화면 가로 스크롤 및 자동 줌 방지 */

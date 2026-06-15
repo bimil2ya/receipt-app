@@ -8,10 +8,10 @@
  * 선택 환경변수:
  *   KAKAO_CLIENT_SECRET         — 보안 설정 활성화 시 필요
  */
-export async function sendKakaoNotification(text) {
+export async function getKakaoAccessToken() {
   if (!process.env.KAKAO_REST_API_KEY || !process.env.KAKAO_MANAGER_REFRESH_TOKEN) {
     console.warn('[Kakao] 환경변수 미설정: KAKAO_REST_API_KEY 또는 KAKAO_MANAGER_REFRESH_TOKEN');
-    return false;
+    return null;
   }
 
   const tokenParams = {
@@ -31,6 +31,10 @@ export async function sendKakaoNotification(text) {
     throw new Error(`카카오 토큰 갱신 실패: ${JSON.stringify(tokenData)}`);
   }
 
+  return tokenData.access_token;
+}
+
+async function sendKakaoText(accessToken, text) {
   const template = JSON.stringify({
     object_type: 'text',
     text,
@@ -43,7 +47,7 @@ export async function sendKakaoNotification(text) {
   const msgRes  = await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
     method:  'POST',
     headers: {
-      Authorization:  `Bearer ${tokenData.access_token}`,
+      Authorization:  `Bearer ${accessToken}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ template_object: template }),
@@ -51,6 +55,25 @@ export async function sendKakaoNotification(text) {
   const msgData = await msgRes.json();
   if (msgData.result_code !== 0) {
     throw new Error(`카카오 메시지 발송 실패: ${JSON.stringify(msgData)}`);
+  }
+  return true;
+}
+
+export async function sendKakaoNotification(text) {
+  const accessToken = await getKakaoAccessToken();
+  if (!accessToken) return false;
+  return sendKakaoText(accessToken, text);
+}
+
+export async function sendKakaoNotifications(texts) {
+  const messages = Array.isArray(texts) ? texts.filter(Boolean) : [texts].filter(Boolean);
+  if (messages.length === 0) return false;
+
+  const accessToken = await getKakaoAccessToken();
+  if (!accessToken) return false;
+
+  for (const text of messages) {
+    await sendKakaoText(accessToken, text);
   }
   return true;
 }

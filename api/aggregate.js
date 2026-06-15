@@ -2,6 +2,85 @@ import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
 import { createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
 
+const MONEY_FORMAT = '#,##0'
+
+function applyMoneyFormat(ws, columnNames) {
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1')
+  const moneyColumns = []
+
+  for (let col = range.s.c; col <= range.e.c; col += 1) {
+    const headerCell = ws[XLSX.utils.encode_cell({ r: range.s.r, c: col })]
+    if (headerCell && columnNames.some(name => String(headerCell.v || '').includes(name))) {
+      moneyColumns.push(col)
+    }
+  }
+
+  for (const col of moneyColumns) {
+    for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
+      const cell = ws[XLSX.utils.encode_cell({ r: row, c: col })]
+      if (!cell || cell.v === '') continue
+      cell.t = 'n'
+      cell.z = MONEY_FORMAT
+    }
+  }
+}
+
+function buildWorkbook(pivotRows, detailRows) {
+  const wb = XLSX.utils.book_new()
+  const pivotWs = XLSX.utils.json_to_sheet(pivotRows)
+  const detailWs = XLSX.utils.json_to_sheet(detailRows)
+
+  applyMoneyFormat(pivotWs, ['(원)', '합계'])
+  applyMoneyFormat(detailWs, ['금액'])
+
+  XLSX.utils.book_append_sheet(wb, pivotWs, '날짜별집계')
+  XLSX.utils.book_append_sheet(wb, detailWs, '전체내역')
+  return wb
+}
+
+async function listExistingAggregateFiles(drive, folderId, namePrefix) {
+  const existRes = await drive.files.list({
+    q: `'${folderId}' in parents and name contains '${namePrefix}' and trashed = false`,
+    fields: 'files(id,name)',
+  })
+
+  return existRes.data.files || []
+}
+
+async function deleteFiles(drive, files, keepId = null) {
+  for (const file of files || []) {
+    if (file.id === keepId) continue
+    await drive.files.delete({ fileId: file.id }).catch(() => {})
+  }
+}
+
+async function createReplacingAggregateSheet(drive, folderId, finalName, buffer) {
+  const existingFiles = await listExistingAggregateFiles(drive, folderId, finalName)
+  const tempName = `${finalName}__업데이트중_${Date.now()}`
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: tempName,
+      parents: [folderId],
+      mimeType: 'application/vnd.google-apps.spreadsheet',
+    },
+    media: {
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      body: Readable.from(buffer),
+    },
+    fields: 'id,name',
+  })
+
+  await deleteFiles(drive, existingFiles, created.data.id)
+  await drive.files.update({
+    fileId: created.data.id,
+    requestBody: { name: finalName },
+    fields: 'id,name',
+  })
+
+  return created.data.id
+}
+
 /**
  * 새 폴더 구조 탐색:
  *   영수증정산관리(미래생태공간) / YYYY년 MM월 / [담당자이름] / 출장비_*.xlsx
@@ -132,10 +211,7 @@ export async function runAggregate(drive) {
       '비고':    r.note,
     }))
 
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pivotRows), '날짜별집계')
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailRows), '전체내역')
-
+  const wb = buildWorkbook(pivotRows, detailRows)
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
   // 오늘 날짜 (서울 기준)
@@ -146,28 +222,9 @@ export async function runAggregate(drive) {
   // 구글 시트로 저장 (확장자 없음)
   const fname = `전체집계_${today}`
 
-  // 같은 이름 기존 파일 삭제 후 업로드
-  const existRes = await drive.files.list({
-    q: `'${aggFolderId}' in parents and name = '${fname}' and trashed = false`,
-    fields: 'files(id)',
-  })
-  for (const f of existRes.data.files || []) {
-    await drive.files.delete({ fileId: f.id }).catch(() => {})
-  }
-
-  // XLSX 버퍼를 업로드하면서 Google Sheets로 자동 변환
-  await drive.files.create({
-    requestBody: {
-      name: fname,
-      parents: [aggFolderId],
-      mimeType: 'application/vnd.google-apps.spreadsheet',
-    },
-    media: {
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      body: Readable.from(buf),
-    },
-    fields: 'id,name',
-  })
+  const existingAll = await listExistingAggregateFiles(drive, aggFolderId, '전체집계_')
+  const fileId = await createReplacingAggregateSheet(drive, aggFolderId, fname, buf)
+  await deleteFiles(drive, existingAll, fileId)
 
   return {
     success: true,
@@ -277,34 +334,14 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
       '비고':     r.note,
     }))
 
-  const wb2 = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb2, XLSX.utils.json_to_sheet(pivotRows2), '날짜별집계')
-  XLSX.utils.book_append_sheet(wb2, XLSX.utils.json_to_sheet(detailRows2), '전체내역')
+  const wb2 = buildWorkbook(pivotRows2, detailRows2)
   const buf2 = XLSX.write(wb2, { type: 'buffer', bookType: 'xlsx' })
 
-  // 기존 집계 파일 삭제 후 업로드 (Google Sheet으로 변환)
-  const aggName = `전체집계_${yearMonth}.xlsx`
-  const existRes2 = await drive.files.list({
-    q: `'${monthFolderId}' in parents and name = '${aggName}' and trashed = false`,
-    fields: 'files(id)',
-  })
-  for (const f of existRes2.data.files || []) {
-    await drive.files.delete({ fileId: f.id }).catch(() => {})
-  }
-  await drive.files.create({
-    requestBody: {
-      name: aggName,
-      parents: [monthFolderId],
-      mimeType: 'application/vnd.google-apps.spreadsheet',
-    },
-    media: {
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      body: Readable.from(buf2),
-    },
-    fields: 'id',
-  })
+  // 새 월별 집계가 성공한 뒤 기존 파일을 정리해 최신 1개만 유지
+  const aggName = `전체집계_${yearMonth}`
+  const fileId = await createReplacingAggregateSheet(drive, monthFolderId, aggName, buf2)
 
-  return { count: allRows.length }
+  return { success: true, count: allRows.length, file: aggName, fileId }
 }
 
 export default async function handler(req, res) {

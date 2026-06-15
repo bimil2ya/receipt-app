@@ -1,1 +1,44 @@
-{"data":"aW1wb3J0IGpzIGZyb20gJ0Blc2xpbnQvanMnCmltcG9ydCBnbG9iYWxzIGZyb20gJ2dsb2JhbHMnCmltcG9ydCByZWFjdCBmcm9tICdlc2xpbnQtcGx1Z2luLXJlYWN0JwppbXBvcnQgcmVhY3RIb29rcyBmcm9tICdlc2xpbnQtcGx1Z2luLXJlYWN0LWhvb2tzJwppbXBvcnQgcmVhY3RSZWZyZXNoIGZyb20gJ2VzbGludC1wbHVnaW4tcmVhY3QtcmVmcmVzaCcKCmV4cG9ydCBkZWZhdWx0IFsKICB7IGlnbm9yZXM6IFsnZGlzdCcsICdhcGknLCAnbm9kZV9tb2R1bGVzJ10gfSwKICB7CiAgICBmaWxlczogWycqKi8qLntqcyxqc3h9J10sCiAgICBsYW5ndWFnZU9wdGlvbnM6IHsKICAgICAgZWNtYVZlcnNpb246IDIwMjAsCiAgICAgIGdsb2JhbHM6IHsKICAgICAgICAuLi5nbG9iYWxzLmJyb3dzZXIsCiAgICAgICAgLi4uZ2xvYmFscy5ub2RlLAogICAgICB9LAogICAgICBwYXJzZXJPcHRpb25zOiB7CiAgICAgICAgZWNtYVZlcnNpb246ICdsYXRlc3QnLAogICAgICAgIGVjbWFGZWF0dXJlczogeyBqc3g6IHRydWUgfSwKICAgICAgICBzb3VyY2VUeXBlOiAnbW9kdWxlJywKICAgICAgfSwKICAgIH0sCiAgICBzZXR0aW5nczogeyByZWFjdDogeyB2ZXJzaW9uOiAnMTguMycgfSB9LAogICAgcGx1Z2luczogewogICAgICByZWFjdCwKICAgICAgJ3JlYWN0LWhvb2tzJzogcmVhY3RIb29rcywKICAgICAgJ3JlYWN0LXJlZnJlc2gnOiByZWFjdFJlZnJlc2gsCiAgICB9LAogICAgcnVsZXM6IHsKICAgICAgLi4uanMuY29uZmlncy5yZWNvbW1lbmRlZC5ydWxlcywKICAgICAgLi4ucmVhY3QuY29uZmlncy5yZWNvbW1lbmRlZC5ydWxlcywKICAgICAgLi4ucmVhY3QuY29uZmlnc1snanN4LXJ1bnRpbWUnXS5ydWxlcywKICAgICAgLi4ucmVhY3RIb29rcy5jb25maWdzLnJlY29tbWVuZGVkLnJ1bGVzLAogICAgICAncmVhY3QvanN4LW5vLXRhcmdldC1ibGFuayc6ICdvZmYnLAogICAgICAncmVhY3QtcmVmcmVzaC9vbmx5LWV4cG9ydC1jb21wb25lbnRzJzogWwogICAgICAgICd3YXJuJywKICAgICAgICB7IGFsbG93Q29uc3RhbnRFeHBvcnQ6IHRydWUgfSwKICAgICAgXSwKICAgICAgJ25vLXVuZGVmJzogJ2Vycm9yJywgLy8g7KCV7J2Y65CY7KeAIOyViuydgCDrs4DsiJgg7IKs7JqpIOyLnCDrsLDtj6wg7LCo64uoCiAgICAgICduby11bnVzZWQtdmFycyc6ICd3YXJuJywKICAgICAgJ3JlYWN0L3Byb3AtdHlwZXMnOiAnb2ZmJywKICAgIH0sCiAgfSwKXQo="}
+import js from '@eslint/js'
+import globals from 'globals'
+import react from 'eslint-plugin-react'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+
+export default [
+  { ignores: ['dist', 'api', 'node_modules'] },
+  {
+    files: ['**/*.{js,jsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    settings: { react: { version: '18.3' } },
+    plugins: {
+      react,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...react.configs.recommended.rules,
+      ...react.configs['jsx-runtime'].rules,
+      ...reactHooks.configs.recommended.rules,
+      'react/jsx-no-target-blank': 'off',
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+      'no-undef': 'error',
+      'no-unused-vars': 'warn',
+      'react/prop-types': 'off',
+    },
+  },
+]

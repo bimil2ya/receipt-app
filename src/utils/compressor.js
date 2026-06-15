@@ -11,14 +11,14 @@ export async function compressPhoto(file) {
     useWebWorker: true,
     exifOrientation: true,       // EXIF 회전값 자동 보정
     onProgress: (percent) => {
-      console.log(`압축 진행률: ${percent}%`);
+      if (import.meta.env.DEV) console.log(`압축 진행률: ${percent}%`);
     }
   };
 
   try {
     return await imageCompression(file, options);
   } catch (error) {
-    console.error("압축 중 오류 발생:", error);
+    if (import.meta.env.DEV) console.error("압축 중 오류 발생:", error);
     throw error;
   }
 }
@@ -60,7 +60,7 @@ export async function compressToBase64(file) {
       reader.readAsDataURL(compressed);
     });
   } catch (error) {
-    console.error("Base64 압축 중 오류 발생:", error);
+    if (import.meta.env.DEV) console.error("Base64 압축 중 오류 발생:", error);
     throw error;
   }
 }

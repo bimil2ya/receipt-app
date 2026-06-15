@@ -1,18 +1,99 @@
 import { Readable } from 'stream';
 import crypto from 'crypto';
-import { createDrive, getOrCreateFolder, getYearMonth, MAIN_FOLDER_ID } from './driveUtils.js';
-import { sendKakaoNotification } from './notify/kakao.js';
+import * as XLSX from 'xlsx';
+import { createDrive, driveQueryString, getOrCreateFolder, getYearMonth, MAIN_FOLDER_ID } from './driveUtils.js';
+import { sendKakaoNotification, sendKakaoNotifications } from './notify/kakao.js';
 import { runMonthAggregate } from './aggregate.js';
+
+const KAKAO_TEXT_LIMIT = 180;
+
+function formatWon(value) {
+  return `${Number(value || 0).toLocaleString('ko-KR')}원`;
+}
+
+function safeText(value, fallback = '') {
+  return String(value ?? fallback).trim();
+}
+
+function shorten(value, max) {
+  const text = safeText(value);
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function readReceiptRowsFromXlsx(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return rows.map((row) => ({
+    date: safeText(row['날짜']),
+    storeName: safeText(row['사용처']),
+    amount: Number(row['금액']) || 0,
+    category: safeText(row['용도']),
+    note: safeText(row['비고']),
+  })).filter(row => row.date || row.storeName || row.amount);
+}
+
+function buildKakaoChunks(headerLines, detailLines, maxLength = KAKAO_TEXT_LIMIT) {
+  const chunks = [];
+  let current = headerLines.join('\n');
+
+  for (const line of detailLines) {
+    const next = `${current}\n${line}`;
+    if (next.length <= maxLength) {
+      current = next;
+      continue;
+    }
+
+    chunks.push(current);
+    current = line.length > maxLength ? shorten(line, maxLength) : line;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, imageCount }) {
+  const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
+  const categoryTotals = rows.reduce((acc, row) => {
+    const category = row.category || '기타';
+    acc[category] = (acc[category] || 0) + row.amount;
+    return acc;
+  }, {});
+
+  const summaryLines = [
+    '📤 Drive 업로드',
+    `파일: ${fileName}`,
+    `작업자: ${surveyorName}`,
+    `${mmdd} ${hhmm} KST`,
+    `합계: ${rows.length}건 / ${formatWon(totalAmount)}`,
+  ];
+
+  const categoryLine = Object.entries(categoryTotals)
+    .filter(([, amount]) => amount > 0)
+    .map(([category, amount]) => `${category} ${formatWon(amount)}`)
+    .join(', ');
+  if (categoryLine) summaryLines.push(shorten(categoryLine, 80));
+  if (imageCount > 0) summaryLines.push(`이미지 ${imageCount}장`);
+
+  const detailLines = rows.map((row, index) => {
+    const mmddDate = row.date?.includes('-') ? row.date.slice(5) : row.date;
+    const main = `${index + 1}. ${mmddDate} ${shorten(row.storeName || '사용처 없음', 12)}`;
+    return shorten(`${main} ${formatWon(row.amount)} ${row.category || '기타'}`, 90);
+  });
+
+  return buildKakaoChunks(summaryLines, detailLines);
+}
 
 /**
  * Drive에 파일 업로드 (이름+크기+MD5 중복 체크 포함)
- * @returns {'uploaded'|'skipped'} 업로드 여부
+ * @returns {{status:'uploaded'|'updated'|'skipped', id:string|null}} 업로드 결과
  */
 async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'application/octet-stream') {
   // ── 중복 체크: 동일 이름 파일 조회
+  const safeFileName = driveQueryString(fileName);
   const { data } = await drive.files.list({
-    q: `'${folderId}' in parents and name = '${fileName}' and trashed = false`,
-    fields: 'files(id, size, md5Checksum)',
+    q: `'${folderId}' in parents and name = '${safeFileName}' and trashed = false`,
+    fields: 'files(id, name, size, md5Checksum)',
   });
 
   if (data.files.length > 0) {
@@ -21,19 +102,39 @@ async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'applica
 
     // 이름 + 크기 + MD5 모두 일치 → 동일 파일, 건너뜀
     if (Number(existing.size) === buffer.length && existing.md5Checksum === localMd5) {
-      return 'skipped';
+      return {
+        status: 'skipped',
+        id: existing.id,
+        duplicateReason: 'same_name_size_md5',
+        existing: {
+          id: existing.id,
+          name: existing.name,
+          size: Number(existing.size) || 0,
+        },
+      };
     }
 
-    // 내용이 달라진 경우 → 기존 파일 삭제 후 재업로드
-    await drive.files.delete({ fileId: existing.id }).catch(() => {});
+    // 내용이 달라진 경우 → 기존 파일을 삭제하지 않고 안전하게 덮어쓰기
+    const updated = await drive.files.update({
+      fileId: existing.id,
+      requestBody: { name: fileName },
+      media: { mimeType, body: Readable.from(buffer) },
+      fields: 'id,name,size',
+    });
+    return {
+      status: 'updated',
+      id: updated.data.id,
+      replacedExistingId: existing.id,
+      duplicateReason: 'same_name_different_content',
+    };
   }
 
-  await drive.files.create({
+  const created = await drive.files.create({
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType, body: Readable.from(buffer) },
-    fields: 'id',
+    fields: 'id,name,size',
   });
-  return 'uploaded';
+  return { status: 'uploaded', id: created.data.id };
 }
 
 /**
@@ -59,6 +160,14 @@ export default async function handler(req, res) {
 
   // ── 인증 토큰 검증
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
+  const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
+  if (!UPLOAD_TOKEN && isVercelHosted) {
+    return res.status(503).json({
+      success: false,
+      error: '전송 인증이 설정되지 않았습니다.',
+      detail: 'UPLOAD_API_TOKEN 환경변수가 필요합니다.',
+    });
+  }
   if (UPLOAD_TOKEN) {
     const authHeader = req.headers['authorization'] || '';
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -69,6 +178,10 @@ export default async function handler(req, res) {
 
   try {
     const { surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary } = req.body;
+    const contentLength = Number(req.headers['content-length'] || 0);
+    if (contentLength > 25 * 1024 * 1024) {
+      return res.status(413).json({ success: false, error: '요청이 너무 큽니다.' });
+    }
 
     if (!surveyorName) return res.status(400).json({ success: false, error: '담당자 이름(surveyorName)이 없습니다.' });
 
@@ -78,6 +191,7 @@ export default async function handler(req, res) {
     const yearMonth = getYearMonth(reportDate);
     const monthId   = await getOrCreateFolder(drive, yearMonth,    MAIN_FOLDER_ID);
     const personId  = await getOrCreateFolder(drive, surveyorName, monthId);
+    const targetPath = `영수증정산관리/${yearMonth}/${surveyorName}`;
 
     // ── 오늘 날짜 (서울 기준)
     const today = new Date().toLocaleDateString('ko-KR', {
@@ -86,48 +200,55 @@ export default async function handler(req, res) {
 
     if (!isImageOnly) {
       // ── XLSX 업로드
-      if (!xlsxBase64) return res.status(400).json({ success: false, error: 'xlsxBase64 데이터가 없습니다.' });
+      if (!xlsxBase64 || typeof xlsxBase64 !== 'string') {
+        return res.status(400).json({ success: false, error: 'xlsxBase64 데이터가 없습니다.' });
+      }
+      if (xlsxBase64.length > 20 * 1024 * 1024) {
+        return res.status(413).json({ success: false, error: 'xlsxBase64 데이터가 너무 큽니다.' });
+      }
       const xlsxBuffer = Buffer.from(xlsxBase64, 'base64');
       const xlsxName   = `출장비_${today}.xlsx`;
-
-      // ── 기존 출장비_*.xlsx 삭제 (날짜가 달라 쌓이는 것 방지, 최신 1개만 유지)
-      const oldFiles = await drive.files.list({
-        q: `'${personId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-        fields: 'files(id)',
-      });
-      for (const f of oldFiles.data.files || []) {
-        await drive.files.delete({ fileId: f.id }).catch(() => {});
-      }
 
       const xlsxResult = await uploadFile(drive, xlsxBuffer, xlsxName, personId,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
+      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일 정리
+      const oldFiles = await drive.files.list({
+        q: `'${personId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
+        fields: 'files(id,name)',
+      });
+      for (const f of oldFiles.data.files || []) {
+        if (f.id !== xlsxResult.id) await drive.files.delete({ fileId: f.id }).catch(() => {});
+      }
+
       // ── 월별 전체집계 자동 업데이트
+      let aggregateResult = null;
       try {
-        await runMonthAggregate(drive, monthId, yearMonth);
+        aggregateResult = await runMonthAggregate(drive, monthId, yearMonth);
       } catch (aggErr) {
         console.warn('월집계 실패 (업로드는 성공):', aggErr.message);
+        aggregateResult = { success: false, error: aggErr.message };
       }
 
       // ── 카카오톡 알림
       let kakaoSent = false;
+      let kakaoError = null;
       try {
         const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
         const mmdd   = `${String(kstNow.getUTCMonth() + 1).padStart(2, '0')}-${String(kstNow.getUTCDate()).padStart(2, '0')}`;
         const hhmm   = `${String(kstNow.getUTCHours()).padStart(2, '0')}:${String(kstNow.getUTCMinutes()).padStart(2, '0')}`;
 
-        if (xlsxResult === 'uploaded') {
-          let text = `📤 전송 완료\n작업자: ${surveyorName}\n${mmdd} ${hhmm} KST\n`;
-          if (receiptSummary) {
-            const { totalCount, totalAmount, categories, imageCount } = receiptSummary;
-            const fmt = (n) => n.toLocaleString('ko-KR') + '원';
-            text += `\n영수증 ${totalCount}건, 합계 ${fmt(totalAmount)}\n`;
-            for (const [cat, amt] of Object.entries(categories)) {
-              if (amt > 0) text += `  • ${cat}: ${fmt(amt)}\n`;
-            }
-            if (imageCount > 0) text += `이미지 ${imageCount}장`;
-          }
-          kakaoSent = (await sendKakaoNotification(text.trim())) !== false;
+        if (xlsxResult.status !== 'skipped') {
+          const receiptRows = readReceiptRowsFromXlsx(xlsxBuffer);
+          const kakaoMessages = buildReceiptKakaoMessages({
+            fileName: xlsxName,
+            surveyorName,
+            mmdd,
+            hhmm,
+            rows: receiptRows,
+            imageCount: receiptSummary?.imageCount || 0,
+          });
+          kakaoSent = (await sendKakaoNotifications(kakaoMessages)) !== false;
         } else {
           // 이미 동일한 파일이 드라이브에 존재 → 새 업로드 없음을 통보
           kakaoSent = (await sendKakaoNotification(
@@ -135,24 +256,65 @@ export default async function handler(req, res) {
           )) !== false;
         }
       } catch (kakaoErr) {
+        kakaoError = kakaoErr.message;
         console.warn('카카오 알림 실패 (업로드는 성공):', kakaoErr.message);
       }
 
-      return res.status(200).json({ success: true, type: 'xlsx', file: xlsxName, skipped: xlsxResult === 'skipped', kakaoSent });
+      return res.status(200).json({
+        success: true,
+        type: 'xlsx',
+        file: xlsxName,
+        skipped: xlsxResult.status === 'skipped',
+        uploadStatus: xlsxResult.status,
+        duplicateReason: xlsxResult.duplicateReason || null,
+        fileId: xlsxResult.id,
+        targetPath,
+        folders: {
+          mainId: MAIN_FOLDER_ID,
+          monthId,
+          personId,
+        },
+        aggregate: aggregateResult,
+        kakaoSent,
+        kakaoError,
+      });
     }
 
     // ── 이미지 업로드
     if (!images || images.length === 0) return res.status(400).json({ success: false, error: '이미지 데이터가 없습니다.' });
+    if (images.length > 30) {
+      return res.status(413).json({ success: false, error: '이미지 개수가 너무 많습니다.' });
+    }
     const uploaded = [];
     const skipped  = [];
+    const details = [];
     for (const img of images) {
       const base64Data = img.dataUrl.includes(',') ? img.dataUrl.split(',')[1] : img.dataUrl;
       const imgBuffer  = Buffer.from(base64Data, 'base64');
       const result     = await uploadFile(drive, imgBuffer, img.filename, personId, 'image/jpeg');
-      if (result === 'skipped') skipped.push(img.filename);
+      const detail = {
+        filename: img.filename,
+        status: result.status,
+        fileId: result.id,
+        duplicateReason: result.duplicateReason || null,
+      };
+      details.push(detail);
+      if (result.status === 'skipped') skipped.push(img.filename);
       else uploaded.push(img.filename);
     }
-    return res.status(200).json({ success: true, type: 'images', files: uploaded, skipped });
+    return res.status(200).json({
+      success: true,
+      type: 'images',
+      files: uploaded,
+      skipped,
+      details,
+      targetPath,
+      folders: {
+        mainId: MAIN_FOLDER_ID,
+        monthId,
+        personId,
+      },
+    });
 
   } catch (error) {
     console.error('Upload error:', error);

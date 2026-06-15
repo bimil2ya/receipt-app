@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Settings,
-  FolderOpen, RefreshCw, ChevronRight, Cloud, Loader2
+  RefreshCw, Cloud, Loader2, HardDrive
 } from 'lucide-react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
 
 // Utils & Hooks
 import { TODAY, formatDateKorean, formatCurrency, parseDate } from './utils/formatter';
+import { formatFailureDetail, formatFailureMessage } from './utils/errorCopy';
+import { readStorageItem, writeStorageItem } from './utils/storage';
 import useReceipts from './hooks/useReceipts';
 import useUploader from './hooks/useUploader';
 
@@ -21,33 +22,18 @@ import DateRangePicker from './components/calendar/DateRangePicker';
 // Constants
 const ALL_CATS = ['숙박비', '식비', '기타', '유류비'];
 
-// 예산 통계 — 같은 줄일 때만 "/" 표시
+function safeText(value, fallback = '') {
+  return String(value ?? fallback).trim();
+}
+
+// 예산 통계
 function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal }) {
-  const budgetRef = useRef(null);
-  const fuelRef = useRef(null);
-  const [showSep, setShowSep] = useState(true);
-
-  useEffect(() => {
-    const check = () => {
-      if (!budgetRef.current || !fuelRef.current) return;
-      const b = budgetRef.current.getBoundingClientRect();
-      const f = fuelRef.current.getBoundingClientRect();
-      setShowSep(Math.abs(Math.round(b.top) - Math.round(f.top)) < 4);
-    };
-    check();
-    const ro = new ResizeObserver(check);
-    const parent = budgetRef.current?.parentElement;
-    if (parent) ro.observe(parent);
-    return () => ro.disconnect();
-  }, [weeklyBudget, budgetTotal, fuelTotal]);
-
   return (
-    <div className="flex flex-wrap items-baseline mt-3 text-xs font-bold gap-x-1 gap-y-0.5">
-      <span ref={budgetRef} className="text-slate-400 whitespace-nowrap">
+    <div className="flex flex-wrap items-baseline mt-3 text-sm font-bold gap-x-2 gap-y-1">
+      <span className="text-slate-400 whitespace-nowrap">
         총예산 {Math.round(weeklyBudget / 10000)}만원 중 {(budgetTotal / 10000).toFixed(1)}만원 사용({Math.round(budgetRatio)}%)
       </span>
-      {showSep && <span className="text-slate-600 shrink-0">/</span>}
-      <span ref={fuelRef} className="text-emerald-400 whitespace-nowrap shrink-0">
+      <span className="text-emerald-400 whitespace-nowrap shrink-0">
         유류비 {formatCurrency(fuelTotal)}
       </span>
     </div>
@@ -55,11 +41,11 @@ function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal }) {
 }
 
 export default function App() {
-  const { receipts, loading, saveReceipts, deleteReceipt, resetAll, fetchAllReceipts, syncStatus, getImageUrl } = useReceipts();
-  useRegisterSW();
+  const { receipts, loading, saveReceipts, deleteReceipt, resetAll, resetDeviceData, resetActivityLogs, syncStatus, saveStatus, pendingSyncCount, syncEvents, syncDaily, retryPendingSync, getImageUrl } = useReceipts();
 
   // ── 탭 & 네비게이션
   const [tab, setTab] = useState('list');
+  const [listPanel, setListPanel] = useState('input');
   const [detailId, setDetailId] = useState(null);   // images 탭 선택 ID
 
   // ── 공지·알림
@@ -67,13 +53,9 @@ export default function App() {
   const showToast = useCallback((msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 4000); }, []);
 
   // ── 앱 설정 (localStorage 동기화)
-  const [names, setNames] = useState(() => localStorage.getItem('receipt_names') || '노경호, 김영일');
-  const [reportDate, setReportDate] = useState(() => localStorage.getItem('receipt_date') || '');
-  const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(localStorage.getItem('weekly_budget') || '1000000'));
-
-  // ── 관리자 뷰
-  const [isAdminView, setIsAdminView] = useState(false);
-  const [allTeamReceipts, setAllTeamReceipts] = useState([]);
+  const [names, setNames] = useState(() => readStorageItem('receipt_names', '노경호, 김영일'));
+  const [reportDate, setReportDate] = useState(() => readStorageItem('receipt_date', ''));
+  const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(readStorageItem('weekly_budget', '1000000')));
 
   // ── 모달 토글
   const [showSettings, setShowSettings] = useState(false);
@@ -81,6 +63,8 @@ export default function App() {
   const [showBudgetCalcModal, setShowBudgetCalcModal] = useState(false);
   const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const manualStoreRef = useRef(null);
+  const budgetAmountRef = useRef(null);
 
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
@@ -94,7 +78,13 @@ export default function App() {
   const [recentlyAddedIds, setRecentlyAddedIds] = useState(() => {
     try { const saved = sessionStorage.getItem('recently_added_ids'); return saved ? JSON.parse(saved) : []; } catch { return []; }
   });
-  useEffect(() => { sessionStorage.setItem('recently_added_ids', JSON.stringify(recentlyAddedIds)); }, [recentlyAddedIds]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('recently_added_ids', JSON.stringify(recentlyAddedIds));
+    } catch {
+      // 세션 저장소가 막혀도 현재 화면은 유지한다.
+    }
+  }, [recentlyAddedIds]);
 
   // ── Drive 업로드 진행
   const [driveUploading, setDriveUploading] = useState(false);
@@ -109,20 +99,20 @@ export default function App() {
     },
     onUploadError: ({ failedFiles, duplicateCount }) => {
       const parts = [];
-      if (failedFiles.length > 0) parts.push(`❌ 실패 ${failedFiles.length}건: ${failedFiles.map(f => f.name).join(', ')}`);
+      if (failedFiles.length > 0) {
+        const failedSummary = failedFiles
+          .map(f => `${f.name}${f.error ? ` (${f.error})` : ''}`)
+          .join(', ');
+        parts.push(`❌ 실패 ${failedFiles.length}건: ${failedSummary}`);
+      }
       if (duplicateCount > 0) parts.push(`⚠️ 중복 제외 ${duplicateCount}건`);
       showToast(parts.join(' / '));
     },
   });
 
-  // ── 관리자 전체 데이터 로드
-  const loadAdminData = useCallback(async () => {
-    const data = await fetchAllReceipts(); setAllTeamReceipts(data);
-  }, [fetchAllReceipts]);
-
   useEffect(() => {
-    if (isAdminView) { const t = setTimeout(loadAdminData, 0); return () => clearTimeout(t); }
-  }, [isAdminView, loadAdminData]);
+    if (tab === 'list') setListPanel('input');
+  }, [tab]);
 
   // ── 영수증 조작
   const handleEdit = useCallback((id, f, v) => {
@@ -158,22 +148,24 @@ export default function App() {
     const newId = crypto.randomUUID();
     await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
     setRecentlyAddedIds(prev => [...prev, newId]);
-    setShowManualModal(false); setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
+    setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
+    requestAnimationFrame(() => manualStoreRef.current?.focus());
+    showToast('✅ 1건 추가 완료');
   };
 
   const handleBudgetCalc = () => {
     const start = new Date(tripStartDate); const end = new Date(tripEndDate);
     const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
     if (diffDays <= 0) { alert('날짜 오류'); return; }
-    // 마지막 날 70,000원, 나머지 130,000원
-    const calc = diffDays <= 1 ? 70000 : (diffDays - 1) * 130000 + 70000;
+    // 마지막 날 80,000원, 나머지 130,000원
+    const calc = diffDays <= 1 ? 80000 : (diffDays - 1) * 130000 + 80000;
     setTempBudget(calc);  // 모달 입력란에 반영만 (저장은 saveBudget)
   };
 
   const saveBudget = () => {
     const val = Math.max(0, parseInt(tempBudget) || 0);
     setWeeklyBudget(val);
-    localStorage.setItem('weekly_budget', String(val));
+    writeStorageItem('weekly_budget', String(val));
     setShowBudgetCalcModal(false);
   };
 
@@ -184,6 +176,15 @@ export default function App() {
       const XLSX = await import('xlsx');
       const surveyorName = names || '미설정';
       const ws = XLSX.utils.json_to_sheet(receipts.map(r => ({ 날짜: r.date, 사용처: r.storeName, 금액: r.totalAmount, 용도: r.category, 비고: r.note })));
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:E1');
+      for (let row = range.s.r + 1; row <= range.e.r; row++) {
+        const cell = ws[XLSX.utils.encode_cell({ r: row, c: 2 })];
+        if (cell) {
+          cell.t = 'n';
+          cell.z = '#,##0';
+        }
+      }
+      ws['!cols'] = [{ wch: 12 }, { wch: 24 }, { wch: 12 }, { wch: 10 }, { wch: 24 }];
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '영수증내역');
       const xlsxBase64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
 
@@ -195,7 +196,10 @@ export default function App() {
         const objUrl = await getImageUrl(r.imageId); if (!objUrl) continue;
         const imgBlob = await fetch(objUrl).then(res => res.blob());
         const dataUrl = await new Promise(resolve => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.readAsDataURL(imgBlob); });
-        imgs.push({ id: r.id, filename: `${r.date}_${r.storeName.replace(/[/\\:*?"<>|]/g, '_').slice(0, 15)}_${r.imageId.slice(0, 5)}.jpg`, dataUrl });
+        const datePart = safeText(r.date, '날짜없음').replace(/[/\\:*?"<>|]/g, '_');
+        const storePart = safeText(r.storeName, '미상').replace(/[/\\:*?"<>|]/g, '_').slice(0, 15);
+        const imagePart = safeText(r.imageId, 'image').slice(0, 5);
+        imgs.push({ id: r.id, filename: `${datePart}_${storePart}_${imagePart}.jpg`, dataUrl });
       }
       const totalSteps = imgs.length + 1; let cur = 0;
 
@@ -210,16 +214,36 @@ export default function App() {
       const _authHeaders = { 'Content-Type': 'application/json', ...(_uploadToken ? { 'Authorization': `Bearer ${_uploadToken}` } : {}) };
 
       const xlsxRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || TODAY, xlsxBase64, isImageOnly: false, receiptSummary }) });
-      if (!xlsxRes.ok) { const e = await xlsxRes.json().catch(() => ({})); throw new Error(e.error || `XLSX 업로드 실패 (${xlsxRes.status})`); }
+      if (!xlsxRes.ok) { const e = await xlsxRes.json().catch(() => ({})); throw new Error(formatFailureMessage('명세 업로드 실패', e.error || `상태 ${xlsxRes.status}`)); }
       const xlsxData = await xlsxRes.json().catch(() => ({}));
       cur++; setUploadProgress(Math.floor((cur / totalSteps) * 100));
 
+      const imageResult = { uploaded: 0, skipped: 0, failed: [] };
       for (const img of imgs) {
         const imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || TODAY, images: [img], isImageOnly: true }) });
-        if (!imgRes.ok) { const e = await imgRes.json().catch(() => ({})); throw new Error(e.error || `이미지 업로드 실패: ${img.filename}`); }
+        const imgData = await imgRes.json().catch(() => ({}));
+        if (!imgRes.ok) {
+          imageResult.failed.push(`${img.filename}: ${formatFailureDetail(imgData.error || `상태 ${imgRes.status}`)}`);
+        } else {
+          imageResult.uploaded += imgData.files?.length || 0;
+          imageResult.skipped += imgData.skipped?.length || 0;
+        }
         cur++; setUploadProgress(Math.floor((cur / totalSteps) * 100));
       }
-      showToast(xlsxData?.kakaoSent ? '✅ 전송 완료 · 카카오 알림 발송됨' : '✅ 전송 완료');
+
+      const parts = [];
+      const xlsxStatusLabel = xlsxData?.uploadStatus === 'updated'
+        ? '갱신'
+        : xlsxData?.skipped
+          ? '중복'
+          : '완료';
+      parts.push(`명세 ${xlsxStatusLabel}`);
+      parts.push(`이미지 ${imageResult.uploaded}장${imageResult.skipped ? `, 중복 ${imageResult.skipped}장` : ''}`);
+      parts.push(xlsxData?.aggregate?.success === false ? '집계 실패' : '집계 완료');
+      parts.push(xlsxData?.kakaoSent ? '카카오 알림 완료' : `카카오 알림 미발송${xlsxData?.kakaoError ? `(${xlsxData.kakaoError.slice(0, 34)})` : ''}`);
+      if (xlsxData?.targetPath) parts.push(`대상 ${xlsxData.targetPath}`);
+      if (imageResult.failed.length > 0) parts.push(`이미지 실패 ${imageResult.failed.length}장`);
+      showToast(`${imageResult.failed.length ? '⚠️' : '✅'} ${parts.join(' · ')}`);
     } catch (e) { showToast(`❌ ${e.message}`); }
     setDriveUploading(false);
   };
@@ -262,8 +286,10 @@ export default function App() {
   const budgetTotal = useMemo(() => (receipts || []).filter(r => r.category !== '유류비').reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
   const fuelTotal = useMemo(() => (receipts || []).filter(r => r.category === '유류비').reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
   const budgetRatio = useMemo(() => (budgetTotal / weeklyBudget) * 100, [budgetTotal, weeklyBudget]);
+  const remainingBudget = Math.max(0, weeklyBudget - budgetTotal);
+  const [showBudgetDetails, setShowBudgetDetails] = useState(false);
 
-  const displayReceipts = isAdminView ? allTeamReceipts : receipts;
+  const displayReceipts = receipts;
   const { newItems, oldItems } = useMemo(() => {
     const list = [...(displayReceipts || [])].sort((a, b) => {
       const av = a[sortField] ?? '', bv = b[sortField] ?? '';
@@ -277,106 +303,164 @@ export default function App() {
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden" style={{ fontSize: '1.1rem' }}>
+    <div className="h-screen flex flex-col bg-slate-900 text-slate-100 overflow-hidden" style={{ lineHeight: 1.5 }}>
       {toastMsg && <div className="fixed bottom-24 left-0 right-0 z-50 flex justify-center px-4"><div className="bg-slate-800 border border-slate-700 rounded-2xl px-6 py-3 shadow-2xl font-bold">{toastMsg}</div></div>}
 
       {/* ── 헤더 */}
       <div className="shrink-0 shadow-lg">
-        <header className="bg-slate-800 border-b border-slate-700 px-3 py-2 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+        <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <h1 className="text-lg font-bold truncate">{isAdminView ? '🏢 전체 관리' : `${names} - ${formatDateKorean(reportDate || TODAY)}`}</h1>
-            {syncStatus === 'syncing' && <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />}
-            {syncStatus === 'success' && <Cloud size={14} className="text-emerald-400 shrink-0" />}
+            <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(reportDate || TODAY)}`}</h1>
+            <div className="flex items-center gap-1">
+              {saveStatus === 'saving' && <Loader2 size={18} className="text-blue-300 animate-spin shrink-0" title="로컬 저장 중" />}
+              {saveStatus === 'success' && <HardDrive size={18} className="text-emerald-300 shrink-0" title="로컬 저장 완료" />}
+              {saveStatus === 'error' && <HardDrive size={18} className="text-red-300 shrink-0" title="로컬 저장 실패" />}
+              {syncStatus === 'syncing' && <Loader2 size={18} className="text-cyan-300 animate-spin shrink-0" title="클라우드 동기화 중" />}
+              {syncStatus === 'success' && <Cloud size={18} className="text-emerald-300 shrink-0" title="클라우드 동기화 완료" />}
+              {syncStatus === 'error' && <Cloud size={18} className="text-red-300 shrink-0" title="클라우드 동기화 실패" />}
+              {pendingSyncCount > 0 && (
+                <span className="ml-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-200 whitespace-nowrap">
+                  보류 {pendingSyncCount}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center shrink-0">
-            <button onClick={() => setIsAdminView(!isAdminView)} className={`p-1.5 ${isAdminView ? 'text-blue-400' : 'text-slate-500'}`}><FolderOpen size={16}/></button>
-            <button onClick={() => setShowSettings(true)} className="p-1.5 text-slate-400"><Settings size={16}/></button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => setShowSettings(true)} className="w-11 h-11 flex items-center justify-center rounded-xl border bg-slate-900/70 border-slate-700 text-slate-300" aria-label="설정">
+              <Settings size={18}/>
+            </button>
           </div>
         </header>
         {/* 탭 바 */}
-        <div className="bg-slate-800 border-b border-slate-700 px-3 py-2">
+        <div className="bg-slate-800 border-b border-slate-700 px-3 py-3">
           <div className="flex bg-slate-200 p-1 rounded-2xl gap-1 shadow-inner">
-            {[['list', '📋 목록'], ['images', '🖼️ 이미지'], ['summary', '📊 집계']].map(([id, l]) => (
-              <button key={id} onClick={() => setTab(id)} className={`flex-1 py-2 text-[13px] font-black transition-all rounded-xl ${tab === id ? 'bg-blue-600 text-white shadow-md transform scale-[1.02]' : 'text-slate-600 hover:text-slate-900'}`}>{l}</button>
-            ))}
+            {[['list', '📋 목록'], ['images', '🖼️ 영수증'], ['summary', '📊 집계']].map(([id, l]) => {
+              const isActive = tab === id;
+              const tabClass = isActive
+                ? 'bg-blue-600 text-white shadow-md transform scale-[1.01]'
+                : 'text-slate-800 hover:text-slate-950';
+              return (
+                <button key={id} onClick={() => setTab(id)} className={`flex-1 py-3 text-sm font-black transition-all rounded-xl ${tabClass}`}>{l}</button>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* ── 본문 */}
       <main className="flex-1 overflow-y-auto pb-8">
-        <div className="max-w-lg mx-auto px-4 py-2 space-y-2">
+        <div className="max-w-2xl mx-auto px-4 py-1.5 space-y-1.5">
 
           {/* 예산 패널 (이미지 탭 제외) */}
           {tab !== 'images' && (
-            <div className="bg-slate-800 border border-slate-700 rounded-3xl p-5 shadow-md">
-              <div className="flex justify-between items-end mb-3">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl p-3.5 shadow-md">
+              <div className="flex justify-between items-end mb-1.5">
                 <div className="flex flex-col">
-                  <span className="text-sm text-slate-400 font-bold">주간 예산</span>
-                  <span className="text-[9px] text-blue-400 font-bold">유류비 제외</span>
+                  <span className="text-base text-slate-200 font-black">남은 예산</span>
+                  <span className="text-sm text-blue-300 font-bold">유류비 제외</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-lg font-bold">{formatCurrency(budgetTotal)}</span>
-                  <span className="text-xs text-slate-500">/ {formatCurrency(weeklyBudget)}</span>
-                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 text-slate-500">⚙️</button>
+                  <span className="text-xl font-black">{formatCurrency(remainingBudget)}</span>
+                  <span className="text-sm text-slate-400">/ {formatCurrency(weeklyBudget)}</span>
+                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 w-11 h-11 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-300" aria-label="예산 설정">⚙️</button>
                 </div>
               </div>
-              <div className="w-full h-8 bg-slate-900 rounded-xl overflow-hidden border border-slate-700 flex relative">
-                <div className="h-full bg-blue-600 transition-all duration-500" style={{ width: `${Math.min(100, budgetRatio)}%` }} />
-                <div className="absolute inset-0 flex items-center justify-end px-5 pointer-events-none">
-                  <span className="text-[11px] font-black text-white drop-shadow-md">잔액 {formatCurrency(weeklyBudget - budgetTotal)}</span>
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">
+                <div className="flex flex-col">
+                  <span className="text-sm font-black text-slate-300">총예산</span>
+                  <span className="text-base font-black text-slate-100">{formatCurrency(weeklyBudget)}</span>
                 </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-sm font-black text-slate-300">사용액</span>
+                  <span className="text-base font-black text-blue-300">{formatCurrency(budgetTotal)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetDetails(v => !v)}
+                  className="ml-1 mt-0.5 rounded-full bg-slate-950/80 border border-slate-600 px-2 py-1 shadow-lg"
+                  aria-label={showBudgetDetails ? '상세 예산 접기' : '상세 예산 펼치기'}
+                >
+                  <span className="sr-only">{showBudgetDetails ? '접기' : '펼치기'}</span>
+                  <span
+                    className={`block h-0 w-0 border-y-[6px] border-y-transparent border-l-[9px] border-l-slate-100 transition-transform ${
+                      showBudgetDetails ? 'rotate-90' : 'rotate-0'
+                    }`}
+                  />
+                </button>
               </div>
-              <BudgetStats
-                weeklyBudget={weeklyBudget}
-                budgetTotal={budgetTotal}
-                budgetRatio={budgetRatio}
-                fuelTotal={fuelTotal}
-              />
+              {showBudgetDetails && (
+                <BudgetStats
+                  weeklyBudget={weeklyBudget}
+                  budgetTotal={budgetTotal}
+                  budgetRatio={budgetRatio}
+                  fuelTotal={fuelTotal}
+                />
+              )}
             </div>
           )}
 
           {/* ── 목록 탭 */}
           {tab === 'list' && (
             <div className="space-y-3">
-              <div className="bg-slate-800/40 border border-slate-700/50 rounded-3xl p-3 space-y-3 shadow-lg">
-                {/* 영수증 입력 섹션 */}
-                <div>
-                  <p className="text-xs text-slate-500 font-bold mb-1.5 px-1">영수증 입력</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button onClick={() => document.getElementById('cam-i').click()} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">📸 촬영</button>
-                    <button onClick={() => document.getElementById('file-i').click()} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">🖼️ 업로드</button>
-                    <button onClick={() => setShowManualModal(true)} className="bg-slate-700 hover:bg-slate-600 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95">⌨️ 직접입력</button>
-                  </div>
+              <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-4 space-y-3 shadow-lg">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setListPanel('input')}
+                    className={`rounded-2xl px-3 py-2.5 text-sm font-black transition-all active:scale-95 min-h-[44px] ${
+                      listPanel === 'input'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    영수증 입력
+                  </button>
+                  <button
+                    onClick={() => setListPanel('management')}
+                    className={`rounded-2xl px-3 py-2.5 text-sm font-black transition-all active:scale-95 min-h-[44px] ${
+                      listPanel === 'management'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    자료관리
+                  </button>
                 </div>
-                {/* 자료관리 섹션 */}
-                <div>
-                  <p className="text-xs text-slate-500 font-bold mb-1.5 px-1">자료관리</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 text-slate-300">💾 백업</button>
-                    <label className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-slate-300">
-                      📂 불러오기
-                      <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
-                    </label>
-                    <button onClick={uploadToDrive} disabled={driveUploading} className={`py-3.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 border ${driveUploading ? 'bg-emerald-900/50 border-emerald-700 text-emerald-300' : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300'}`}>
-                      {driveUploading ? <><Loader2 size={13} className="animate-spin shrink-0" />{uploadProgress}%</> : '📤 전송하기'}
-                    </button>
+                {listPanel === 'input' ? (
+                  <div className="pt-1">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button onClick={() => document.getElementById('cam-i').click()} className="bg-slate-700 hover:bg-slate-600 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 min-h-0">📸 촬영</button>
+                      <button onClick={() => document.getElementById('file-i').click()} className="bg-slate-700 hover:bg-slate-600 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 min-h-0">🖼️ 업로드</button>
+                      <button onClick={() => setShowManualModal(true)} className="bg-slate-700 hover:bg-slate-600 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 min-h-0">⌨️ 직접입력</button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="pt-1">
+                    <div className="grid grid-cols-3 gap-2">
+                      <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-white min-h-0">💾 백업</button>
+                      <label className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-white min-h-0">
+                        📂 불러오기
+                        <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
+                      </label>
+                      <button onClick={uploadToDrive} disabled={driveUploading} className={`py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 border min-h-0 ${driveUploading ? 'bg-emerald-900/50 border-emerald-700 text-emerald-50' : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-white'}`}>
+                        {driveUploading ? <><Loader2 size={16} className="animate-spin shrink-0" />{uploadProgress}%</> : '📤 전송하기'}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
                 <input id="cam-i" type="file" capture="environment" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
               </div>
 
-              {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700"><RefreshCw size={24} className="animate-spin text-blue-400" /><span className="text-base font-bold">{procMsg}</span></div>}
+              {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700"><RefreshCw size={26} className="animate-spin text-blue-300" /><span className="text-lg font-black">{procMsg}</span></div>}
 
               {receipts.length > 0 && (
-                <div className="text-center text-xs text-slate-500 px-1">
+                <div className="text-center text-sm text-slate-400 px-1 font-bold">
                   {receipts.length}건 • {formatCurrency(grandTotal)}
                 </div>
               )}
 
-              <div className="bg-slate-800 rounded-3xl border-2 border-slate-700 overflow-hidden divide-y divide-slate-700/50">
-                <div className="bg-slate-900/50 px-4 py-3 flex text-xs font-black text-slate-400 uppercase tracking-wider gap-1.5 items-center">
+              <div className="bg-slate-800 rounded-3xl border-2 border-slate-700 overflow-hidden">
+                <div className="bg-slate-900/50 px-4 py-3 flex text-sm font-black text-slate-300 gap-1.5 items-center">
                   {[['date', '날짜', 'w-12 text-center'], ['storeName', '사용처', 'flex-1 ml-1'], ['category', '용도', 'w-12 text-center'], ['totalAmount', '금액', 'w-16 text-right']].map(([f, l, cls]) => (
                     <button key={f} onClick={() => { if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); else { setSortField(f); setSortDir('desc'); } }} className={`${cls} flex items-center justify-center gap-0.5 ${sortField === f ? 'text-blue-400' : ''}`}>
                       {l} {sortField === f && (sortDir === 'asc' ? '↑' : '↓')}
@@ -384,15 +468,11 @@ export default function App() {
                   ))}
                   <div className="w-16 shrink-0 ml-1"></div>
                 </div>
-                {newItems.map(r => <ReceiptRow key={r.id} receipt={r} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
+                {newItems.map((r, index) => <ReceiptRow key={r.id} receipt={r} rowIndex={index} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
                 {newItems.length > 0 && oldItems.length > 0 && (
-                  <div className="bg-slate-900/60 px-4 py-3 flex items-center gap-4 border-y border-slate-700/30">
-                    <div className="h-[1.5px] flex-1 bg-gradient-to-r from-transparent via-slate-600 to-transparent"></div>
-                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap shadow-sm">이전 내역</span>
-                    <div className="h-[1.5px] flex-1 bg-gradient-to-r from-transparent via-slate-600 to-transparent"></div>
-                  </div>
+                  <div className="bg-white/[0.04] px-4 py-2.5 text-xs font-black text-slate-300">이전 내역</div>
                 )}
-                {oldItems.map(r => <ReceiptRow key={r.id} receipt={r} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
+                {oldItems.map((r, index) => <ReceiptRow key={r.id} receipt={r} rowIndex={index} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
               </div>
             </div>
           )}
@@ -416,35 +496,71 @@ export default function App() {
       </main>
 
       {/* ── 설정 모달 */}
-      <SettingsModal
+        <SettingsModal
         show={showSettings}
         onClose={() => setShowSettings(false)}
         showToast={showToast}
         names={names}
-        onNamesChange={(v) => { setNames(v); localStorage.setItem('receipt_names', v); }}
+        onNamesChange={(v) => { setNames(v); writeStorageItem('receipt_names', v); }}
         reportDate={reportDate}
-        onDateChange={(v) => { setReportDate(v); localStorage.setItem('receipt_date', v); }}
+        onDateChange={(v) => { setReportDate(v); writeStorageItem('receipt_date', v); }}
         onReset={() => { resetAll(); }}
+        onResetDeviceData={resetDeviceData}
+        onResetActivityLogs={resetActivityLogs}
+        saveStatus={saveStatus}
+        syncStatus={syncStatus}
+        pendingSyncCount={pendingSyncCount}
+        syncEvents={syncEvents}
+        syncDaily={syncDaily}
+        onRetrySync={retryPendingSync}
       />
 
       {/* ── 인라인 수정 모달 */}
       {editState.id && (
         <Modal title="📝 수정" onClose={() => setEditState({ id: null, field: null, value: '' })}>
-          <div className="p-2">
+          <div className="p-1">
             {editState.field === 'detail' ? (
               <div className="space-y-4">
-                <input type="date" value={editState.value.date} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, date: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-3 text-white font-black" />
-                <input value={editState.value.storeName} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, storeName: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-3 text-white font-black" />
-                <input type="number" value={editState.value.totalAmount} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, totalAmount: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-3 text-white font-black" />
-                <div className="grid grid-cols-2 gap-2">{ALL_CATS.map(c => (<button key={c} onClick={() => setEditState(prev => ({ ...prev, value: { ...prev.value, category: c } }))} className={`py-3 rounded-xl font-black text-sm border-2 ${editState.value.category === c ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-slate-700 text-slate-500'}`}>{c}</button>))}</div>
-                <input value={editState.value.note} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, note: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-3 text-white font-black" placeholder="비고" />
+                <input type="date" value={editState.value.date} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, date: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+                <input value={editState.value.storeName} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, storeName: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+                <input type="number" value={editState.value.totalAmount} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, totalAmount: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+                <div className="grid grid-cols-2 gap-2">{ALL_CATS.map(c => {
+                  const active = editState.value.category === c;
+                  const catClass = active
+                    ? 'bg-blue-600 border-blue-400 text-white'
+                    : 'bg-slate-900 border-slate-700 text-slate-100';
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => setEditState(prev => ({ ...prev, value: { ...prev.value, category: c } }))}
+                      className={`py-3 rounded-xl font-black text-sm border-2 ${catClass}`}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}</div>
+                <input value={editState.value.note} onChange={e => setEditState(prev => ({ ...prev, value: { ...prev.value, note: e.target.value } }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="비고" />
               </div>
             ) : editState.field === 'category' ? (
-              <div className="grid grid-cols-2 gap-3 mb-8">{ALL_CATS.map(c => (<button key={c} onClick={() => setEditState(prev => ({ ...prev, value: c }))} className={`py-5 rounded-2xl font-black text-lg border-2 transition-all ${editState.value === c ? 'bg-blue-600 border-blue-400 text-white shadow-lg scale-105' : 'bg-slate-900 border-slate-700 text-slate-500'}`}>{c}</button>))}</div>
+              <div className="grid grid-cols-2 gap-3 mb-8">{ALL_CATS.map(c => {
+                const active = editState.value === c;
+                const catClass = active
+                  ? 'bg-blue-600 border-blue-400 text-white shadow-lg scale-105'
+                  : 'bg-slate-900 border-slate-700 text-slate-100';
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setEditState(prev => ({ ...prev, value: c }))}
+                    className={`py-5 rounded-2xl font-black text-lg border-2 transition-all ${catClass}`}
+                  >
+                    {c}
+                  </button>
+                );
+              })}</div>
             ) : (
               <input autoFocus value={editState.value} onChange={e => setEditState(prev => ({ ...prev, value: e.target.value }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-5 mb-8 text-2xl text-white font-black" />
             )}
-            <button onClick={handleInlineEdit} className="w-full bg-blue-600 py-5 rounded-2xl text-lg font-black mt-6">저장</button>
+            <button onClick={handleInlineEdit} className="w-full bg-blue-600 py-5 rounded-2xl text-xl font-black mt-6">저장</button>
           </div>
         </Modal>
       )}
@@ -453,28 +569,42 @@ export default function App() {
       {deleteConfirmId && (
         <Modal title="삭제?" onClose={() => setDeleteConfirmId(null)}>
           <div className="p-2 flex gap-4">
-            <button onClick={() => setDeleteConfirmId(null)} className="flex-1 bg-slate-700 py-5 rounded-2xl font-black">취소</button>
-            <button onClick={() => { deleteReceipt(deleteConfirmId); setDeleteConfirmId(null); }} className="flex-1 bg-red-600 py-5 rounded-2xl font-black">삭제</button>
+            <button onClick={() => setDeleteConfirmId(null)} className="flex-1 bg-slate-700 py-5 rounded-2xl font-black text-lg">취소</button>
+            <button onClick={() => { deleteReceipt(deleteConfirmId); setDeleteConfirmId(null); }} className="flex-1 bg-red-600 py-5 rounded-2xl font-black text-lg">삭제</button>
           </div>
         </Modal>
       )}
 
       {/* ── 직접 입력 모달 */}
       {showManualModal && (
-        <Modal title="➕ 직접 입력" onClose={() => setShowManualModal(false)}>
+        <Modal title="➕ 직접 입력" onClose={() => setShowManualModal(false)} initialFocusRef={manualStoreRef}>
           <div className="space-y-5 p-2">
-            <input placeholder="🏢 사용처" value={mf.storeName} onChange={e => setMf({ ...mf, storeName: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black" />
-            <input type="number" placeholder="💰 금액" value={mf.totalAmount} onChange={e => setMf({ ...mf, totalAmount: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black" />
-            <div className="grid grid-cols-2 gap-2">{ALL_CATS.map(c => <button key={c} onClick={() => setMf({ ...mf, category: c })} className={`py-4 rounded-xl font-black text-sm border-2 ${mf.category === c ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-slate-700 text-slate-500'}`}>{c}</button>)}</div>
-            <input placeholder="📝 비고" value={mf.note} onChange={e => setMf({ ...mf, note: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black" />
-            <button onClick={handleManualAdd} className="w-full bg-blue-600 py-5 rounded-2xl text-lg font-black">추가</button>
+            <input ref={manualStoreRef} placeholder="🏢 사용처" value={mf.storeName} onChange={e => setMf({ ...mf, storeName: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
+            <input type="number" placeholder="💰 금액" value={mf.totalAmount} onChange={e => setMf({ ...mf, totalAmount: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
+            <div className="grid grid-cols-2 gap-2">{ALL_CATS.map(c => {
+              const active = mf.category === c;
+              const catClass = active
+                ? 'bg-blue-600 border-blue-400 text-white'
+                : 'bg-slate-900 border-slate-700 text-slate-100';
+              return (
+                <button
+                  key={c}
+                  onClick={() => setMf({ ...mf, category: c })}
+                  className={`py-4 rounded-xl font-black text-sm border-2 ${catClass}`}
+                >
+                  {c}
+                </button>
+              );
+            })}</div>
+            <input placeholder="📝 비고" value={mf.note} onChange={e => setMf({ ...mf, note: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
+            <button onClick={handleManualAdd} className="w-full bg-blue-600 py-5 rounded-2xl text-xl font-black">추가</button>
           </div>
         </Modal>
       )}
 
       {/* ── 예산 설정 모달 */}
       {showBudgetCalcModal && (
-        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)}>
+        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)} initialFocusRef={budgetAmountRef}>
           <div className="space-y-5 p-4">
             {/* 날짜 범위 캘린더 */}
             <DateRangePicker
@@ -487,31 +617,32 @@ export default function App() {
               const s = new Date(tripStartDate), e = new Date(tripEndDate);
               const n = Math.ceil((e - s) / 86400000) + 1;
               if (n <= 0) return null;
-              const auto = n <= 1 ? 70000 : (n - 1) * 130000 + 70000;
+              const auto = n <= 1 ? 80000 : (n - 1) * 130000 + 80000;
               const desc = n === 1
                 ? '1일 출장 (마지막날만 적용)'
-                : `${n}일 출장: ${n - 1}일 × 13만 + 마지막날 7만`;
+                : `${n}일 출장: ${n - 1}일 × 13만 + 마지막날 8만`;
               return (
                 <div className="bg-slate-900/80 rounded-2xl p-4 border border-slate-700">
-                  <p className="text-xs text-slate-500 font-bold mb-2">{desc}</p>
+                  <p className="text-sm text-slate-400 font-bold mb-2">{desc}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-xl font-black text-blue-400">{auto.toLocaleString('ko-KR')}원</span>
-                    <button onClick={handleBudgetCalc} className="bg-blue-700 hover:bg-blue-600 px-4 py-2 rounded-xl text-sm font-black">이 값 적용 ↓</button>
+                    <span className="text-2xl font-black text-blue-300">{auto.toLocaleString('ko-KR')}원</span>
+                    <button onClick={handleBudgetCalc} className="bg-blue-700 hover:bg-blue-600 px-4 py-3 rounded-xl text-sm font-black">이 값 적용</button>
                   </div>
                 </div>
               );
             })()}
             {/* 직접 입력 */}
             <div>
-              <label className="text-xs text-slate-500 font-black mb-1.5 block">예산 직접 입력 (원)</label>
+              <label className="text-sm text-slate-400 font-black mb-2 block">예산 직접 입력 (원)</label>
               <input
+                ref={budgetAmountRef}
                 type="number"
                 value={tempBudget}
                 onChange={e => setTempBudget(e.target.value)}
-                className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-xl text-white font-black text-right"
+                className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-2xl text-white font-black text-right"
               />
             </div>
-            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-lg font-black">설정 저장</button>
+            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">설정 저장</button>
           </div>
         </Modal>
       )}

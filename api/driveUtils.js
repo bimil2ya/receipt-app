@@ -7,6 +7,10 @@ import { google } from 'googleapis';
 export const MAIN_FOLDER_ID =
   process.env.GDRIVE_MAIN_FOLDER_ID || '14zsrX1vuLuO74Lfa6yr9s0nBTzrDBG8X';
 
+export function driveQueryString(value) {
+  return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
 /**
  * OAuth2 인증으로 Drive 인스턴스 생성
  * 필요 환경변수: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
@@ -32,7 +36,8 @@ export function createDrive() {
  * @param {string} parentId - 부모 폴더 ID
  */
 export async function getOrCreateFolder(drive, name, parentId) {
-  const q = `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const safeName = driveQueryString(name);
+  const q = `'${parentId}' in parents and name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
   const res = await drive.files.list({ q, fields: 'files(id,name)' });
   if (res.data.files.length > 0) return res.data.files[0].id;
 
