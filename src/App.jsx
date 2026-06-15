@@ -524,8 +524,6 @@ export default function App() {
         onReset={() => { resetAll(); }}
         onResetDeviceData={resetDeviceData}
         onResetActivityLogs={resetActivityLogs}
-        weeklyBudget={weeklyBudget}
-        onStartNewWeek={startNewWeek}
         saveStatus={saveStatus}
         syncStatus={syncStatus}
         pendingSyncCount={pendingSyncCount}
@@ -662,6 +660,29 @@ export default function App() {
               />
             </div>
             <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">설정 저장</button>
+
+            {/* 새 출장 시작 */}
+            <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
+              <div>
+                <p className="text-sm text-red-300 font-black">🔄 새 출장 시작</p>
+                <p className="text-xs text-red-200/80 font-bold mt-1 leading-5">
+                  위 기간({tripStartDate})과 예산으로 새로 시작합니다.
+                  현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제됩니다.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
+                  if (budgetVal <= 0) { alert('예산을 먼저 입력하거나 "이 값 적용"을 눌러 주세요.'); return; }
+                  if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
+                  await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
+                  setShowBudgetCalcModal(false);
+                }}
+                className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
+              >
+                🔄 새로 시작 (영수증 모두 삭제)
+              </button>
+            </div>
           </div>
         </Modal>
       )}
