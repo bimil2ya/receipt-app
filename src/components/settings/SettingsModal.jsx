@@ -23,6 +23,8 @@ export default function SettingsModal({
   syncEvents = [],
   syncDaily = [],
   onRetrySync,
+  weeklyBudget = 0,
+  onStartNewWeek,
 }) {
   const [tempKey, setTempKey] = useState('');
   const [tempBiznoKey, setTempBiznoKey] = useState('');
@@ -34,6 +36,10 @@ export default function SettingsModal({
   const [eventFilter, setEventFilter] = useState('all');
   const [showLogHistory, setShowLogHistory] = useState(false);
   const [showDangerZone, setShowDangerZone] = useState(false);
+  const [showNewWeek, setShowNewWeek] = useState(false);
+  const [newWeekDate, setNewWeekDate] = useState('');
+  const [newWeekBudget, setNewWeekBudget] = useState('');
+  const [startingNewWeek, setStartingNewWeek] = useState(false);
 
   // 설정 열릴 때마다 암호화된 키 복호화
   useEffect(() => {
@@ -52,10 +58,16 @@ export default function SettingsModal({
     setShowOpsStats(false);
     setShowLogHistory(false);
     setShowDangerZone(false);
+    setShowNewWeek(false);
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    setNewWeekDate(todayStr);
+    setNewWeekBudget(String(weeklyBudget || ''));
+    setStartingNewWeek(false);
     setTestResult({ loading: false, msg: '', type: '' });
     setHealthResult({ loading: false, data: null, msg: '' });
     setEventFilter('all');
-  }, [show]);
+  }, [show, weeklyBudget]);
 
   const testConnection = async () => {
     setTestResult({ loading: true, msg: '연결 확인 중...', type: 'info' });
@@ -493,6 +505,70 @@ export default function SettingsModal({
         <button onClick={saveSettings} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">
           설정 저장
         </button>
+
+        {/* 새 주 시작 */}
+        <div className="border border-blue-900/40 rounded-xl bg-blue-900/10 overflow-hidden">
+          <button
+            onClick={() => setShowNewWeek(v => !v)}
+            className="w-full flex items-center justify-between gap-3 px-3 py-3 text-left"
+          >
+            <div>
+              <p className="text-sm text-blue-200 font-black">🔄 새 주 시작</p>
+              <p className="text-xs text-blue-200/75 font-bold mt-1">
+                주간 정산 보고가 끝나면 한 번에 정리합니다.
+              </p>
+            </div>
+            <span className="text-blue-200/70 text-sm font-black">
+              {showNewWeek ? '접기' : '펼치기'}
+            </span>
+          </button>
+
+          {showNewWeek && (
+            <div className="px-3 pb-3 space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-300 font-black w-20 shrink-0">시작일</span>
+                <input
+                  type="date"
+                  value={newWeekDate}
+                  onChange={e => setNewWeekDate(e.target.value)}
+                  className="flex-1 h-[44px] bg-slate-900 border border-slate-700 rounded-lg px-3 text-white font-bold text-sm"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-300 font-black w-20 shrink-0">새 예산</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={newWeekBudget}
+                  onChange={e => setNewWeekBudget(e.target.value)}
+                  placeholder="원 단위"
+                  className="flex-1 h-[44px] bg-slate-900 border border-slate-700 rounded-lg px-3 text-white font-bold text-sm"
+                />
+                <span className="text-xs text-slate-400 font-bold shrink-0">원</span>
+              </div>
+              <div className="rounded-lg border border-amber-900/50 bg-amber-900/15 px-3 py-2 text-xs font-bold leading-5 text-amber-200">
+                ⚠️ 이 기기의 영수증·이미지·이력·보류 전송이 모두 삭제되고,
+                날짜와 예산이 새 값으로 교체됩니다.
+              </div>
+              <button
+                disabled={startingNewWeek || !newWeekDate || !newWeekBudget}
+                onClick={async () => {
+                  if (!window.confirm(`새 주를 시작합니다.\n시작일: ${newWeekDate}\n예산: ${Number(newWeekBudget).toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
+                  setStartingNewWeek(true);
+                  try {
+                    await onStartNewWeek?.({ newDate: newWeekDate, newBudget: newWeekBudget });
+                    onClose();
+                  } finally {
+                    setStartingNewWeek(false);
+                  }
+                }}
+                className="w-full bg-blue-600 py-3.5 rounded-xl font-black text-base disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-transform"
+              >
+                {startingNewWeek ? '시작 중...' : '🔄 새 주 시작'}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* 위험 구역 */}
         <div className="border border-red-900/40 rounded-xl bg-red-900/10 overflow-hidden">

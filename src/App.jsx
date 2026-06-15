@@ -169,6 +169,23 @@ export default function App() {
     setShowBudgetCalcModal(false);
   };
 
+  const startNewWeek = async ({ newDate, newBudget }) => {
+    try {
+      await resetDeviceData();
+      if (newDate) {
+        setReportDate(newDate);
+        writeStorageItem('receipt_date', newDate);
+      }
+      const budgetVal = Math.max(0, parseInt(newBudget) || 0);
+      setWeeklyBudget(budgetVal);
+      writeStorageItem('weekly_budget', String(budgetVal));
+      showToast('🔄 새 주 시작 완료');
+    } catch (e) {
+      if (import.meta.env.DEV) console.error('startNewWeek failed:', e);
+      showToast('새 주 시작 실패 — 다시 시도해 주세요');
+    }
+  };
+
   // ── Drive 업로드
   const uploadToDrive = async () => {
     setDriveUploading(true); setUploadProgress(0);
@@ -507,6 +524,8 @@ export default function App() {
         onReset={() => { resetAll(); }}
         onResetDeviceData={resetDeviceData}
         onResetActivityLogs={resetActivityLogs}
+        weeklyBudget={weeklyBudget}
+        onStartNewWeek={startNewWeek}
         saveStatus={saveStatus}
         syncStatus={syncStatus}
         pendingSyncCount={pendingSyncCount}
