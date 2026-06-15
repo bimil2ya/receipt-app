@@ -83,12 +83,18 @@ export default async function handler(req) {
     }
 
     const prompt = `<system_instructions>
-너는 20년 경력의 대한민국 영수증 데이터 추출 전문가야. 이미지에서 상호명(storeName), 날짜(date), 금액(totalAmount), 용도(suggestedCategory), 사업자번호(bizNum), 승인번호(approvalNum), 카드번호(cardNumber)를 정밀하게 추출해야 해.
+너는 20년 경력의 대한민국 영수증 데이터 추출 전문가야. 이미지 안에 있는 **모든 영수증**에서 상호명(storeName), 날짜(date), 금액(totalAmount), 용도(suggestedCategory), 사업자번호(bizNum), 승인번호(approvalNum), 카드번호(cardNumber)를 정밀하게 추출해야 해.
+
+[다중 영수증 처리 - CRITICAL]
+1. **모든 영수증 추출**: 이미지에 영수증이 2장 이상 있을 수 있다(나란히, 위아래, 겹친 상태 포함). 각 영수증을 별도의 receipts 배열 항목으로 모두 추출하라. **하나만 골라 반환하지 마라.**
+2. **경계 식별**: 서로 다른 상호명/사업자번호/날짜/승인번호 중 어느 하나라도 다르면 별개 영수증으로 간주한다.
+3. **부분적으로 잘린 영수증**: 일부만 보여도 읽을 수 있는 정보가 있으면 별도 항목으로 추출하라. 불가능하면 그 항목만 제외한다.
+4. **순서**: 위에서 아래, 왼쪽에서 오른쪽 순서로 receipts 배열에 담아라.
 
 [사업자등록번호 추출 지침 - CRITICAL]
 1. **10자리 고정 규칙**: 대한민국 사업자번호는 '무조건 10자리'입니다. 만약 8~9자리(예: 123-45-678)로 인식되었다면, 하이픈 근처나 앞뒤에 숫자로 오인될 수 있는 문자(I, l, O, |, . 등)가 있는지 반드시 확인하여 10자리를 완성하십시오.
 2. **키워드 근처 탐색**: '사업자', '등록번호', 'Saupja', 'No.' 키워드 바로 옆이나 아래에 있는 숫자 뭉치를 우선적으로 추출하십시오.
-3. **시각적 유사성 보정**: 상호명 추출 시 시각적으로 유사한 글자(예: '천'↔'참', '우'↔'무')가 있다면 문맥보다 이미지에 적힌 획을 더 우선시하여 정밀하게 읽으십시오. 
+3. **시각적 유사성 보정**: 상호명 추출 시 시각적으로 유사한 글자(예: '천'↔'참', '우'↔'무')가 있다면 문맥보다 이미지에 적힌 획을 더 우선시하여 정밀하게 읽으십시오.
 4. **OCR 노이즈 제거**: 숫자 사이의 공백, 점(.), 슬래시(/)는 모두 제거하고 순수 숫자 10자리만 'bizNum'으로 반환하십시오.
 
 [일반 추출 규칙]
@@ -97,14 +103,24 @@ export default async function handler(req) {
 3. **JSON 형식 엄수**.
 </system_instructions>
 <output_format>
+이미지에 영수증이 1장이면 receipts 배열에 1개, N장이면 N개를 담아라.
 {
   "isReceipt": true,
   "receipts": [
     {
       "date": "YYYY-MM-DD",
-      "storeName": "정확한 상호명",
+      "storeName": "첫 번째 영수증 상호명",
       "totalAmount": 0,
       "suggestedCategory": "식비",
+      "bizNum": "000-00-00000",
+      "approvalNum": "00000000",
+      "cardNumber": "0000-0000-****-0000"
+    },
+    {
+      "date": "YYYY-MM-DD",
+      "storeName": "두 번째 영수증 상호명",
+      "totalAmount": 0,
+      "suggestedCategory": "숙박비",
       "bizNum": "000-00-00000",
       "approvalNum": "00000000",
       "cardNumber": "0000-0000-****-0000"
