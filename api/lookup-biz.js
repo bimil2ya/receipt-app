@@ -1,5 +1,19 @@
 export const config = { runtime: 'edge' };
 
+// 비즈노 API가 (주), & 같은 한글/특수문자를 XML 인코딩해 반환하는 경우 디코딩
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
 export default async function handler(req) {
   const resHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -65,9 +79,9 @@ export default async function handler(req) {
       if (company) {
         return new Response(JSON.stringify({
           success: true,
-          company: company,
+          company: decodeHtmlEntities(company),
           busiResNum: bno,
-          address: adr
+          address: decodeHtmlEntities(adr)
         }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
       }
 
@@ -82,9 +96,9 @@ export default async function handler(req) {
     if (data && (parseInt(data.total) > 0) && data.items && data.items[0]) {
       return new Response(JSON.stringify({
         success: true,
-        company: data.items[0].company,
+        company: decodeHtmlEntities(data.items[0].company),
         busiResNum: data.items[0].bno || data.items[0].busiResNum,
-        address: data.items[0].adr || data.items[0].address
+        address: decodeHtmlEntities(data.items[0].adr || data.items[0].address)
       }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
     }
 

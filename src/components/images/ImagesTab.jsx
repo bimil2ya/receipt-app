@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Download, Share2, X } from 'lucide-react';
 import ZoomableImage from '../gallery/ZoomableImage';
+import { decodeHtmlEntities } from '../../utils/formatter';
 
 /** 이미지 썸네일 — imageId 기반 비동기 로딩 */
 function ImageThumb({ imageId, getImageUrl, className }) {
@@ -51,7 +52,7 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
     if (!url) return null;
     const blob = await fetch(url).then(res => res.blob());
     const ext = blob.type?.includes('png') ? 'png' : 'jpg';
-    const storeName = (receipt.storeName || '영수증').replace(/[/\\:*?"<>|]/g, '_').slice(0, 18);
+    const storeName = (decodeHtmlEntities(receipt.storeName) || '영수증').replace(/[/\\:*?"<>|]/g, '_').slice(0, 18);
     const fileName = `${receipt.date || '날짜없음'}_${storeName}_${String(index + 1).padStart(2, '0')}.${ext}`;
     return new File([blob], fileName, { type: blob.type || 'image/jpeg' });
   };
@@ -138,7 +139,7 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
               <div className="p-5 border-b border-slate-700 flex justify-between items-center gap-3 bg-slate-900/50">
                 <div>
                   <p className="text-sm text-blue-300 font-black">{sel.date}</p>
-                  <h3 className="text-2xl font-black truncate max-w-[220px]">{sel.storeName}</h3>
+                  <h3 className="text-2xl font-black truncate max-w-[220px]">{decodeHtmlEntities(sel.storeName)}</h3>
                 </div>
                 <button onClick={() => onSelectChange(null)} className="w-12 h-12 flex items-center justify-center bg-slate-800 rounded-full border border-slate-700">
                   <X size={26} />

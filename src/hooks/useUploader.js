@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
-import { TODAY, mergeCardNumbers } from '../utils/formatter';
+import { TODAY, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
 import { decryptData } from '../utils/crypto';
 import { readStorageItem } from '../utils/storage';
 
@@ -101,13 +101,13 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             imageId: sharedImageId,
             imageUrl: b64full,
             date: r.date || TODAY,
-            storeName: r.storeName || '미상',
+            storeName: decodeHtmlEntities(r.storeName) || '미상',
             totalAmount: r.totalAmount || 0,
             category: r.suggestedCategory || '기타',
-            bizNum: r.bizNum || '', 
+            bizNum: r.bizNum || '',
             approvalNum: r.approvalNum || '',
-            cardNumber: bestCardNum, 
-            note: r.note || '',
+            cardNumber: bestCardNum,
+            note: decodeHtmlEntities(r.note) || '',
             rotation: 0,
             createdAt: Date.now()
           });

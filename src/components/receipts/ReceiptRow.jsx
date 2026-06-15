@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Pencil, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { formatCurrency, formatDateSlash } from '../../utils/formatter';
+import { formatCurrency, formatDateSlash, decodeHtmlEntities } from '../../utils/formatter';
 
 const CAT_STYLE = {
   '숙박비': { bg: '#3b1f6e', text: '#c4b5fd', border: '#5b21b6' },
@@ -28,10 +28,10 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
         {/* 사용처 (공간 확장) */}
         <div className="min-w-0">
           <span className="text-slate-50 text-[1rem] font-black truncate block leading-tight">
-            {receipt.storeName}
+            {decodeHtmlEntities(receipt.storeName)}
           </span>
           {receipt.note && (
-            <span className="text-sm text-slate-400 truncate block mt-0.5 leading-tight">{receipt.note}</span>
+            <span className="text-sm text-slate-400 truncate block mt-0.5 leading-tight">{decodeHtmlEntities(receipt.note)}</span>
           )}
         </div>
 

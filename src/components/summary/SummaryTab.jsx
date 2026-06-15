@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { TODAY, formatDateKorean, formatCurrency } from '../../utils/formatter';
+import { TODAY, formatDateKorean, formatCurrency, decodeHtmlEntities } from '../../utils/formatter';
 
 export default function SummaryTab({ receipts, names, reportDate }) {
   const [summaryMode, setSummaryMode] = useState('category');
@@ -99,7 +99,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {list.map(r => (
                           <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                            <span className="text-slate-300 font-bold leading-6">{safeDate(r.date)} {r.storeName || '사용처 없음'}</span>
+                            <span className="text-slate-300 font-bold leading-6">{safeDate(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                           </div>
                         ))}
@@ -139,7 +139,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {list.map(r => (
                           <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                            <span className="text-slate-300 font-bold leading-6">{r.storeName || '사용처 없음'} ({safeCategory(r.category)})</span>
+                            <span className="text-slate-300 font-bold leading-6">{decodeHtmlEntities(r.storeName) || '사용처 없음'} ({safeCategory(r.category)})</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                           </div>
                         ))}

@@ -1,5 +1,22 @@
 export const TODAY = new Date().toISOString().split('T')[0];
 
+/**
+ * HTML 엔티티(&amp;, &#40; 등)를 실제 문자로 디코딩.
+ * 비즈노 API가 (주), & 같은 문자를 XML 인코딩해 반환하는 경우 대비.
+ */
+export function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
 export function formatDateKorean(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');

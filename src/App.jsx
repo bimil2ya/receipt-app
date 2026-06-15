@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // Utils & Hooks
-import { TODAY, formatDateKorean, formatCurrency, parseDate } from './utils/formatter';
+import { TODAY, formatDateKorean, formatCurrency, parseDate, decodeHtmlEntities } from './utils/formatter';
 import { formatFailureDetail, formatFailureMessage } from './utils/errorCopy';
 import { readStorageItem, writeStorageItem } from './utils/storage';
 import useReceipts from './hooks/useReceipts';
@@ -118,7 +118,7 @@ export default function App() {
   const handleEdit = useCallback((id, f, v) => {
     if (f === 'detail') {
       const r = receipts.find(item => item.id === id); if (!r) return;
-      setEditState({ id, field: f, value: { date: r.date, storeName: r.storeName, totalAmount: r.totalAmount, category: r.category, note: r.note || '' } });
+      setEditState({ id, field: f, value: { date: r.date, storeName: decodeHtmlEntities(r.storeName) || '', totalAmount: r.totalAmount, category: r.category, note: decodeHtmlEntities(r.note) || '' } });
     } else { setEditState({ id, field: f, value: v }); }
   }, [receipts]);
 
@@ -192,7 +192,7 @@ export default function App() {
     try {
       const XLSX = await import('xlsx');
       const surveyorName = names || '미설정';
-      const ws = XLSX.utils.json_to_sheet(receipts.map(r => ({ 날짜: r.date, 사용처: r.storeName, 금액: r.totalAmount, 용도: r.category, 비고: r.note })));
+      const ws = XLSX.utils.json_to_sheet(receipts.map(r => ({ 날짜: r.date, 사용처: decodeHtmlEntities(r.storeName), 금액: r.totalAmount, 용도: r.category, 비고: decodeHtmlEntities(r.note) })));
       const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:E1');
       for (let row = range.s.r + 1; row <= range.e.r; row++) {
         const cell = ws[XLSX.utils.encode_cell({ r: row, c: 2 })];
@@ -214,7 +214,7 @@ export default function App() {
         const imgBlob = await fetch(objUrl).then(res => res.blob());
         const dataUrl = await new Promise(resolve => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.readAsDataURL(imgBlob); });
         const datePart = safeText(r.date, '날짜없음').replace(/[/\\:*?"<>|]/g, '_');
-        const storePart = safeText(r.storeName, '미상').replace(/[/\\:*?"<>|]/g, '_').slice(0, 15);
+        const storePart = safeText(decodeHtmlEntities(r.storeName), '미상').replace(/[/\\:*?"<>|]/g, '_').slice(0, 15);
         const imagePart = safeText(r.imageId, 'image').slice(0, 5);
         imgs.push({ id: r.id, filename: `${datePart}_${storePart}_${imagePart}.jpg`, dataUrl });
       }
