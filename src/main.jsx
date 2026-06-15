@@ -5,11 +5,34 @@ import App from './App.jsx'
 import ErrorBoundary from './components/layout/ErrorBoundary.jsx'
 import './index.css'
 
-registerSW({
+// 이미 SW의 통제를 받고 있는지(=캐시된 버전으로 구동 중인지) 기록.
+// 통제받지 않는 상태(=최초 방문)에서의 controllerchange는 첫 등록이라 reload 불필요.
+const hadControllerAtStartup = typeof navigator !== 'undefined'
+  && !!navigator.serviceWorker?.controller;
+
+let reloadingForUpdate = false;
+if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadControllerAtStartup || reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    if (import.meta.env.DEV) console.info('[PWA] 새 버전 활성화 — 새로고침');
+    window.location.reload();
+  });
+}
+
+const updateSW = registerSW({
   immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    // 앱이 켜져 있는 동안에도 1시간마다 새 버전을 검사한다.
+    if (registration) {
+      setInterval(() => {
+        registration.update().catch(() => {});
+      }, 60 * 60 * 1000);
+    }
+  },
   onNeedRefresh() {
-    // 새 버전이 대기 중. 자동 reload 하지 않는다 — 사용자가 PWA를 재시작할 때 자연스럽게 적용됨.
-    if (import.meta.env.DEV) console.info('[PWA] 새 버전 대기 중');
+    // autoUpdate 모드에선 호출되지 않지만, 안전망으로 즉시 적용.
+    updateSW(true);
   },
   onOfflineReady() {
     if (import.meta.env.DEV) console.info('[PWA] 오프라인 사용 준비 완료');
