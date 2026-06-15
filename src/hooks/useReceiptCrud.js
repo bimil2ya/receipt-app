@@ -125,8 +125,18 @@ export default function useReceiptCrud({
               title: '저장 동기화 실패',
               detail: formatFailureDetail(err),
             });
-            await appendSyncOp({ type: 'upsert', items: preparedItems });
-            retryPendingSync();
+            try {
+              await appendSyncOp({ type: 'upsert', items: preparedItems });
+              retryPendingSync();
+            } catch (queueErr) {
+              console.error('Sync queue append failed:', queueErr);
+              recordSyncEvent({
+                kind: 'save',
+                status: 'error',
+                title: '보류 큐 적재 실패',
+                detail: formatFailureDetail(queueErr),
+              });
+            }
           }
         }
 
@@ -196,8 +206,18 @@ export default function useReceiptCrud({
               title: '삭제 동기화 실패',
               detail: formatFailureDetail(err),
             });
-            await appendSyncOp({ type: 'delete', id });
-            retryPendingSync();
+            try {
+              await appendSyncOp({ type: 'delete', id });
+              retryPendingSync();
+            } catch (queueErr) {
+              console.error('Sync queue append failed:', queueErr);
+              recordSyncEvent({
+                kind: 'delete',
+                status: 'error',
+                title: '보류 큐 적재 실패',
+                detail: formatFailureDetail(queueErr),
+              });
+            }
           }
         }
         resolve();
@@ -235,7 +255,7 @@ export default function useReceiptCrud({
     const db = await dbOpen();
     const tx = db.transaction(STORE_CARDS, 'readwrite');
     tx.objectStore(STORE_CARDS).put(card);
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       tx.oncomplete = () => {
         onCardsLoaded(prev => {
           const idx = prev.findIndex(c => c.cardNumber === card.cardNumber);
@@ -244,6 +264,8 @@ export default function useReceiptCrud({
         });
         resolve();
       };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('saveCard transaction aborted'));
     });
   }, [dbOpen, onCardsLoaded]);
 
@@ -252,11 +274,13 @@ export default function useReceiptCrud({
     const tx = db.transaction(STORE_HISTORY, 'readonly');
     const index = tx.objectStore(STORE_HISTORY).index('receiptId');
     const request = index.getAll(receiptId);
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       request.onsuccess = () => {
         const sorted = (request.result || []).sort((a, b) => new Date(b.editedAt) - new Date(a.editedAt));
         resolve(sorted);
       };
+      request.onerror = () => reject(request.error);
+      tx.onabort = () => reject(tx.error || new Error('getHistory transaction aborted'));
     });
   }, [dbOpen]);
 

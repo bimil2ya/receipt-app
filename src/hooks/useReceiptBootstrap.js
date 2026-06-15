@@ -60,8 +60,17 @@ export default function useReceiptBootstrap({
             const deviceId = readStorageItem('device_num', 'system');
             const { data, error } = await supabase.from('receipts').select('*').eq('userId', deviceId);
             if (!error && data && data.length > 0) {
-              const supaToMigrate = data.filter(r => r.imageUrl);
-              if (supaToMigrate.length > 0) {
+              const localById = new Map(allReceipts.map(r => [r.id, r]));
+              const mergeable = data.filter(remote => {
+                const local = localById.get(remote.id);
+                if (!local) return true;
+                const localTs = Date.parse(local.updatedAt || '') || 0;
+                const remoteTs = Date.parse(remote.updatedAt || '') || 0;
+                return remoteTs > localTs;
+              });
+
+              if (mergeable.length > 0) {
+                const supaToMigrate = mergeable.filter(r => r.imageUrl);
                 const supaImageMap = new Map();
                 for (const r of supaToMigrate) {
                   if (r.imageId && !supaImageMap.has(r.imageId) && r.imageUrl) {
@@ -69,31 +78,29 @@ export default function useReceiptBootstrap({
                     catch (e) { if (import.meta.env.DEV) console.warn('Supabase blob 변환 실패:', e); }
                   }
                 }
+
+                const storeNames = supaImageMap.size > 0 ? [STORE_RECEIPTS, STORE_IMAGES] : [STORE_RECEIPTS];
                 await new Promise((resolve, reject) => {
-                  const supaTx = db.transaction([STORE_RECEIPTS, STORE_IMAGES], 'readwrite');
+                  const supaTx = db.transaction(storeNames, 'readwrite');
                   const rStore = supaTx.objectStore(STORE_RECEIPTS);
-                  const iStore = supaTx.objectStore(STORE_IMAGES);
-                  supaImageMap.forEach((blob, imageId) => iStore.put({ imageId, blob, createdAt: Date.now() }));
-                  data.forEach(item => {
+                  if (supaImageMap.size > 0) {
+                    const iStore = supaTx.objectStore(STORE_IMAGES);
+                    supaImageMap.forEach((blob, imageId) => iStore.put({ imageId, blob, createdAt: Date.now() }));
+                  }
+                  mergeable.forEach(item => {
                     const clean = { ...item };
                     delete clean.imageUrl;
                     rStore.put(clean);
                   });
                   supaTx.oncomplete = resolve;
                   supaTx.onerror = () => reject(supaTx.error);
+                  supaTx.onabort = () => reject(supaTx.error || new Error('Supabase merge transaction aborted'));
                 });
-              } else {
-                await new Promise((resolve, reject) => {
-                  const tx = db.transaction(STORE_RECEIPTS, 'readwrite');
-                  const store = tx.objectStore(STORE_RECEIPTS);
-                  data.forEach(item => {
-                    const clean = { ...item };
-                    delete clean.imageUrl;
-                    store.put(clean);
-                  });
-                  tx.oncomplete = resolve;
-                  tx.onerror = () => reject(tx.error);
-                });
+              }
+
+              if (import.meta.env.DEV) {
+                const skipped = data.length - mergeable.length;
+                if (skipped > 0) console.log(`🔄 Supabase 동기화: ${mergeable.length}건 반영, ${skipped}건은 로컬이 더 최신이라 건너뜀`);
               }
             }
             onSyncStatusChange?.('success');

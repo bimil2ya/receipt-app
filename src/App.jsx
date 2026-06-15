@@ -451,7 +451,7 @@ export default function App() {
                 <input id="cam-i" type="file" capture="environment" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
               </div>
 
-              {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700"><RefreshCw size={26} className="animate-spin text-blue-300" /><span className="text-lg font-black">{procMsg}</span></div>}
+              {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700 min-w-0"><RefreshCw size={26} className="animate-spin text-blue-300 shrink-0" /><span className="text-lg font-black min-w-0 break-words">{procMsg}</span></div>}
 
               {receipts.length > 0 && (
                 <div className="text-center text-sm text-slate-400 px-1 font-bold">

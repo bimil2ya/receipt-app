@@ -22,7 +22,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     const totalImages = files.length;
 
     for (const file of files) {
-      setProcMsg(`분석 중 (${added.length + notReceiptCount + failCount + duplicateCount + 1}/${totalImages}): ${file.name}`);
+      setProcMsg(`분석 중 ${added.length + notReceiptCount + failCount + duplicateCount + 1}/${totalImages}`);
       
       try {
         const { b64, mimeType } = await compressToBase64(file);

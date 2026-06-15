@@ -63,6 +63,16 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
     });
   }, [dbOpen]);
 
+  const updateQueueItem = useCallback(async (item) => {
+    const db = await dbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_SYNC_QUEUE, 'readwrite');
+      tx.objectStore(STORE_SYNC_QUEUE).put(item);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }, [dbOpen]);
+
   const recordSyncEvent = useCallback((event) => {
     const item = { id: crypto.randomUUID(), at: Date.now(), ...event };
     syncEventWriteRef.current = syncEventWriteRef.current.then(async () => {
@@ -137,42 +147,88 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
     syncingRef.current = true;
     onSyncStatusChange?.('syncing');
 
+    const MAX_ATTEMPTS = 5;
+    const BASE_DELAY_MS = 5_000;
+    const MAX_DELAY_MS = 5 * 60 * 1000;
+    const now = Date.now();
+
     let processed = 0;
+    let failed = 0;
+    let deferred = 0;
+    let dropped = 0;
+    let lastError = null;
+
     try {
       for (const op of queue) {
         if (!op) continue;
-        if (op.type === 'upsert') {
-          const { error } = await supabase.from('receipts').upsert(op.items || []);
-          if (error) throw error;
-        } else if (op.type === 'delete') {
-          const { error } = await supabase.from('receipts').delete().eq('id', op.id);
-          if (error) throw error;
+        const attempts = op.attempts || 0;
+
+        if (attempts >= MAX_ATTEMPTS) {
+          await deleteQueueItem(op.queueId).catch(() => {});
+          dropped += 1;
+          recordSyncEvent({
+            kind: 'sync',
+            status: 'error',
+            title: '보류 작업 포기',
+            detail: `재시도 ${attempts}회 초과 (${op.type})`,
+          });
+          continue;
         }
-        await deleteQueueItem(op.queueId);
-        processed += 1;
+
+        if (op.nextAttemptAt && op.nextAttemptAt > now) {
+          deferred += 1;
+          continue;
+        }
+
+        try {
+          if (op.type === 'upsert') {
+            const { error } = await supabase.from('receipts').upsert(op.items || []);
+            if (error) throw error;
+          } else if (op.type === 'delete') {
+            const { error } = await supabase.from('receipts').delete().eq('id', op.id);
+            if (error) throw error;
+          }
+          await deleteQueueItem(op.queueId);
+          processed += 1;
+        } catch (err) {
+          lastError = err;
+          failed += 1;
+          const nextAttempts = attempts + 1;
+          const backoff = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempts);
+          await updateQueueItem({
+            ...op,
+            attempts: nextAttempts,
+            lastAttemptAt: now,
+            nextAttemptAt: now + backoff,
+            lastError: formatFailureDetail(err),
+          }).catch(() => {});
+        }
       }
-      setPendingSyncCount(Math.max(0, queue.length - processed));
-      onSyncStatusChange?.('success');
-      recordSyncEvent({
-        kind: 'sync',
-        status: 'success',
-        title: '보류 작업 전송 완료',
-        detail: `${processed}건 처리`,
-      });
-    } catch (err) {
-      const remaining = Math.max(0, queue.length - processed);
-      setPendingSyncCount(remaining);
-      onSyncStatusChange?.('error');
-      recordSyncEvent({
-        kind: 'sync',
-        status: 'error',
-        title: '보류 작업 전송 실패',
-        detail: formatFailureDetail(err),
-      });
+
+      const remaining = failed + deferred + (queue.length - processed - failed - deferred - dropped);
+      setPendingSyncCount(Math.max(0, remaining));
+
+      if (failed === 0 && processed > 0) {
+        onSyncStatusChange?.('success');
+        recordSyncEvent({
+          kind: 'sync',
+          status: 'success',
+          title: '보류 작업 전송 완료',
+          detail: `${processed}건 처리${dropped > 0 ? ` (${dropped}건 포기)` : ''}`,
+        });
+      } else if (failed > 0) {
+        onSyncStatusChange?.('error');
+        recordSyncEvent({
+          kind: 'sync',
+          status: 'error',
+          title: '보류 작업 일부 실패',
+          detail: `${processed}건 처리 / ${failed}건 재시도 예약${dropped > 0 ? ` / ${dropped}건 포기` : ''} · ${formatFailureDetail(lastError)}`,
+        });
+      }
     } finally {
       syncingRef.current = false;
     }
-  }, [deleteQueueItem, loadSyncQueue, onSyncStatusChange, recordSyncEvent]);
+  }, [deleteQueueItem, loadSyncQueue, onSyncStatusChange, recordSyncEvent, updateQueueItem]);
 
   useEffect(() => {
     (async () => {
