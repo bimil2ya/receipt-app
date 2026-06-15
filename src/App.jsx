@@ -74,18 +74,6 @@ export default function App() {
   const [mf, setMf] = useState({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
   const [editState, setEditState] = useState({ id: null, field: null, value: '' });
 
-  // ── 최근 추가 ID (세션 단위)
-  const [recentlyAddedIds, setRecentlyAddedIds] = useState(() => {
-    try { const saved = sessionStorage.getItem('recently_added_ids'); return saved ? JSON.parse(saved) : []; } catch { return []; }
-  });
-  useEffect(() => {
-    try {
-      sessionStorage.setItem('recently_added_ids', JSON.stringify(recentlyAddedIds));
-    } catch {
-      // 세션 저장소가 막혀도 현재 화면은 유지한다.
-    }
-  }, [recentlyAddedIds]);
-
   // ── Drive 업로드 진행
   const [driveUploading, setDriveUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -94,7 +82,6 @@ export default function App() {
   const { handleFiles, processing, procMsg } = useUploader({
     onUploadSuccess: async (added) => {
       await saveReceipts(added);
-      setRecentlyAddedIds(prev => [...prev, ...added.map(r => r.id)]);
       showToast(`${added.length}건 추가 완료`);
     },
     onUploadError: ({ failedFiles, duplicateCount }) => {
@@ -147,7 +134,6 @@ export default function App() {
     if (!mf.storeName) return;
     const newId = crypto.randomUUID();
     await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
-    setRecentlyAddedIds(prev => [...prev, newId]);
     setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
     requestAnimationFrame(() => manualStoreRef.current?.focus());
     showToast('✅ 1건 추가 완료');
@@ -306,16 +292,14 @@ export default function App() {
   const remainingBudget = Math.max(0, weeklyBudget - budgetTotal);
   const [showBudgetDetails, setShowBudgetDetails] = useState(false);
 
-  const displayReceipts = receipts;
-  const { newItems, oldItems } = useMemo(() => {
-    const list = [...(displayReceipts || [])].sort((a, b) => {
+  const sortedReceipts = useMemo(() => {
+    return [...(receipts || [])].sort((a, b) => {
       const av = a[sortField] ?? '', bv = b[sortField] ?? '';
       let res = typeof av === 'string' || typeof bv === 'string' ? String(av).localeCompare(String(bv), 'ko') : av > bv ? 1 : av < bv ? -1 : 0;
       if (sortDir === 'desc') res = -res;
       return res || (b.createdAt - a.createdAt);
     });
-    return { newItems: list.filter(r => recentlyAddedIds.includes(r.id)), oldItems: list.filter(r => !recentlyAddedIds.includes(r.id)) };
-  }, [displayReceipts, sortField, sortDir, recentlyAddedIds]);
+  }, [receipts, sortField, sortDir]);
 
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
 
@@ -490,11 +474,7 @@ export default function App() {
                   ))}
                   <div className="w-16 shrink-0 ml-1"></div>
                 </div>
-                {newItems.map((r, index) => <ReceiptRow key={r.id} receipt={r} rowIndex={index} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
-                {newItems.length > 0 && oldItems.length > 0 && (
-                  <div className="bg-white/[0.04] px-4 py-2.5 text-xs font-black text-slate-300">이전 내역</div>
-                )}
-                {oldItems.map((r, index) => <ReceiptRow key={r.id} receipt={r} rowIndex={index} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
+                {sortedReceipts.map((r, index) => <ReceiptRow key={r.id} receipt={r} rowIndex={index} isSelected={detailId === r.id} onEdit={handleEdit} onViewImage={handleViewImage} onDelete={setDeleteConfirmId} />)}
               </div>
             </div>
           )}
