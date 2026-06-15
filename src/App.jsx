@@ -84,8 +84,9 @@ export default function App() {
   // ── 파일 OCR 업로드 훅
   const { handleFiles, processing, procMsg } = useUploader({
     onUploadSuccess: async (added) => {
-      await saveReceipts(added);
+      // 저장보다 먼저 핀 등록 → receipts 상태에 영수증이 추가되는 그 렌더부터 즉시 최상단 표시
       setPinnedNewIds(prev => [...prev, ...added.map(r => r.id)]);
+      await saveReceipts(added);
       showToast(`${added.length}건 추가 완료`);
     },
     onUploadError: ({ failedFiles, duplicateCount }) => {
@@ -137,8 +138,9 @@ export default function App() {
   const handleManualAdd = async () => {
     if (!mf.storeName) return;
     const newId = crypto.randomUUID();
-    await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
+    // 저장보다 먼저 핀 등록 → receipts 갱신 즉시 최상단 표시
     setPinnedNewIds(prev => [...prev, newId]);
+    await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
     setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
     requestAnimationFrame(() => manualStoreRef.current?.focus());
     showToast('✅ 1건 추가 완료');
