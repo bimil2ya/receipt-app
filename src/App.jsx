@@ -477,9 +477,14 @@ export default function App() {
               )}
 
               <div className="bg-slate-800 rounded-3xl border-2 border-slate-700 overflow-hidden">
-                <div className="bg-slate-900/50 px-4 py-3 flex text-sm font-black text-slate-300 gap-1.5 items-center">
+                <div className="bg-slate-900/50 px-4 flex text-sm font-black text-slate-300 gap-1.5 items-stretch">
                   {[['date', '날짜', 'w-12 text-center'], ['storeName', '사용처', 'flex-1 ml-1'], ['category', '용도', 'w-12 text-center'], ['totalAmount', '금액', 'w-16 text-right']].map(([f, l, cls]) => (
-                    <button key={f} onClick={() => { if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); else { setSortField(f); setSortDir('desc'); } }} className={`${cls} flex items-center justify-center gap-0.5 ${sortField === f ? 'text-blue-400' : ''}`}>
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => { if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); else { setSortField(f); setSortDir('desc'); } }}
+                      className={`${cls} flex items-center justify-center gap-0.5 py-3 min-h-[44px] active:bg-slate-800 transition-colors ${sortField === f ? 'text-blue-400' : ''}`}
+                    >
                       {l} {sortField === f && (sortDir === 'asc' ? '↑' : '↓')}
                     </button>
                   ))}
