@@ -64,7 +64,6 @@ export default function App() {
   const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const manualStoreRef = useRef(null);
-  const budgetAmountRef = useRef(null);
 
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
@@ -627,7 +626,7 @@ export default function App() {
 
       {/* ── 예산 설정 모달 */}
       {showBudgetCalcModal && (
-        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)} initialFocusRef={budgetAmountRef}>
+        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)}>
           <div className="space-y-5 p-4">
             {/* 새 출장 시작 (맨 위 — 정산 직후 진입 시 가장 먼저 보이는 액션) */}
             <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
@@ -683,7 +682,6 @@ export default function App() {
             <div>
               <label className="text-sm text-slate-400 font-black mb-2 block">예산 직접 입력 (원)</label>
               <input
-                ref={budgetAmountRef}
                 type="number"
                 value={tempBudget}
                 onChange={e => setTempBudget(e.target.value)}
