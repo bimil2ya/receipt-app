@@ -74,31 +74,31 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
   }
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-700 p-4">
+    <div className="bg-slate-900 rounded-2xl border border-slate-700 p-3">
       {/* 안내 텍스트 */}
-      <p className={`text-sm font-bold mb-4 text-center ${hint.color}`}>{hint.text}</p>
+      <p className={`text-sm font-bold mb-2 text-center ${hint.color}`}>{hint.text}</p>
 
       {/* 월 이동 헤더 */}
-      <div className="flex items-center justify-between mb-4 px-1">
+      <div className="flex items-center justify-between mb-2 px-1">
         <button
           onClick={prevMonth}
-          className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
+          className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
         >‹</button>
         <span className="text-lg font-black text-white">
           {viewYear}년 {viewMonth + 1}월
         </span>
         <button
           onClick={nextMonth}
-          className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
+          className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
         >›</button>
       </div>
 
       {/* 요일 헤더 */}
-      <div className="grid grid-cols-7 mb-2">
+      <div className="grid grid-cols-7 mb-0.5">
         {DAY_LABELS.map((d, i) => (
           <div
             key={d}
-            className={`text-center text-sm font-black py-1 ${i === 0 ? 'text-red-300' : 'text-slate-400'}`}
+            className={`text-center text-xs font-black py-0 ${i === 0 ? 'text-red-300' : 'text-slate-400'}`}
           >{d}</div>
         ))}
       </div>
@@ -107,7 +107,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       <div className="grid grid-cols-7">
         {/* 1일 이전 빈 셀 */}
         {Array.from({ length: firstDayOfMonth }).map((_, i) => (
-          <div key={`empty-${i}`} className="h-12" />
+          <div key={`empty-${i}`} className="h-9" />
         ))}
 
         {/* 날짜 셀 */}
@@ -139,16 +139,16 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           return (
             <div
               key={day}
-              className={`relative h-12 flex items-center justify-center ${cellBg}`}
+              className={`relative h-9 flex items-center justify-center ${cellBg}`}
             >
               {rangeBg && <div className={`absolute inset-0 ${rangeBg}`} />}
               <button
                 onClick={() => handleDayClick(dateStr)}
-                className={`relative w-10 h-10 flex flex-col items-center justify-center text-sm font-bold active:scale-95 transition-transform ${circleStyle} ${!circleStyle ? textColor : ''}`}
+                className={`relative w-9 h-9 flex flex-col items-center justify-center text-sm font-bold active:scale-95 transition-transform ${circleStyle} ${!circleStyle ? textColor : ''}`}
               >
                 <span>{day}</span>
                 {isToday && !isStart && !isEnd && (
-                  <span className="absolute bottom-1 w-1.5 h-1.5 rounded-full bg-blue-400" />
+                  <span className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" />
                 )}
               </button>
             </div>
