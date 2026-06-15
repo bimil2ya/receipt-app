@@ -74,6 +74,9 @@ export default function App() {
   const [mf, setMf] = useState({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
   const [editState, setEditState] = useState({ id: null, field: null, value: '' });
 
+  // ── 방금 추가한 영수증을 정렬과 무관하게 맨 위에 유지 (사용자가 정렬 토글하면 해제)
+  const [pinnedNewIds, setPinnedNewIds] = useState([]);
+
   // ── Drive 업로드 진행
   const [driveUploading, setDriveUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -82,6 +85,7 @@ export default function App() {
   const { handleFiles, processing, procMsg } = useUploader({
     onUploadSuccess: async (added) => {
       await saveReceipts(added);
+      setPinnedNewIds(prev => [...prev, ...added.map(r => r.id)]);
       showToast(`${added.length}건 추가 완료`);
     },
     onUploadError: ({ failedFiles, duplicateCount }) => {
@@ -134,6 +138,7 @@ export default function App() {
     if (!mf.storeName) return;
     const newId = crypto.randomUUID();
     await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
+    setPinnedNewIds(prev => [...prev, newId]);
     setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
     requestAnimationFrame(() => manualStoreRef.current?.focus());
     showToast('✅ 1건 추가 완료');
@@ -293,13 +298,23 @@ export default function App() {
   const [showBudgetDetails, setShowBudgetDetails] = useState(false);
 
   const sortedReceipts = useMemo(() => {
-    return [...(receipts || [])].sort((a, b) => {
+    const base = [...(receipts || [])].sort((a, b) => {
       const av = a[sortField] ?? '', bv = b[sortField] ?? '';
       let res = typeof av === 'string' || typeof bv === 'string' ? String(av).localeCompare(String(bv), 'ko') : av > bv ? 1 : av < bv ? -1 : 0;
       if (sortDir === 'desc') res = -res;
       return res || (b.createdAt - a.createdAt);
     });
-  }, [receipts, sortField, sortDir]);
+    if (pinnedNewIds.length === 0) return base;
+    // 방금 추가된 항목을 추가 순서 역순(최신 먼저)으로 맨 위에 고정
+    const pinnedSet = new Set(pinnedNewIds);
+    const pinned = pinnedNewIds
+      .slice()
+      .reverse()
+      .map(id => base.find(r => r.id === id))
+      .filter(Boolean);
+    const rest = base.filter(r => !pinnedSet.has(r.id));
+    return [...pinned, ...rest];
+  }, [receipts, sortField, sortDir, pinnedNewIds]);
 
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
 
@@ -466,7 +481,11 @@ export default function App() {
                     <button
                       key={f}
                       type="button"
-                      onClick={() => { if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc'); else { setSortField(f); setSortDir('desc'); } }}
+                      onClick={() => {
+                        setPinnedNewIds([]);  // 정렬 토글 시 '맨 위 고정' 해제
+                        if (sortField === f) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                        else { setSortField(f); setSortDir('desc'); }
+                      }}
                       className={`${cls} flex items-center justify-center gap-0.5 py-3 min-h-[44px] active:bg-slate-800 transition-colors ${sortField === f ? 'text-blue-400' : ''}`}
                     >
                       {l} {sortField === f && (sortDir === 'asc' ? '↑' : '↓')}
