@@ -390,15 +390,15 @@ export default function App() {
           {/* 예산 패널 (이미지 탭 제외) */}
           {tab !== 'images' && (
             <div className="bg-slate-800 border border-slate-700 rounded-2xl p-3.5 shadow-md">
-              <div className="flex justify-between items-end mb-1.5">
-                <div className="flex flex-col">
-                  <span className="text-base text-slate-200 font-black">남은 예산</span>
-                  <span className="text-sm text-blue-300 font-bold">유류비·의료비등 제외</span>
+              <div className="flex justify-between items-end mb-1.5 gap-2">
+                <div className="flex flex-col min-w-0">
+                  <span className="text-base text-slate-200 font-black whitespace-nowrap">남은 예산</span>
+                  <span className="text-xs text-blue-300 font-bold whitespace-nowrap">유류비·의료비등 제외</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xl font-black">{formatCurrency(remainingBudget)}</span>
-                  <span className="text-sm text-slate-400">/ {formatCurrency(weeklyBudget)}</span>
-                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 w-11 h-11 rounded-xl border border-slate-700 bg-slate-900/70 text-slate-300" aria-label="예산 설정">⚙️</button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-xl font-black whitespace-nowrap">{formatCurrency(remainingBudget)}</span>
+                  <span className="text-xs text-slate-400 whitespace-nowrap">/ {formatCurrency(weeklyBudget)}</span>
+                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 w-8 h-8 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 text-sm flex items-center justify-center" aria-label="예산 설정">⚙️</button>
                 </div>
               </div>
               <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">
