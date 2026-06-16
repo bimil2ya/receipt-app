@@ -131,20 +131,20 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
             textColor = 'text-blue-300';
           }
 
-          // 범위 연결 배경: 시작일 오른쪽, 종료일 왼쪽 반원
-          let rangeBg = '';
-          if (isStart && endDate) rangeBg = 'bg-gradient-to-r from-transparent via-transparent to-blue-900/40';
-          if (isEnd && startDate) rangeBg = 'bg-gradient-to-l from-transparent via-transparent to-blue-900/40';
+          // 시작/끝 셀에 반쪽 범위 배경(연결감) — iOS 페인트 부담을 줄이려 그라디언트 대신 solid 사용
+          let halfRangeBg = '';
+          if (isStart && endDate) halfRangeBg = 'right-0 left-1/2 bg-blue-900/30';
+          if (isEnd && startDate) halfRangeBg = 'left-0 right-1/2 bg-blue-900/30';
 
           return (
             <div
               key={day}
               className={`relative h-9 flex items-center justify-center ${cellBg}`}
             >
-              {rangeBg && <div className={`absolute inset-0 ${rangeBg}`} />}
+              {halfRangeBg && <div className={`absolute top-0 bottom-0 ${halfRangeBg}`} />}
               <button
                 onClick={() => handleDayClick(dateStr)}
-                className={`relative w-9 h-9 flex flex-col items-center justify-center text-sm font-bold active:scale-95 transition-transform ${circleStyle} ${!circleStyle ? textColor : ''}`}
+                className={`relative w-9 h-9 flex flex-col items-center justify-center text-sm font-bold ${circleStyle} ${!circleStyle ? textColor : ''}`}
               >
                 <span>{day}</span>
                 {isToday && !isStart && !isEnd && (

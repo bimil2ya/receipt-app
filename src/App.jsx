@@ -71,6 +71,11 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const manualStoreRef = useRef(null);
 
+  // Modal onClose 핸들러를 안정화 — Modal 내부 useEffect가 매 state 변경마다 재바인딩되는 비용 제거
+  const closeBudgetModal = useCallback(() => setShowBudgetCalcModal(false), []);
+  const closeManualModal = useCallback(() => setShowManualModal(false), []);
+  const closeDeleteConfirm = useCallback(() => setDeleteConfirmId(null), []);
+
   // ── 검색/필터
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | category name
@@ -703,7 +708,7 @@ export default function App() {
 
       {/* ── 삭제 확인 모달 */}
       {deleteConfirmId && (
-        <Modal title="삭제?" onClose={() => setDeleteConfirmId(null)}>
+        <Modal title="삭제?" onClose={closeDeleteConfirm}>
           <div className="p-2 flex gap-4">
             <button onClick={() => setDeleteConfirmId(null)} className="flex-1 bg-slate-700 py-5 rounded-2xl font-black text-lg">취소</button>
             <button onClick={() => { deleteReceipt(deleteConfirmId); setDeleteConfirmId(null); }} className="flex-1 bg-red-600 py-5 rounded-2xl font-black text-lg">삭제</button>
@@ -713,7 +718,7 @@ export default function App() {
 
       {/* ── 직접 입력 모달 */}
       {showManualModal && (
-        <Modal title="➕ 직접 입력" onClose={() => setShowManualModal(false)} initialFocusRef={manualStoreRef}>
+        <Modal title="➕ 직접 입력" onClose={closeManualModal} initialFocusRef={manualStoreRef}>
           <div className="space-y-5 p-2">
             <input ref={manualStoreRef} placeholder="🏢 사용처" value={mf.storeName} onChange={e => setMf({ ...mf, storeName: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
             <input type="number" placeholder="💰 금액" value={mf.totalAmount} onChange={e => setMf({ ...mf, totalAmount: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
@@ -740,7 +745,7 @@ export default function App() {
 
       {/* ── 예산 설정 모달 */}
       {showBudgetCalcModal && (
-        <Modal title="📅 예산 설정" onClose={() => setShowBudgetCalcModal(false)}>
+        <Modal title="📅 예산 설정" onClose={closeBudgetModal}>
           <div className="space-y-5 p-4">
             {/* 새 출장 시작 (맨 위 — 정산 직후 진입 시 가장 먼저 보이는 액션) */}
             <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
