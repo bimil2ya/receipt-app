@@ -1,8 +1,38 @@
 export const config = { runtime: 'edge' };
 
+// 모듈 메모리 기반 분당 호출 제한 — Edge 런타임은 워커 인스턴스마다 메모리가 분리되므로
+// 인스턴스 단위로만 적용됨(완전한 글로벌 제한은 외부 store 필요). 대량 자동화 호출의 단일
+// 인스턴스 폭주만 누그러뜨리는 1차 방어선으로 동작.
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX_PER_WINDOW = 30;
+const rateBuckets = new Map(); // key: origin → { count, resetAt }
+
+function rateLimitCheck(key) {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return { ok: true };
+  }
+  if (bucket.count >= RATE_MAX_PER_WINDOW) {
+    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+  bucket.count += 1;
+  return { ok: true };
+}
+
 export default async function handler(req) {
+  // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
+  const ALLOWED_ORIGINS = [
+    'https://receipt-app-rho.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ];
+  const origin = req.headers.get('origin') || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   const resHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Vary': 'Origin',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
@@ -10,9 +40,31 @@ export default async function handler(req) {
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: resHeaders });
   if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: resHeaders });
 
+  // 프로덕션에서 허용되지 않은 출처는 403
+  if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
+    const referer = req.headers.get('referer') || '';
+    const refererOk = ALLOWED_ORIGINS.some(o => referer.startsWith(o + '/') || referer === o);
+    if (!refererOk) {
+      return new Response(JSON.stringify({ success: false, error: '허용되지 않은 출처', detail: `origin: ${origin || '(없음)'}` }), { status: 403, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+    }
+  }
+
+  // 분당 호출 제한 (출처 단위)
+  const rateKey = origin || 'unknown';
+  const rate = rateLimitCheck(rateKey);
+  if (!rate.ok) {
+    return new Response(JSON.stringify({
+      success: false,
+      error: '호출 빈도 제한',
+      detail: `분당 ${RATE_MAX_PER_WINDOW}회 초과. ${rate.retryAfterSec}초 후 재시도.`,
+    }), { status: 429, headers: { ...resHeaders, 'Content-Type': 'application/json', 'Retry-After': String(rate.retryAfterSec) } });
+  }
+
   try {
     const body = await req.json();
-    const rawKey = body.apiKey || process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
+    // 클라이언트 키만 사용 — 서버 폴백 키(CLAUDE_API_KEY/ANTHROPIC_API_KEY) 의존 제거.
+    // 외부 호출자가 서버 키를 소진하는 시나리오 차단.
+    const rawKey = body.apiKey;
     const apiKey = rawKey ? rawKey.replace(/[\s\u200B-\u200D\uFEFF]/g, '') : null;
     
     if (!apiKey || !apiKey.startsWith('sk-ant-')) {
