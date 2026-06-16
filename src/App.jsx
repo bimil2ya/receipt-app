@@ -60,7 +60,6 @@ export default function App() {
 
   // ── 앱 설정 (localStorage 동기화)
   const [names, setNames] = useState(() => readStorageItem('receipt_names', '노경호, 김영일'));
-  const [reportDate, setReportDate] = useState(() => readStorageItem('receipt_date', ''));
   const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(readStorageItem('weekly_budget', '1000000')));
 
   // ── 모달 토글
@@ -83,8 +82,10 @@ export default function App() {
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
-  const [tripStartDate, setTripStartDate] = useState(getToday());
-  const [tripEndDate, setTripEndDate] = useState(getToday());
+  // tripStartDate가 단일 진실 공급원 — 헤더/내보내기/보고서 기준일로 모두 사용.
+  // 마이그레이션: 기존 receipt_date가 있으면 그걸 초기값으로 사용.
+  const [tripStartDate, setTripStartDate] = useState(() => readStorageItem('trip_start_date', '') || readStorageItem('receipt_date', '') || getToday());
+  const [tripEndDate, setTripEndDate] = useState(() => readStorageItem('trip_end_date', '') || readStorageItem('trip_start_date', '') || getToday());
   const [mf, setMf] = useState({ date: getToday(), storeName: '', totalAmount: '', category: '식비', note: '' });
   const [editState, setEditState] = useState({ id: null, field: null, value: '' });
 
@@ -187,8 +188,13 @@ export default function App() {
     try {
       await resetDeviceData();
       if (newDate) {
-        setReportDate(newDate);
-        writeStorageItem('receipt_date', newDate);
+        setTripStartDate(newDate);
+        writeStorageItem('trip_start_date', newDate);
+        // 끝일이 시작일보다 이르면 끝일도 같이 시작일로 맞춤
+        if (tripEndDate < newDate) {
+          setTripEndDate(newDate);
+          writeStorageItem('trip_end_date', newDate);
+        }
       }
       const budgetVal = Math.max(0, parseInt(newBudget) || 0);
       setWeeklyBudget(budgetVal);
@@ -246,7 +252,7 @@ export default function App() {
       const _uploadToken = import.meta.env.VITE_UPLOAD_TOKEN || '';
       const _authHeaders = { 'Content-Type': 'application/json', ...(_uploadToken ? { 'Authorization': `Bearer ${_uploadToken}` } : {}) };
 
-      const xlsxRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary }) });
+      const xlsxRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary }) });
       if (!xlsxRes.ok) { const e = await xlsxRes.json().catch(() => ({})); throw new Error(formatFailureMessage('명세 업로드 실패', e.error || `상태 ${xlsxRes.status}`)); }
       const xlsxData = await xlsxRes.json().catch(() => ({}));
       cur++; setUploadProgress(Math.floor((cur / totalSteps) * 100));
@@ -255,7 +261,7 @@ export default function App() {
       for (const img of imgs) {
         let imgRes, imgData;
         try {
-          imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [img], isImageOnly: true }) });
+          imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), images: [img], isImageOnly: true }) });
           imgData = await imgRes.json().catch(() => ({}));
         } catch (netErr) {
           imgRes = { ok: false, status: 0 };
@@ -316,7 +322,7 @@ export default function App() {
         if (fail.kind === 'image') {
           const res = await fetch('/api/upload', {
             method: 'POST', headers: _authHeaders,
-            body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [fail.img], isImageOnly: true }),
+            body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), images: [fail.img], isImageOnly: true }),
           });
           ok = res.ok;
         }
@@ -461,7 +467,7 @@ export default function App() {
       <div className="shrink-0 shadow-lg">
         <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(reportDate || getToday())}`}</h1>
+            <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
             <div className="flex items-center gap-1">
               {saveStatus === 'saving' && <Loader2 size={18} className="text-blue-300 animate-spin shrink-0" title="로컬 저장 중" />}
               {saveStatus === 'success' && <HardDrive size={18} className="text-emerald-300 shrink-0" title="로컬 저장 완료" />}
@@ -707,7 +713,7 @@ export default function App() {
 
           {/* ── 집계 탭 */}
           {tab === 'summary' && (
-            <SummaryTab receipts={receipts} names={names} reportDate={reportDate} />
+            <SummaryTab receipts={receipts} names={names} reportDate={tripStartDate} />
           )}
         </div>
       </main>
@@ -719,8 +725,6 @@ export default function App() {
         showToast={showToast}
         names={names}
         onNamesChange={(v) => { setNames(v); writeStorageItem('receipt_names', v); }}
-        reportDate={reportDate}
-        onDateChange={(v) => { setReportDate(v); writeStorageItem('receipt_date', v); }}
         onReset={() => { resetAll(); }}
         onResetDeviceData={resetDeviceData}
         onResetActivityLogs={resetActivityLogs}
@@ -852,11 +856,16 @@ export default function App() {
               </button>
             </div>
 
-            {/* 날짜 범위 캘린더 */}
+            {/* 날짜 범위 캘린더 — 캘린더에서 시작일 변경 시 헤더의 날짜도 즉시 반영됨 */}
             <DateRangePicker
               startDate={tripStartDate}
               endDate={tripEndDate}
-              onChange={(s, e) => { setTripStartDate(s); setTripEndDate(e); }}
+              onChange={(s, e) => {
+                setTripStartDate(s);
+                setTripEndDate(e);
+                writeStorageItem('trip_start_date', s);
+                writeStorageItem('trip_end_date', e);
+              }}
             />
             {/* 자동계산 미리보기 */}
             {(() => {

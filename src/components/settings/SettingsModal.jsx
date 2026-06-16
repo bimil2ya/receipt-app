@@ -12,8 +12,6 @@ export default function SettingsModal({
   showToast,
   names,
   onNamesChange,
-  reportDate,
-  onDateChange,
   onReset,
   onResetDeviceData,
   onResetActivityLogs,
@@ -175,16 +173,6 @@ export default function SettingsModal({
               inputMode="text"
               enterKeyHint="done"
               className="flex-1 h-[52px] bg-slate-900 border-2 border-slate-700 rounded-xl px-4 text-white font-black text-base"
-            />
-          </div>
-          {/* 날짜 */}
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-400 font-black w-12 shrink-0">날짜</span>
-            <input
-              type="date"
-              value={reportDate}
-              onChange={e => onDateChange(e.target.value)}
-              className="h-[52px] w-auto bg-slate-900 border-2 border-slate-700 rounded-xl px-4 text-white font-bold text-base"
             />
           </div>
         </div>
