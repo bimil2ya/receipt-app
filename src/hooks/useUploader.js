@@ -16,8 +16,6 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     setProcessing(true);
     const added = [];
     const failedFiles = [];
-    let notReceiptCount = 0;
-    let failCount = 0;
     let duplicateCount = 0;
     let completedCount = 0;
     const totalImages = files.length;
@@ -87,12 +85,10 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         setProcMsg(`분석 중 ${completedCount}/${totalImages}`);
 
         if (fileResult.error) {
-          failCount += 1;
           failedFiles.push({ name: fileResult.fileName, error: fileResult.error });
           continue;
         }
         if (fileResult.notReceipt) {
-          notReceiptCount += 1;
           continue;
         }
 
