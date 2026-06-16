@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
-import { TODAY, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
+import { getToday, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
 import { decryptData } from '../utils/crypto';
 import { readStorageItem } from '../utils/storage';
 
@@ -119,7 +119,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             id: crypto.randomUUID(),
             imageId: fileResult.imageId,
             imageUrl: fileResult.imageBase64,
-            date: r.date || TODAY,
+            date: r.date || getToday(),
             storeName: decodeHtmlEntities(r.storeName) || '미상',
             totalAmount: r.totalAmount || 0,
             category: r.suggestedCategory || '기타',

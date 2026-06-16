@@ -201,7 +201,23 @@ export default async function handler(req, res) {
       return res.status(413).json({ success: false, error: '요청이 너무 큽니다.' });
     }
 
-    if (!surveyorName) return res.status(400).json({ success: false, error: '담당자 이름(surveyorName)이 없습니다.' });
+    // ── 입력 검증 (서버측) — 클라이언트만 믿지 않고 한 번 더 검사
+    if (!surveyorName || typeof surveyorName !== 'string') {
+      return res.status(400).json({ success: false, error: '담당자 이름(surveyorName)이 없습니다.' });
+    }
+    if (surveyorName.length > 80) {
+      return res.status(400).json({ success: false, error: '담당자 이름이 너무 깁니다 (최대 80자).' });
+    }
+    // 경로 분리자/제어문자 차단 — Drive 폴더 경로 조작 방지
+    if (/[\\/:*?"<>| -]/.test(surveyorName)) {
+      return res.status(400).json({ success: false, error: '담당자 이름에 사용할 수 없는 문자가 포함됨.' });
+    }
+    if (reportDate && (typeof reportDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate))) {
+      return res.status(400).json({ success: false, error: 'reportDate 형식 오류 (YYYY-MM-DD 필요).' });
+    }
+    if (receiptSummary && typeof receiptSummary !== 'object') {
+      return res.status(400).json({ success: false, error: 'receiptSummary 형식 오류.' });
+    }
 
     const drive = createDrive();
 
@@ -302,6 +318,35 @@ export default async function handler(req, res) {
     if (!images || images.length === 0) return res.status(400).json({ success: false, error: '이미지 데이터가 없습니다.' });
     if (images.length > 30) {
       return res.status(413).json({ success: false, error: '이미지 개수가 너무 많습니다.' });
+    }
+    // 이미지별 입력 검증
+    const ALLOWED_IMG_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+    const MAX_DECODED_SIZE = 8 * 1024 * 1024; // 8MB per image
+    for (const img of images) {
+      if (!img || typeof img !== 'object') {
+        return res.status(400).json({ success: false, error: '이미지 항목 형식 오류.' });
+      }
+      if (!img.dataUrl || typeof img.dataUrl !== 'string') {
+        return res.status(400).json({ success: false, error: '이미지 dataUrl이 없습니다.' });
+      }
+      if (!img.filename || typeof img.filename !== 'string' || img.filename.length > 160) {
+        return res.status(400).json({ success: false, error: '이미지 파일명 누락 또는 너무 김.' });
+      }
+      if (/[\\/:*?"<>|]/.test(img.filename) || /[\x00-\x1F]/.test(img.filename)) {
+        return res.status(400).json({ success: false, error: '이미지 파일명에 사용할 수 없는 문자.' });
+      }
+      // MIME 화이트리스트 (data:image/jpeg;base64,... 패턴)
+      const mimeMatch = img.dataUrl.match(/^data:([^;]+);base64,/);
+      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      if (!ALLOWED_IMG_MIMES.includes(mime)) {
+        return res.status(415).json({ success: false, error: `지원하지 않는 이미지 형식: ${mime}` });
+      }
+      // base64 디코딩 후 실제 크기 검증 (length * 0.75 근사)
+      const base64Part = img.dataUrl.includes(',') ? img.dataUrl.split(',')[1] : img.dataUrl;
+      const approxDecodedSize = Math.floor(base64Part.length * 0.75);
+      if (approxDecodedSize > MAX_DECODED_SIZE) {
+        return res.status(413).json({ success: false, error: `이미지가 너무 큽니다 (최대 ${MAX_DECODED_SIZE / 1024 / 1024}MB).` });
+      }
     }
     const uploaded = [];
     const skipped  = [];

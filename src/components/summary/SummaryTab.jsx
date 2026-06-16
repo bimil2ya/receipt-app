@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { TODAY, formatDateKorean, formatCurrency, decodeHtmlEntities } from '../../utils/formatter';
+import { getToday, formatDateKorean, formatCurrency, decodeHtmlEntities } from '../../utils/formatter';
 
 export default function SummaryTab({ receipts, names, reportDate }) {
   const [summaryMode, setSummaryMode] = useState('category');
@@ -24,7 +24,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
           else reject(new Error('이미지 저장에 실패했습니다.'));
         }, 'image/png');
       });
-      const file = new File([blob], `집계표_${TODAY}.png`, { type: 'image/png' });
+      const file = new File([blob], `집계표_${getToday()}.png`, { type: 'image/png' });
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({ files: [file] });
@@ -36,7 +36,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
       const a = document.createElement('a');
       objectUrl = URL.createObjectURL(blob);
       a.href = objectUrl;
-      a.download = `집계표_${TODAY}.png`;
+      a.download = `집계표_${getToday()}.png`;
       a.click();
     } catch (e) { setIsCapturing(false); alert(e.message); }
     finally {
@@ -75,7 +75,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
         <div className="text-center pb-4 border-b border-slate-800">
           <p className="text-slate-400 text-sm mb-1 font-black">(주)미래생태공간</p>
           <h3 className="text-2xl font-black text-slate-50">{names}</h3>
-          <p className="text-slate-300 text-sm mt-1 font-medium">{reportDate ? formatDateKorean(reportDate) : formatDateKorean(TODAY)} 기준</p>
+          <p className="text-slate-300 text-sm mt-1 font-medium">{reportDate ? formatDateKorean(reportDate) : formatDateKorean(getToday())} 기준</p>
         </div>
 
         <div className="space-y-4">

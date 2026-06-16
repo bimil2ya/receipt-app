@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // Utils & Hooks
-import { TODAY, formatDateKorean, formatCurrency, parseDate, decodeHtmlEntities } from './utils/formatter';
+import { getToday, formatDateKorean, formatCurrency, parseDate, decodeHtmlEntities } from './utils/formatter';
 import { formatFailureDetail, formatFailureMessage } from './utils/errorCopy';
 import { readStorageItem, writeStorageItem } from './utils/storage';
 import useReceipts from './hooks/useReceipts';
@@ -83,9 +83,9 @@ export default function App() {
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
   const [sortDir, setSortDir] = useState('desc');
-  const [tripStartDate, setTripStartDate] = useState(TODAY);
-  const [tripEndDate, setTripEndDate] = useState(TODAY);
-  const [mf, setMf] = useState({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
+  const [tripStartDate, setTripStartDate] = useState(getToday());
+  const [tripEndDate, setTripEndDate] = useState(getToday());
+  const [mf, setMf] = useState({ date: getToday(), storeName: '', totalAmount: '', category: '식비', note: '' });
   const [editState, setEditState] = useState({ id: null, field: null, value: '' });
 
   // ── 방금 추가한 영수증을 정렬과 무관하게 맨 위에 유지 (사용자가 정렬 토글하면 해제)
@@ -155,7 +155,7 @@ export default function App() {
     // 저장보다 먼저 핀 등록 → receipts 갱신 즉시 최상단 표시
     setPinnedNewIds(prev => [...prev, newId]);
     await saveReceipts({ id: newId, ...mf, totalAmount: parseInt(mf.totalAmount) || 0, createdAt: Date.now() });
-    setMf({ date: TODAY, storeName: '', totalAmount: '', category: '식비', note: '' });
+    setMf({ date: getToday(), storeName: '', totalAmount: '', category: '식비', note: '' });
     requestAnimationFrame(() => manualStoreRef.current?.focus());
     showToast('✅ 1건 추가 완료');
   };
@@ -241,14 +241,14 @@ export default function App() {
       const _uploadToken = import.meta.env.VITE_UPLOAD_TOKEN || '';
       const _authHeaders = { 'Content-Type': 'application/json', ...(_uploadToken ? { 'Authorization': `Bearer ${_uploadToken}` } : {}) };
 
-      const xlsxRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || TODAY, xlsxBase64, isImageOnly: false, receiptSummary }) });
+      const xlsxRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary }) });
       if (!xlsxRes.ok) { const e = await xlsxRes.json().catch(() => ({})); throw new Error(formatFailureMessage('명세 업로드 실패', e.error || `상태 ${xlsxRes.status}`)); }
       const xlsxData = await xlsxRes.json().catch(() => ({}));
       cur++; setUploadProgress(Math.floor((cur / totalSteps) * 100));
 
       const imageResult = { uploaded: 0, skipped: 0, failed: [] };
       for (const img of imgs) {
-        const imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || TODAY, images: [img], isImageOnly: true }) });
+        const imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [img], isImageOnly: true }) });
         const imgData = await imgRes.json().catch(() => ({}));
         if (!imgRes.ok) {
           imageResult.failed.push(`${img.filename}: ${formatFailureDetail(imgData.error || `상태 ${imgRes.status}`)}`);
@@ -295,7 +295,7 @@ export default function App() {
       return item;
     }));
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const fn = `출장비_${TODAY.replace(/-/g, '')}.json`;
+    const fn = `출장비_${getToday().replace(/-/g, '')}.json`;
     if (await shareFile(blob, fn, 'application/json')) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -402,7 +402,7 @@ export default function App() {
       <div className="shrink-0 shadow-lg">
         <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(reportDate || TODAY)}`}</h1>
+            <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(reportDate || getToday())}`}</h1>
             <div className="flex items-center gap-1">
               {saveStatus === 'saving' && <Loader2 size={18} className="text-blue-300 animate-spin shrink-0" title="로컬 저장 중" />}
               {saveStatus === 'success' && <HardDrive size={18} className="text-emerald-300 shrink-0" title="로컬 저장 완료" />}
