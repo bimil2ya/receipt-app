@@ -82,7 +82,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
           {summaryMode === 'category' ? (
             (() => {
               const order = ['숙박비', '식비', '기타'];
-              const fuelCat = '유류비';
+              const nonBudgetCats = ['유류비', '의료비등'];
               const genTotal = receipts.filter(r => order.includes(r.category)).reduce((s, r) => s + (r.totalAmount || 0), 0);
 
               const renderGroup = (cat) => {
@@ -118,7 +118,7 @@ export default function SummaryTab({ receipts, names, reportDate }) {
                       <span className="text-orange-300 font-black text-lg">{formatCurrency(genTotal)}</span>
                     </div>
                   )}
-                  {renderGroup(fuelCat)}
+                  {nonBudgetCats.map(cat => renderGroup(cat))}
                 </>
               );
             })()

@@ -152,13 +152,31 @@ async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'applica
  *   영수증정산관리(미래생태공간) / YYYY년 MM월 / surveyorName /
  */
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // 출처 화이트리스트 — 클라 번들 토큰만으로는 부족하니, 출처와 토큰 둘 다 검증
+  const ALLOWED_ORIGINS = [
+    'https://receipt-app-rho.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ];
+  const origin = req.headers.origin || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
 
-  // ── 인증 토큰 검증
+  // ── 출처 검증 (프로덕션 환경에서만 강제, dev/preview는 통과)
+  if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
+    const referer = req.headers.referer || '';
+    const refererOk = ALLOWED_ORIGINS.some(o => referer.startsWith(o + '/') || referer === o);
+    if (!refererOk) {
+      return res.status(403).json({ success: false, error: '허용되지 않은 출처', detail: `origin: ${origin || '(없음)'}` });
+    }
+  }
+
+  // ── 인증 토큰 검증 (defense in depth)
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
   const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
   if (!UPLOAD_TOKEN && isVercelHosted) {

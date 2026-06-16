@@ -20,14 +20,15 @@ import ImagesTab from './components/images/ImagesTab';
 import DateRangePicker from './components/calendar/DateRangePicker';
 
 // Constants
-const ALL_CATS = ['숙박비', '식비', '기타', '유류비'];
+const ALL_CATS = ['숙박비', '식비', '기타', '유류비', '의료비등'];
+const NON_BUDGET_CATEGORIES = ['유류비', '의료비등'];
 
 function safeText(value, fallback = '') {
   return String(value ?? fallback).trim();
 }
 
 // 예산 통계
-function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal }) {
+function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal, medTotal }) {
   return (
     <div className="flex flex-wrap items-baseline mt-3 text-sm font-bold gap-x-2 gap-y-1">
       <span className="text-slate-400 whitespace-nowrap">
@@ -36,6 +37,11 @@ function BudgetStats({ weeklyBudget, budgetTotal, budgetRatio, fuelTotal }) {
       <span className="text-emerald-400 whitespace-nowrap shrink-0">
         유류비 {formatCurrency(fuelTotal)}
       </span>
+      {medTotal > 0 && (
+        <span className="text-pink-300 whitespace-nowrap shrink-0">
+          의료비등 {formatCurrency(medTotal)}
+        </span>
+      )}
     </div>
   );
 }
@@ -64,6 +70,10 @@ export default function App() {
   const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const manualStoreRef = useRef(null);
+
+  // ── 검색/필터
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | category name
 
   // ── 수정 상태
   const [sortField, setSortField] = useState('date');
@@ -292,14 +302,23 @@ export default function App() {
 
   // ── 집계
   const grandTotal = useMemo(() => (receipts || []).reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
-  const budgetTotal = useMemo(() => (receipts || []).filter(r => r.category !== '유류비').reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
+  const budgetTotal = useMemo(() => (receipts || []).filter(r => !NON_BUDGET_CATEGORIES.includes(r.category)).reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
   const fuelTotal = useMemo(() => (receipts || []).filter(r => r.category === '유류비').reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
+  const medTotal = useMemo(() => (receipts || []).filter(r => r.category === '의료비등').reduce((s, r) => s + (r.totalAmount || 0), 0), [receipts]);
   const budgetRatio = useMemo(() => (budgetTotal / weeklyBudget) * 100, [budgetTotal, weeklyBudget]);
   const remainingBudget = Math.max(0, weeklyBudget - budgetTotal);
   const [showBudgetDetails, setShowBudgetDetails] = useState(false);
 
   const sortedReceipts = useMemo(() => {
-    const base = [...(receipts || [])].sort((a, b) => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = (receipts || []).filter(r => {
+      if (categoryFilter !== 'all' && r.category !== categoryFilter) return false;
+      if (!q) return true;
+      const inStore = decodeHtmlEntities(r.storeName || '').toLowerCase().includes(q);
+      const inNote = decodeHtmlEntities(r.note || '').toLowerCase().includes(q);
+      return inStore || inNote;
+    });
+    const base = [...filtered].sort((a, b) => {
       const av = a[sortField] ?? '', bv = b[sortField] ?? '';
       let res = typeof av === 'string' || typeof bv === 'string' ? String(av).localeCompare(String(bv), 'ko') : av > bv ? 1 : av < bv ? -1 : 0;
       if (sortDir === 'desc') res = -res;
@@ -315,7 +334,7 @@ export default function App() {
       .filter(Boolean);
     const rest = base.filter(r => !pinnedSet.has(r.id));
     return [...pinned, ...rest];
-  }, [receipts, sortField, sortDir, pinnedNewIds]);
+  }, [receipts, sortField, sortDir, pinnedNewIds, searchQuery, categoryFilter]);
 
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
 
@@ -374,7 +393,7 @@ export default function App() {
               <div className="flex justify-between items-end mb-1.5">
                 <div className="flex flex-col">
                   <span className="text-base text-slate-200 font-black">남은 예산</span>
-                  <span className="text-sm text-blue-300 font-bold">유류비 제외</span>
+                  <span className="text-sm text-blue-300 font-bold">유류비·의료비등 제외</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-xl font-black">{formatCurrency(remainingBudget)}</span>
@@ -411,6 +430,7 @@ export default function App() {
                   budgetTotal={budgetTotal}
                   budgetRatio={budgetRatio}
                   fuelTotal={fuelTotal}
+                  medTotal={medTotal}
                 />
               )}
             </div>
@@ -471,9 +491,46 @@ export default function App() {
               {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700 min-w-0"><RefreshCw size={26} className="animate-spin text-blue-300 shrink-0" /><span className="text-lg font-black min-w-0 break-words">{procMsg}</span></div>}
 
               {receipts.length > 0 && (
-                <div className="text-center text-sm text-slate-400 px-1 font-bold">
-                  {receipts.length}건 • {formatCurrency(grandTotal)}
-                </div>
+                <>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="🔎 사용처/비고 검색"
+                      className="flex-1 h-11 bg-slate-800 border border-slate-700 rounded-xl px-3 text-white font-bold text-sm"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="h-11 px-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-black text-sm active:scale-95"
+                      >
+                        지우기
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                    {[['all', '전체'], ...ALL_CATS.map(c => [c, c])].map(([value, label]) => {
+                      const active = categoryFilter === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setCategoryFilter(value)}
+                          className={`shrink-0 px-3 py-2 rounded-full border text-xs font-black transition-colors ${active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-center text-sm text-slate-400 px-1 font-bold">
+                    {sortedReceipts.length === receipts.length
+                      ? `${receipts.length}건 • ${formatCurrency(grandTotal)}`
+                      : `${sortedReceipts.length}건 표시 / 전체 ${receipts.length}건`}
+                  </div>
+                </>
               )}
 
               <div className="bg-slate-800 rounded-3xl border-2 border-slate-700 overflow-hidden">

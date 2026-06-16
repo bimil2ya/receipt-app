@@ -6,6 +6,7 @@ const CAT_STYLE = {
   '숙박비': { bg: '#3b1f6e', text: '#c4b5fd', border: '#5b21b6' },
   '식비': { bg: '#14532d', text: '#86efac', border: '#166534' },
   '유류비': { bg: '#431407', text: '#fdba74', border: '#9a3412' },
+  '의료비등': { bg: '#831843', text: '#f9a8d4', border: '#9d174d' },
   '기타': { bg: '#1e293b', text: '#94a3b8', border: '#334155' },
 };
 

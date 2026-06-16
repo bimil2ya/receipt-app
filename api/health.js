@@ -11,6 +11,15 @@ function envSection(requiredKeys, optionalKeys = []) {
   return { ok: required.every(item => item.present), required, optional };
 }
 
+const CHECK_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} 응답 지연 (${ms}ms 초과)`)), ms)),
+  ]);
+}
+
 async function checkDrive() {
   const required = envSection([
     'GDRIVE_CLIENT_ID',
@@ -22,10 +31,11 @@ async function checkDrive() {
 
   try {
     const drive = createDrive();
-    const res = await drive.files.get({
-      fileId: MAIN_FOLDER_ID,
-      fields: 'id,name,mimeType',
-    });
+    const res = await withTimeout(
+      drive.files.get({ fileId: MAIN_FOLDER_ID, fields: 'id,name,mimeType' }),
+      CHECK_TIMEOUT_MS,
+      'Drive'
+    );
     return { ...required, ok: true, connected: true, file: res.data };
   } catch (error) {
     return { ...required, ok: false, connected: false, error: error.message };
@@ -40,7 +50,7 @@ async function checkKakao() {
   if (!required.ok) return required;
 
   try {
-    const accessToken = await getKakaoAccessToken();
+    const accessToken = await withTimeout(getKakaoAccessToken(), CHECK_TIMEOUT_MS, 'Kakao');
     return { ...required, ok: Boolean(accessToken), connected: Boolean(accessToken) };
   } catch (error) {
     return { ...required, ok: false, connected: false, error: error.message };
@@ -64,11 +74,20 @@ export default async function handler(req) {
     });
   }
 
-  const drive = await checkDrive();
+  // 외부 호출 두 건을 병렬로, 한쪽 hang이 다른 쪽을 막지 않도록
+  const [driveSettled, kakaoSettled] = await Promise.allSettled([
+    checkDrive(),
+    checkKakao(),
+  ]);
+  const drive = driveSettled.status === 'fulfilled'
+    ? driveSettled.value
+    : { ok: false, connected: false, error: driveSettled.reason?.message || 'Drive 점검 실패' };
+  const kakao = kakaoSettled.status === 'fulfilled'
+    ? kakaoSettled.value
+    : { ok: false, connected: false, error: kakaoSettled.reason?.message || 'Kakao 점검 실패' };
   const ocr = envSection([], ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY']);
   ocr.ok = ocr.optional.some(item => item.present);
   ocr.note = '환경 변수 확인만 수행';
-  const kakao = await checkKakao();
   const upload = envSection(['UPLOAD_API_TOKEN'], ['VITE_UPLOAD_TOKEN']);
 
   return new Response(JSON.stringify({

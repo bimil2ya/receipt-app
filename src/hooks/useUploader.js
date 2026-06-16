@@ -12,43 +12,37 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     const encryptedKey = readStorageItem('claude_api_key_v2');
     const apiKey = await decryptData(encryptedKey);
     const biznoKey = readStorageItem('bizno_api_key');
-    
+
     setProcessing(true);
     const added = [];
-    const failedFiles = [];   // 실패 목록 수집 (alert 대신)
+    const failedFiles = [];
     let notReceiptCount = 0;
     let failCount = 0;
     let duplicateCount = 0;
+    let completedCount = 0;
     const totalImages = files.length;
 
-    for (const file of files) {
-      setProcMsg(`분석 중 ${added.length + notReceiptCount + failCount + duplicateCount + 1}/${totalImages}`);
-      
+    setProcMsg(`분석 중 0/${totalImages}`);
+
+    // 단일 파일 분석 + 비즈노 조회까지 끝낸 결과를 반환
+    const analyzeFile = async (file) => {
       try {
         const { b64, mimeType } = await compressToBase64(file);
         const res = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64: b64, mediaType: mimeType, apiKey: apiKey })
+          body: JSON.stringify({ base64: b64, mediaType: mimeType, apiKey })
         });
-
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || err.error || `서버 오류 (${res.status})`);
         }
-
         const result = await res.json();
-        if (result.isReceipt === false) { notReceiptCount++; continue; }
+        if (result.isReceipt === false) return { fileName: file.name, notReceipt: true };
 
-        const sharedImageId = crypto.randomUUID();
-        const b64full = `data:${mimeType};base64,${b64}`;
-
-        // 각 영수증 항목별로 비즈노 조회 및 데이터 생성
-        for (let r of result.receipts) {
-          // --- [비즈노 공식 상호명 조회 - 최우선 순위] ---
-          // 사업자번호가 존재할 경우 OCR 노이즈를 클라이언트측에서도 한 번 더 정제하여 요청
+        // 영수증 항목별 비즈노 조회 — 한 파일 안의 영수증은 병렬
+        const enriched = await Promise.all((result.receipts || []).map(async (r) => {
           const initialBizNum = r.bizNum ? r.bizNum.toString().replace(/[^0-9]/g, '') : '';
-          
           if (initialBizNum.length >= 8 && biznoKey) {
             try {
               const lookupRes = await fetch('/api/lookup-biz', {
@@ -59,7 +53,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
               if (lookupRes.ok) {
                 const lookupData = await lookupRes.json();
                 if (lookupData.company) {
-                  r.storeName = lookupData.company; 
+                  r.storeName = lookupData.company;
                   if (lookupData.busiResNum) r.bizNum = lookupData.busiResNum;
                 }
               }
@@ -67,8 +61,42 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
               if (import.meta.env.DEV) console.error('Bizno lookup failed:', e);
             }
           }
+          return r;
+        }));
 
-          // --- 중복 체크 ---
+        return {
+          fileName: file.name,
+          imageId: crypto.randomUUID(),
+          imageBase64: `data:${mimeType};base64,${b64}`,
+          receipts: enriched,
+        };
+      } catch (e) {
+        if (import.meta.env.DEV) console.error('Process error:', e);
+        return { fileName: file.name, error: e.message };
+      }
+    };
+
+    // 동시성 3 배치로 처리 — 분석 API의 무거운 호출은 병렬, 결과 누적/dedup은 순차
+    const CONCURRENCY = 3;
+    for (let i = 0; i < files.length; i += CONCURRENCY) {
+      const batch = files.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(batch.map(analyzeFile));
+
+      for (const fileResult of results) {
+        completedCount += 1;
+        setProcMsg(`분석 중 ${completedCount}/${totalImages}`);
+
+        if (fileResult.error) {
+          failCount += 1;
+          failedFiles.push({ name: fileResult.fileName, error: fileResult.error });
+          continue;
+        }
+        if (fileResult.notReceipt) {
+          notReceiptCount += 1;
+          continue;
+        }
+
+        for (const r of fileResult.receipts) {
           const isDuplicate = [...existingReceipts, ...added].some(ex => {
             const sameApproval = (ex.approvalNum && r.approvalNum) ? ex.approvalNum.toString().trim() === r.approvalNum.toString().trim() : false;
             const sameDate = ex.date === r.date;
@@ -78,28 +106,23 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             if (sameDate && sameAmount && ex.storeName?.trim() && r.storeName?.trim() && ex.storeName.trim() === r.storeName.trim()) return true;
             return false;
           });
+          if (isDuplicate) { duplicateCount += 1; continue; }
 
-          if (isDuplicate) {
-            duplicateCount++;
-            continue;
-          }
-
-          // --- 카드번호 병합 ---
           let bestCardNum = r.cardNumber || '';
           [...existingReceipts, ...added].forEach(ex => {
-             if (ex.cardNumber && bestCardNum) {
-               const num1 = ex.cardNumber.replace(/[^0-9*]/g, '');
-               const num2 = bestCardNum.replace(/[^0-9*]/g, '');
-               if (num1.slice(0,4) === num2.slice(0,4) || num1.slice(-4) === num2.slice(-4)) {
-                 bestCardNum = mergeCardNumbers(bestCardNum, ex.cardNumber);
-               }
-             }
+            if (ex.cardNumber && bestCardNum) {
+              const num1 = ex.cardNumber.replace(/[^0-9*]/g, '');
+              const num2 = bestCardNum.replace(/[^0-9*]/g, '');
+              if (num1.slice(0, 4) === num2.slice(0, 4) || num1.slice(-4) === num2.slice(-4)) {
+                bestCardNum = mergeCardNumbers(bestCardNum, ex.cardNumber);
+              }
+            }
           });
 
           added.push({
             id: crypto.randomUUID(),
-            imageId: sharedImageId,
-            imageUrl: b64full,
+            imageId: fileResult.imageId,
+            imageUrl: fileResult.imageBase64,
             date: r.date || TODAY,
             storeName: decodeHtmlEntities(r.storeName) || '미상',
             totalAmount: r.totalAmount || 0,
@@ -109,21 +132,15 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             cardNumber: bestCardNum,
             note: decodeHtmlEntities(r.note) || '',
             rotation: 0,
-            createdAt: Date.now()
+            createdAt: Date.now(),
           });
         }
-
-      } catch (e) {
-        if (import.meta.env.DEV) console.error('Process error:', e);
-        failCount++;
-        failedFiles.push({ name: file.name, error: e.message });
       }
     }
 
     if (added.length > 0) await onUploadSuccess(added);
     setProcessing(false); setProcMsg('');
 
-    // 오류/중복 요약을 콜백으로 한 번에 전달
     if ((failedFiles.length > 0 || duplicateCount > 0) && onUploadError) {
       onUploadError({ failedFiles, duplicateCount });
     }
