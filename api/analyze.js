@@ -148,7 +148,16 @@ export default async function handler(req) {
         const data = await response.json();
         if (response.ok) {
           const match = (data.content?.[0]?.text || '').match(/\{[\s\S]*\}/);
-          if (match) { finalData = JSON.parse(match[0]); break; }
+          if (match) {
+            try {
+              finalData = JSON.parse(match[0]);
+              break;
+            } catch (parseErr) {
+              // 모델이 부분 JSON이나 잘못된 형식을 반환한 경우 — 다음 후보 모델로 넘어감
+              lastErr = { message: `JSON 파싱 실패: ${parseErr.message}`, type: 'parse_error', model: modelId };
+              continue;
+            }
+          }
         }
         lastErr = { message: data.error?.message, type: data.error?.type, model: modelId };
         if (response.status === 404 || response.status === 403) continue;

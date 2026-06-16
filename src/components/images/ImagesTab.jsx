@@ -7,7 +7,13 @@ import { decodeHtmlEntities } from '../../utils/formatter';
 function ImageThumb({ imageId, getImageUrl, className }) {
   const [src, setSrc] = useState('');
   useEffect(() => {
-    if (imageId) getImageUrl(imageId).then(url => setSrc(url || ''));
+    let cancelled = false;
+    if (imageId) {
+      getImageUrl(imageId).then(url => {
+        if (!cancelled) setSrc(url || '');
+      });
+    }
+    return () => { cancelled = true; };
   }, [imageId, getImageUrl]);
   return src ? <img src={src} className={className} alt="" /> : <div className={className} />;
 }
@@ -95,9 +101,16 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
   };
 
   useEffect(() => {
-    if (!selectedId) { setDetailImgSrc(''); return; }
-    if (selectedReceipt?.imageId) getImageUrl(selectedReceipt.imageId).then(url => setDetailImgSrc(url || ''));
-    else setDetailImgSrc('');
+    let cancelled = false;
+    if (!selectedId) { setDetailImgSrc(''); return () => { cancelled = true; }; }
+    if (selectedReceipt?.imageId) {
+      getImageUrl(selectedReceipt.imageId).then(url => {
+        if (!cancelled) setDetailImgSrc(url || '');
+      });
+    } else {
+      setDetailImgSrc('');
+    }
+    return () => { cancelled = true; };
   }, [selectedId, selectedReceipt, getImageUrl]);
 
   return (

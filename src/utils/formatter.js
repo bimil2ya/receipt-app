@@ -1,4 +1,7 @@
-export const TODAY = new Date().toISOString().split('T')[0];
+// 로컬 시각 기준 오늘 날짜 — UTC 기준이면 한국 새벽(00:00~09:00) 동안 어제 날짜가 반환되는 문제 회피.
+// 모듈 로드 시점에 한 번 평가되므로, 자정 경계를 넘는 장시간 세션에서는 갱신되지 않는 점은 알려진 한계.
+const _now = new Date();
+export const TODAY = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`;
 
 /**
  * HTML 엔티티(&amp;, &#40; 등)를 실제 문자로 디코딩.
