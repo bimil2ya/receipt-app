@@ -152,7 +152,8 @@ export default async function handler(req) {
 [일반 추출 규칙]
 1. **객관성 유지**: 이미지에 적힌 텍스트를 그대로 읽어. **절대로 상호명을 네 맘대로 추측하거나 보정하지 마.** (보정은 나중에 외부 API가 할 거야). 이미지에서 가장 상호명으로 보이는 텍스트를 있는 그대로 추출해.
 2. **용도 분류**: [숙박비, 식비, 기타, 유류비, 의료비등] 중 하나. 약국/병원/의원 등 의료 관련은 '의료비등'으로 분류.
-3. **JSON 형식 엄수**.
+3. **사용시간(useTime)**: 영수증에 결제/거래 시각이 있으면 24시간제 'HH:MM' 형식으로 추출. 초까지 있으면 'HH:MM:SS'. 인식 불가하면 빈 문자열 "". 중복 판단 키로 사용되므로 신중히.
+4. **JSON 형식 엄수**.
 </system_instructions>
 <output_format>
 이미지에 영수증이 1장이면 receipts 배열에 1개, N장이면 N개를 담아라.
@@ -161,6 +162,7 @@ export default async function handler(req) {
   "receipts": [
     {
       "date": "YYYY-MM-DD",
+      "useTime": "HH:MM",
       "storeName": "첫 번째 영수증 상호명",
       "totalAmount": 0,
       "suggestedCategory": "식비",
@@ -170,6 +172,7 @@ export default async function handler(req) {
     },
     {
       "date": "YYYY-MM-DD",
+      "useTime": "HH:MM",
       "storeName": "두 번째 영수증 상호명",
       "totalAmount": 0,
       "suggestedCategory": "숙박비",

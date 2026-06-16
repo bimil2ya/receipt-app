@@ -93,13 +93,19 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         }
 
         for (const r of fileResult.receipts) {
+          // 중복 판단: 승인번호가 같거나(승인번호 OR), 같은 날짜의 사용시간이 같으면(시간 OR) 같은 건.
+          // 날짜+금액+상호명/사업자번호만 같은 경우는 이제 다른 건으로 본다 (같은 가게에서 다른 시각 결제 누락 방지).
           const isDuplicate = [...existingReceipts, ...added].some(ex => {
-            const sameApproval = (ex.approvalNum && r.approvalNum) ? ex.approvalNum.toString().trim() === r.approvalNum.toString().trim() : false;
-            const sameDate = ex.date === r.date;
-            const sameAmount = Math.abs((ex.totalAmount || 0) - (r.totalAmount || 0)) < 10;
+            const approvalA = (ex.approvalNum || '').toString().trim();
+            const approvalB = (r.approvalNum || '').toString().trim();
+            const sameApproval = approvalA && approvalB && approvalA === approvalB;
             if (sameApproval) return true;
-            if (sameDate && sameAmount && ex.bizNum?.trim() && r.bizNum?.trim() && ex.bizNum.trim() === r.bizNum.trim()) return true;
-            if (sameDate && sameAmount && ex.storeName?.trim() && r.storeName?.trim() && ex.storeName.trim() === r.storeName.trim()) return true;
+
+            const timeA = (ex.useTime || '').toString().trim();
+            const timeB = (r.useTime || '').toString().trim();
+            const sameTime = timeA && timeB && timeA === timeB && ex.date === r.date;
+            if (sameTime) return true;
+
             return false;
           });
           if (isDuplicate) { duplicateCount += 1; continue; }
@@ -120,6 +126,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             imageId: fileResult.imageId,
             imageUrl: fileResult.imageBase64,
             date: r.date || getToday(),
+            useTime: (r.useTime || '').toString().trim(),
             storeName: decodeHtmlEntities(r.storeName) || '미상',
             totalAmount: r.totalAmount || 0,
             category: r.suggestedCategory || '기타',

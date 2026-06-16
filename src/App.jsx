@@ -94,6 +94,9 @@ export default function App() {
   // ── Drive 업로드 진행
   const [driveUploading, setDriveUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  // 부분 실패 항목 (이미지/명세) — '다시 보내기'에 사용. 세션 메모리만.
+  const [lastUploadFailures, setLastUploadFailures] = useState([]);
+  // 각 항목: { kind: 'image' | 'xlsx', img?: {filename, dataUrl}, xlsxBase64?, receiptSummary?, error: string }
 
   // ── 파일 OCR 업로드 훅
   const { handleFiles, processing, procMsg } = useUploader({
@@ -200,6 +203,8 @@ export default function App() {
   // ── Drive 업로드
   const uploadToDrive = async () => {
     setDriveUploading(true); setUploadProgress(0);
+    setLastUploadFailures([]);  // 새 전송 시작 — 이전 실패 목록 초기화
+    const sessionFailures = [];
     try {
       const XLSX = await import('xlsx');
       const surveyorName = names || '미설정';
@@ -248,10 +253,19 @@ export default function App() {
 
       const imageResult = { uploaded: 0, skipped: 0, failed: [] };
       for (const img of imgs) {
-        const imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [img], isImageOnly: true }) });
-        const imgData = await imgRes.json().catch(() => ({}));
+        let imgRes, imgData;
+        try {
+          imgRes = await fetch('/api/upload', { method: 'POST', headers: _authHeaders, body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [img], isImageOnly: true }) });
+          imgData = await imgRes.json().catch(() => ({}));
+        } catch (netErr) {
+          imgRes = { ok: false, status: 0 };
+          imgData = { error: netErr.message || '네트워크 오류' };
+        }
         if (!imgRes.ok) {
-          imageResult.failed.push(`${img.filename}: ${formatFailureDetail(imgData.error || `상태 ${imgRes.status}`)}`);
+          const errMsg = formatFailureDetail(imgData.error || `상태 ${imgRes.status}`);
+          imageResult.failed.push(`${img.filename}: ${errMsg}`);
+          // 재전송 가능하도록 전체 img 객체와 함께 기록
+          sessionFailures.push({ kind: 'image', img, error: errMsg });
         } else {
           imageResult.uploaded += imgData.files?.length || 0;
           imageResult.skipped += imgData.skipped?.length || 0;
@@ -270,10 +284,55 @@ export default function App() {
       parts.push(xlsxData?.aggregate?.success === false ? '집계 실패' : '집계 완료');
       parts.push(xlsxData?.kakaoSent ? '카카오 알림 완료' : `카카오 알림 미발송${xlsxData?.kakaoError ? `(${xlsxData.kakaoError.slice(0, 34)})` : ''}`);
       if (xlsxData?.targetPath) parts.push(`대상 ${xlsxData.targetPath}`);
-      if (imageResult.failed.length > 0) parts.push(`이미지 실패 ${imageResult.failed.length}장`);
+      if (imageResult.failed.length > 0) parts.push(`이미지 실패 ${imageResult.failed.length}장 — 자료관리에서 재전송 가능`);
       showToast(`${imageResult.failed.length ? '⚠️' : '✅'} ${parts.join(' · ')}`);
-    } catch (e) { showToast(`❌ ${e.message}`); }
+    } catch (e) {
+      // XLSX 또는 이미지 준비 단계 실패. 만약 xlsxBase64까지 만들어졌다면 XLSX 재전송도 큐에 담을 수 있겠지만,
+      // 현재는 catch가 전체 흐름을 커버하므로 보수적으로 그냥 토스트만.
+      showToast(`❌ ${e.message}`);
+    }
+    setLastUploadFailures(sessionFailures);
     setDriveUploading(false);
+  };
+
+  // ── 부분 실패 항목 재전송
+  const retryFailedUploads = async () => {
+    if (lastUploadFailures.length === 0 || driveUploading) return;
+    setDriveUploading(true);
+    setUploadProgress(0);
+
+    const surveyorName = names || '미설정';
+    const _uploadToken = import.meta.env.VITE_UPLOAD_TOKEN || '';
+    const _authHeaders = { 'Content-Type': 'application/json', ...(_uploadToken ? { 'Authorization': `Bearer ${_uploadToken}` } : {}) };
+
+    const remaining = [];
+    let succeeded = 0;
+    let processed = 0;
+    const total = lastUploadFailures.length;
+
+    for (const fail of lastUploadFailures) {
+      let ok = false;
+      try {
+        if (fail.kind === 'image') {
+          const res = await fetch('/api/upload', {
+            method: 'POST', headers: _authHeaders,
+            body: JSON.stringify({ surveyorName, reportDate: reportDate || getToday(), images: [fail.img], isImageOnly: true }),
+          });
+          ok = res.ok;
+        }
+        // xlsx 재전송도 같은 구조로 처리 가능. 현재는 이미지만 큐에 담김.
+      } catch (_) { ok = false; }
+
+      if (ok) succeeded += 1;
+      else remaining.push(fail);
+      processed += 1;
+      setUploadProgress(Math.floor((processed / total) * 100));
+    }
+
+    setLastUploadFailures(remaining);
+    setDriveUploading(false);
+    setUploadProgress(0);
+    showToast(`${remaining.length === 0 ? '✅' : '⚠️'} 재전송 ${succeeded}건 성공${remaining.length > 0 ? ` / ${remaining.length}건 실패` : ''}`);
   };
 
   // ── 내보내기
@@ -538,6 +597,15 @@ export default function App() {
                         {driveUploading ? <><Loader2 size={16} className="animate-spin shrink-0" />{uploadProgress}%</> : '📤 전송하기'}
                       </button>
                     </div>
+                    {lastUploadFailures.length > 0 && !driveUploading && (
+                      <button
+                        type="button"
+                        onClick={retryFailedUploads}
+                        className="mt-2 w-full bg-amber-900/30 border border-amber-700 text-amber-100 py-2.5 rounded-2xl text-sm font-black active:scale-95 transition-transform"
+                      >
+                        ⚠️ 실패 {lastUploadFailures.length}건 다시 보내기
+                      </button>
+                    )}
                   </div>
                 )}
                 <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => {
