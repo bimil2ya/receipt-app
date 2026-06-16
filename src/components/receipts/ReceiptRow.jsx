@@ -39,7 +39,7 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
         {/* 용도 */}
         <div className="shrink-0 flex justify-end">
           <span
-            className="text-sm px-2 py-0.5 rounded-full whitespace-nowrap font-black leading-none"
+            className="text-xs px-2 py-0.5 rounded-full whitespace-nowrap font-bold leading-none"
             style={{ background: cs.bg, color: cs.text, border: `1px solid ${cs.border}` }}
           >
             {category}

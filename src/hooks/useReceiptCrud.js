@@ -244,6 +244,23 @@ export default function useReceiptCrud({
         clearReceiptImageUrlCache();
         onReceiptsLoaded([]);
         onCardsLoaded([]);
+
+        // 원격(Supabase) 데이터도 삭제 — 그러지 않으면 다음 부트스트랩에서 다시 내려와
+        // '새 출장 시작'의 멘탈 모델(완전 초기화)과 어긋남
+        if (supabase) {
+          const deviceId = readStorageItem('device_num', 'system');
+          try {
+            const { error } = await supabase.from('receipts').delete().eq('userId', deviceId);
+            if (error) throw error;
+          } catch (err) {
+            // 원격 삭제 실패해도 로컬은 이미 비워졌으니 계속 진행, 사용자에겐 status로 알림
+            if (import.meta.env.DEV) console.error('Supabase reset delete failed:', err);
+            onSaveStatusChange('error');
+            resolve();
+            return;
+          }
+        }
+
         onSaveStatusChange('success');
         resolve();
       };

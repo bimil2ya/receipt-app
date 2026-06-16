@@ -354,7 +354,10 @@ export default async function handler(req, res) {
     for (const img of images) {
       const base64Data = img.dataUrl.includes(',') ? img.dataUrl.split(',')[1] : img.dataUrl;
       const imgBuffer  = Buffer.from(base64Data, 'base64');
-      const result     = await uploadFile(drive, imgBuffer, img.filename, personId, 'image/jpeg');
+      // 실제 MIME을 dataUrl 헤더에서 추출해 그대로 Drive에 전달 (이전엔 항상 image/jpeg로 잘못 저장)
+      const mimeMatch = img.dataUrl.match(/^data:([^;]+);base64,/);
+      const imgMime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const result     = await uploadFile(drive, imgBuffer, img.filename, personId, imgMime);
       const detail = {
         filename: img.filename,
         status: result.status,

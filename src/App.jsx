@@ -540,8 +540,16 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
-                <input id="cam-i" type="file" capture="environment" className="hidden" onChange={(e) => handleFiles(Array.from(e.target.files), receipts)} />
+                <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => {
+                  const files = Array.from(e.target.files);
+                  e.target.value = '';  // 같은 파일을 다시 선택해도 change 이벤트가 나도록 리셋
+                  if (files.length) handleFiles(files, receipts);
+                }} />
+                <input id="cam-i" type="file" capture="environment" accept="image/*" className="hidden" onChange={(e) => {
+                  const files = Array.from(e.target.files);
+                  e.target.value = '';  // 카메라도 같은 사진 재선택 가능하도록 리셋
+                  if (files.length) handleFiles(files, receipts);
+                }} />
               </div>
 
               {processing && <div className="bg-blue-900/40 p-4 rounded-2xl flex gap-4 items-center border border-blue-700 min-w-0"><RefreshCw size={26} className="animate-spin text-blue-300 shrink-0" /><span className="text-lg font-black min-w-0 break-words">{procMsg}</span></div>}
@@ -721,6 +729,10 @@ export default function App() {
         <Modal title="➕ 직접 입력" onClose={closeManualModal} initialFocusRef={manualStoreRef}>
           <div className="space-y-5 p-2">
             <input ref={manualStoreRef} placeholder="🏢 사용처" value={mf.storeName} onChange={e => setMf({ ...mf, storeName: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-400 font-black w-12 shrink-0">📅 날짜</span>
+              <input type="date" value={mf.date} onChange={e => setMf({ ...mf, date: e.target.value || getToday() })} className="flex-1 bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-3 text-white font-bold text-base" />
+            </div>
             <input type="number" placeholder="💰 금액" value={mf.totalAmount} onChange={e => setMf({ ...mf, totalAmount: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-white font-black text-base" />
             <div className="grid grid-cols-2 gap-2">{ALL_CATS.map(c => {
               const active = mf.category === c;
@@ -808,29 +820,6 @@ export default function App() {
               />
             </div>
             <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">설정 저장</button>
-
-            {/* 새 출장 시작 */}
-            <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
-              <div>
-                <p className="text-sm text-red-300 font-black">🔄 새 출장 시작</p>
-                <p className="text-xs text-red-200/80 font-bold mt-1 leading-5">
-                  위 기간({tripStartDate})과 예산으로 새로 시작합니다.
-                  현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제됩니다.
-                </p>
-              </div>
-              <button
-                onClick={async () => {
-                  const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
-                  if (budgetVal <= 0) { alert('예산을 먼저 입력하거나 "이 값 적용"을 눌러 주세요.'); return; }
-                  if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
-                  await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
-                  setShowBudgetCalcModal(false);
-                }}
-                className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
-              >
-                🔄 새로 시작 (영수증 모두 삭제)
-              </button>
-            </div>
           </div>
         </Modal>
       )}
