@@ -15,11 +15,28 @@ function decodeHtmlEntities(str) {
 }
 
 export default async function handler(req) {
+  // 출처 화이트리스트 — 비즈노 API 무단 소모 방지 (upload/aggregate와 동일 패턴)
+  const ALLOWED_ORIGINS = [
+    'https://receipt-app-rho.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ];
+  const origin = req.headers.get?.('origin') || req.headers.origin || '';
+  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   const resHeaders = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Vary': 'Origin',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
+
+  if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
+    const referer = req.headers.get?.('referer') || req.headers.referer || '';
+    const refererOk = ALLOWED_ORIGINS.some(o => referer.startsWith(o + '/') || referer === o);
+    if (!refererOk) {
+      return new Response(JSON.stringify({ success: false, error: '허용되지 않은 출처', detail: `origin: ${origin || '(없음)'}` }), { status: 403, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+    }
+  }
 
   if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: resHeaders });
   if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: resHeaders });

@@ -9,6 +9,13 @@
  * KAKAO_MANAGER_REFRESH_TOKEN 에 저장하세요.
  */
 export default async function handler(req, res) {
+  // 셋업 전용 라우트 보호 — ADMIN_TOKEN env 필요. OAuth state로 round-trip
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+  const providedToken = (req.query.admin || req.query.state || '').toString();
+  if (!ADMIN_TOKEN || providedToken !== ADMIN_TOKEN) {
+    return res.status(404).send('Not Found');
+  }
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   const REST_API_KEY  = process.env.KAKAO_REST_API_KEY;
   const CLIENT_SECRET = process.env.KAKAO_CLIENT_SECRET || '';
@@ -30,7 +37,8 @@ export default async function handler(req, res) {
       `?response_type=code` +
       `&client_id=${REST_API_KEY}` +
       `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-      `&scope=${encodeURIComponent(REQUIRED_SCOPE)}`;
+      `&scope=${encodeURIComponent(REQUIRED_SCOPE)}` +
+      `&state=${encodeURIComponent(ADMIN_TOKEN)}`;
     return res.redirect(authUrl);
   }
 

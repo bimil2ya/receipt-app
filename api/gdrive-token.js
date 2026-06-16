@@ -15,6 +15,15 @@
  *   GDRIVE_REFRESH_TOKEN 에 저장하세요.
  */
 export default async function handler(req, res) {
+  // 셋업 전용 라우트 보호 — ADMIN_TOKEN env가 설정돼야 동작
+  // 평소엔 404로 위장해 외부 스캐너에 노출 최소화
+  // OAuth state 파라미터로 토큰을 round-trip 시켜 callback에서도 검증
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+  const providedToken = (req.query.admin || req.query.state || '').toString();
+  if (!ADMIN_TOKEN || providedToken !== ADMIN_TOKEN) {
+    return res.status(404).send('Not Found');
+  }
+
   res.setHeader('Access-Control-Allow-Origin', '*');
   const CLIENT_ID     = process.env.GDRIVE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GDRIVE_CLIENT_SECRET;
@@ -37,6 +46,7 @@ export default async function handler(req, res) {
       scope:         'https://www.googleapis.com/auth/drive',
       access_type:   'offline',
       prompt:        'consent',
+      state:         ADMIN_TOKEN,
     });
     return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   }

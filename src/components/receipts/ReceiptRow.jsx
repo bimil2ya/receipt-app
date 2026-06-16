@@ -42,7 +42,7 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
             className="text-sm px-3 py-1 rounded-full whitespace-nowrap font-black leading-none"
             style={{ background: cs.bg, color: cs.text, border: `1px solid ${cs.border}` }}
           >
-            {category.slice(0, 2)}
+            {category}
           </span>
         </div>
 

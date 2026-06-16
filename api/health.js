@@ -90,9 +90,21 @@ export default async function handler(req) {
   ocr.note = '환경 변수 확인만 수행';
   const upload = envSection(['UPLOAD_API_TOKEN'], ['VITE_UPLOAD_TOKEN']);
 
+  // 관리자 모드 (?admin=TOKEN)에서만 상세 정보 노출 — 일반 응답은 ok만
+  const url = new URL(req.url);
+  const adminToken = process.env.ADMIN_TOKEN;
+  const isAdmin = adminToken && url.searchParams.get('admin') === adminToken;
+
+  const summarize = (svc) => isAdmin ? svc : { ok: Boolean(svc?.ok) };
+
   return new Response(JSON.stringify({
     success: true,
     checkedAt: new Date().toISOString(),
-    services: { drive, ocr, kakao, upload },
+    services: {
+      drive: summarize(drive),
+      ocr: summarize(ocr),
+      kakao: summarize(kakao),
+      upload: summarize(upload),
+    },
   }), { status: 200, headers });
 }

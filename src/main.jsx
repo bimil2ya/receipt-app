@@ -40,18 +40,42 @@ const updateSW = registerSW({
 })
 
 // 런타임 에러 발생 시 하얀 화면 대신 에러 메시지 표시 (디버깅용)
+// React ErrorBoundary가 잡지 못하는 최상위 예외(SW 코드, 비-React 영역)용 안전망.
+// innerHTML 문자열 보간을 피하고 textContent로만 사용자 입력(에러 메시지)을 노출해 XSS 표면 제거.
 window.onerror = function(message, source, lineno) {
   const root = document.getElementById('root');
-  if (root) {
-    root.innerHTML = `
-      <div style="padding: 20px; color: white; background: #1e293b; font-family: monospace;">
-        <h2 style="color: #ef4444;">🚨 앱 실행 오류 발생</h2>
-        <p><strong>메시지:</strong> ${message}</p>
-        <p><strong>위치:</strong> ${source}:${lineno}</p>
-        <button onclick="location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #3b82f6; border: none; color: white; border-radius: 8px;">새로고침</button>
-      </div>
-    `;
-  }
+  if (!root) return false;
+
+  root.replaceChildren();
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'padding:20px;color:white;background:#1e293b;font-family:monospace';
+
+  const h = document.createElement('h2');
+  h.style.color = '#ef4444';
+  h.textContent = '🚨 앱 실행 오류 발생';
+  wrap.appendChild(h);
+
+  const pMsg = document.createElement('p');
+  const strongMsg = document.createElement('strong');
+  strongMsg.textContent = '메시지: ';
+  pMsg.appendChild(strongMsg);
+  pMsg.appendChild(document.createTextNode(String(message ?? '')));
+  wrap.appendChild(pMsg);
+
+  const pLoc = document.createElement('p');
+  const strongLoc = document.createElement('strong');
+  strongLoc.textContent = '위치: ';
+  pLoc.appendChild(strongLoc);
+  pLoc.appendChild(document.createTextNode(`${source ?? ''}:${lineno ?? ''}`));
+  wrap.appendChild(pLoc);
+
+  const btn = document.createElement('button');
+  btn.textContent = '새로고침';
+  btn.style.cssText = 'margin-top:20px;padding:10px 20px;background:#3b82f6;border:none;color:white;border-radius:8px';
+  btn.addEventListener('click', () => window.location.reload());
+  wrap.appendChild(btn);
+
+  root.appendChild(wrap);
   return false;
 };
 
