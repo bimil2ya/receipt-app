@@ -91,10 +91,15 @@ export default function SummaryTab({ receipts, names, reportDate }) {
                 const isExp = isCapturing || expandedItems.includes(cat);
                 return (
                   <div key={cat} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <div onClick={() => toggleExpand(cat)} className="flex justify-between items-center p-4 cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(cat)}
+                      aria-expanded={isExp}
+                      className="flex w-full justify-between items-center p-4 text-left min-h-[44px]"
+                    >
                       <span className="font-black text-slate-100 text-lg">{cat}</span>
                       <span className="font-black text-white text-xl">{formatCurrency(list.reduce((s, r) => s + r.totalAmount, 0))}</span>
-                    </div>
+                    </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {list.map(r => (
@@ -131,10 +136,15 @@ export default function SummaryTab({ receipts, names, reportDate }) {
                 const displayDate = d.slice(2).replace(/-/g, '.');
                 return (
                   <div key={d} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <div onClick={() => toggleExpand(d)} className="flex justify-between items-center p-4 cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(d)}
+                      aria-expanded={isExp}
+                      className="flex w-full justify-between items-center p-4 text-left min-h-[44px]"
+                    >
                       <span className="font-black text-slate-100 text-lg">{displayDate}</span>
                       <span className="font-black text-white text-xl">{formatCurrency(list.reduce((s, r) => s + r.totalAmount, 0))}</span>
-                    </div>
+                    </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {list.map(r => (

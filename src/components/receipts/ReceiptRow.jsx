@@ -53,21 +53,21 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => onDelete(receipt.id)}
-              className="w-[34px] h-[34px] flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-amber-300"
+              className="w-10 h-10 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-amber-300"
               aria-label="삭제"
             >
               <Trash2 size={12} />
             </button>
             <button
               onClick={() => onEdit(receipt.id, 'detail')}
-              className="w-[34px] h-[34px] flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-slate-300"
+              className="w-10 h-10 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-slate-300"
               aria-label="수정"
             >
               <Pencil size={12} />
             </button>
             <button
               onClick={() => onViewImage(receipt.id)}
-              className={`w-[34px] h-[34px] flex items-center justify-center rounded-xl border ${isSelected ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+              className={`w-10 h-10 flex items-center justify-center rounded-xl border ${isSelected ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
               aria-label="이미지 보기"
             >
               <ImageIcon size={12} />

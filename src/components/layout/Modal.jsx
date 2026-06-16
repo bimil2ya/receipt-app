@@ -25,12 +25,35 @@ export default function Modal({ title, onClose, children, initialFocusRef }) {
     };
   }, [initialFocusRef]);
 
+  const dialogRef = useRef(null);
+
   useEffect(() => {
     if (!onClose) return;
     const onKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         onClose();
+        return;
+      }
+      // Focus trap: Tab/Shift+Tab 시 모달 안에서만 순환
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey) {
+        if (active === first || !dialogRef.current.contains(active)) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -48,6 +71,7 @@ export default function Modal({ title, onClose, children, initialFocusRef }) {
       }}
     >
       <div
+        ref={dialogRef}
         className="bg-slate-800 rounded-2xl p-5 w-full max-w-md max-h-[90dvh] overflow-y-auto shadow-2xl border border-slate-700"
         role="dialog"
         aria-modal="true"
