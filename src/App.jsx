@@ -531,16 +531,16 @@ export default function App() {
 
               {/* 말풍선 (탭 시 1.5초 표시) — 우측 끝에서 왼쪽으로 펼침 */}
               {statusPopover && (
-                <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 whitespace-nowrap shadow-2xl">
+                <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 whitespace-nowrap shadow-2xl">
                   {statusPopover === 'save' && (
-                    saveStatus === 'saving' ? '이 기기에 저장 중…'
-                    : saveStatus === 'error' ? '저장 실패 — 다시 시도하거나 자료관리에서 백업하세요'
-                    : '이 기기에 안전하게 저장됨'
+                    saveStatus === 'saving' ? <span className="font-black text-blue-300">저장 중…</span>
+                    : saveStatus === 'error' ? <><span className="font-black text-red-300">저장 실패</span> — 자료관리에서 백업해 보세요</>
+                    : <><span className="font-black text-emerald-300">저장됨</span> · 이 기기에 안전</>
                   )}
                   {statusPopover === 'sync' && (
-                    syncStatus === 'syncing' ? '서버와 동기화 중…'
-                    : syncStatus === 'error' ? '서버 동기화 실패 — 잠시 후 자동 재시도됩니다'
-                    : '서버와 동기화됨'
+                    syncStatus === 'syncing' ? <span className="font-black text-cyan-300">동기화 중…</span>
+                    : syncStatus === 'error' ? <><span className="font-black text-red-300">동기화 실패</span> — 잠시 후 자동 재시도</>
+                    : <><span className="font-black text-emerald-300">동기화됨</span> · 서버 연결 정상</>
                   )}
                 </div>
               )}
