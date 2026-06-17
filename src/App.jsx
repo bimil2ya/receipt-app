@@ -62,7 +62,7 @@ export default function App() {
   const [statusPopover, setStatusPopover] = useState(null); // 'save' | 'sync' | null
   useEffect(() => {
     if (!statusPopover) return;
-    const t = setTimeout(() => setStatusPopover(null), 2500);
+    const t = setTimeout(() => setStatusPopover(null), 1500);
     return () => clearTimeout(t);
   }, [statusPopover]);
 
@@ -515,9 +515,9 @@ export default function App() {
                 </button>
               )}
 
-              {/* 말풍선 (탭 시 2.5초 표시) */}
+              {/* 말풍선 (탭 시 1.5초 표시) — 우측 끝에서 왼쪽으로 펼침 */}
               {statusPopover && (
-                <div className="absolute top-full mt-2 left-0 z-50 bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 whitespace-nowrap shadow-2xl">
+                <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 whitespace-nowrap shadow-2xl">
                   {statusPopover === 'save' && (
                     saveStatus === 'saving' ? '이 기기에 저장 중…'
                     : saveStatus === 'error' ? '저장 실패 — 다시 시도하거나 자료관리에서 백업하세요'
