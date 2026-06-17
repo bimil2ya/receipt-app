@@ -34,7 +34,11 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
     const byImageId = new Map();
     const sorted = [...(receipts || [])]
       .filter(r => r.imageId)
-      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      .sort((a, b) => {
+        const byDate = (b.date || '').localeCompare(a.date || '');
+        if (byDate !== 0) return byDate;
+        return (b.useTime || '').localeCompare(a.useTime || '');
+      });
 
     for (const receipt of sorted) {
       if (!byImageId.has(receipt.imageId)) byImageId.set(receipt.imageId, receipt);
