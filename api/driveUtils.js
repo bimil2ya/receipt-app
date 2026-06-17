@@ -43,7 +43,9 @@ function wrapDriveForSharedDrives(drive) {
 }
 
 export function createDrive() {
-  const json = process.env.GDRIVE_SERVICE_ACCOUNT_JSON;
+  const json =
+    process.env.GDRIVE_SERVICE_ACCOUNT_JSON ||
+    process.env.GDRIVE_SERVICE_ACCOUNT;
   if (!json) {
     throw new Error(
       'GDRIVE_SERVICE_ACCOUNT_JSON 환경변수가 없습니다. Vercel에 서비스 계정 JSON 키 전체를 저장하세요.'
