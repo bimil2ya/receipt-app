@@ -89,7 +89,7 @@ export default async function handler(req) {
   const upload = envSection(['UPLOAD_API_TOKEN'], ['VITE_UPLOAD_TOKEN']);
 
   // 관리자 모드 (?admin=TOKEN)에서만 상세 정보 노출 — 일반 응답은 ok만
-  const url = new URL(req.url);
+  const url = new URL(req.url, `http://${req.headers.host || req.headers.get?.('host') || 'localhost'}`);
   const adminToken = process.env.ADMIN_TOKEN;
   const isAdmin = adminToken && url.searchParams.get('admin') === adminToken;
 
