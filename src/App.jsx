@@ -58,6 +58,14 @@ export default function App() {
   const [toastMsg, setToastMsg] = useState('');
   const showToast = useCallback((msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 4000); }, []);
 
+  // ── 헤더 상태 아이콘 말풍선 (저장/동기화 아이콘 탭 시 설명 노출)
+  const [statusPopover, setStatusPopover] = useState(null); // 'save' | 'sync' | null
+  useEffect(() => {
+    if (!statusPopover) return;
+    const t = setTimeout(() => setStatusPopover(null), 2500);
+    return () => clearTimeout(t);
+  }, [statusPopover]);
+
   // ── 앱 설정 (localStorage 동기화)
   const [names, setNames] = useState(() => readStorageItem('receipt_names', '노경호, 김영일'));
   const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(readStorageItem('weekly_budget', '1000000')));
@@ -468,42 +476,61 @@ export default function App() {
         <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
-            <div className="flex items-center gap-1">
-              {saveStatus === 'saving' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-blue-300 shrink-0">
-                  <Loader2 size={14} className="animate-spin" /> 저장중
-                </span>
+            <div className="flex items-center gap-1 relative">
+              {/* 로컬 저장 — 아이콘만, 탭하면 말풍선 (에러일 때만 라벨 표시) */}
+              <button
+                type="button"
+                onClick={() => setStatusPopover(p => p === 'save' ? null : 'save')}
+                className="flex items-center gap-0.5 shrink-0 active:scale-95"
+                aria-label="저장 상태"
+              >
+                {saveStatus === 'saving' ? (
+                  <Loader2 size={14} className="animate-spin text-blue-300" />
+                ) : saveStatus === 'error' ? (
+                  <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300">
+                    <HardDrive size={14} /> 저장실패
+                  </span>
+                ) : (
+                  <HardDrive size={14} className="text-emerald-300" />
+                )}
+              </button>
+
+              {/* 클라우드 동기화 — 오프라인이면 완전히 숨김 */}
+              {syncStatus !== 'offline' && (
+                <button
+                  type="button"
+                  onClick={() => setStatusPopover(p => p === 'sync' ? null : 'sync')}
+                  className="flex items-center gap-0.5 shrink-0 active:scale-95"
+                  aria-label="동기화 상태"
+                >
+                  {syncStatus === 'syncing' ? (
+                    <Loader2 size={14} className="animate-spin text-cyan-300" />
+                  ) : syncStatus === 'error' ? (
+                    <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300">
+                      <Cloud size={14} /> 동기화실패
+                    </span>
+                  ) : (
+                    <Cloud size={14} className="text-emerald-300" />
+                  )}
+                </button>
               )}
-              {saveStatus === 'error' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
-                  <HardDrive size={14} /> 저장실패
-                </span>
+
+              {/* 말풍선 (탭 시 2.5초 표시) */}
+              {statusPopover && (
+                <div className="absolute top-full mt-2 left-0 z-50 bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-100 whitespace-nowrap shadow-2xl">
+                  {statusPopover === 'save' && (
+                    saveStatus === 'saving' ? '이 기기에 저장 중…'
+                    : saveStatus === 'error' ? '저장 실패 — 다시 시도하거나 자료관리에서 백업하세요'
+                    : '이 기기에 안전하게 저장됨'
+                  )}
+                  {statusPopover === 'sync' && (
+                    syncStatus === 'syncing' ? '서버와 동기화 중…'
+                    : syncStatus === 'error' ? '서버 동기화 실패 — 잠시 후 자동 재시도됩니다'
+                    : '서버와 동기화됨'
+                  )}
+                </div>
               )}
-              {saveStatus !== 'saving' && saveStatus !== 'error' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
-                  <HardDrive size={14} /> 저장됨
-                </span>
-              )}
-              {syncStatus === 'syncing' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-cyan-300 shrink-0">
-                  <Loader2 size={14} className="animate-spin" /> 동기화중
-                </span>
-              )}
-              {syncStatus === 'error' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
-                  <Cloud size={14} /> 동기화실패
-                </span>
-              )}
-              {syncStatus === 'offline' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-amber-300 shrink-0">
-                  <Cloud size={14} /> 오프라인
-                </span>
-              )}
-              {(syncStatus === 'idle' || syncStatus === 'success') && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
-                  <Cloud size={14} /> 동기화됨
-                </span>
-              )}
+
               {pendingSyncCount > 0 && (
                 <span className="ml-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-200 whitespace-nowrap">
                   보류 {pendingSyncCount}
