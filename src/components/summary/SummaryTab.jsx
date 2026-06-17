@@ -86,7 +86,13 @@ export default function SummaryTab({ receipts, names, reportDate }) {
               const genTotal = receipts.filter(r => order.includes(r.category)).reduce((s, r) => s + (r.totalAmount || 0), 0);
 
               const renderGroup = (cat) => {
-                const list = receipts.filter(r => r.category === cat);
+                const list = receipts
+                  .filter(r => r.category === cat)
+                  .sort((a, b) => {
+                    const byDate = (b.date || '').localeCompare(a.date || '');
+                    if (byDate !== 0) return byDate;
+                    return (b.useTime || '').localeCompare(a.useTime || '');
+                  });
                 if (list.length === 0) return null;
                 const isExp = isCapturing || expandedItems.includes(cat);
                 return (
@@ -129,9 +135,11 @@ export default function SummaryTab({ receipts, names, reportDate }) {
             })()
           ) : (
             (() => {
-              const dates = [...new Set(receipts.map(r => r.date))].sort();
+              const dates = [...new Set(receipts.map(r => r.date))].sort((a, b) => (b || '').localeCompare(a || ''));
               return dates.map(d => {
-                const list = receipts.filter(r => r.date === d);
+                const list = receipts
+                  .filter(r => r.date === d)
+                  .sort((a, b) => (b.useTime || '').localeCompare(a.useTime || ''));
                 const isExp = isCapturing || expandedItems.includes(d);
                 const displayDate = d.slice(2).replace(/-/g, '.');
                 return (
