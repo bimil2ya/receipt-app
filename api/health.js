@@ -36,6 +36,7 @@ async function checkDrive() {
     );
     return { ...required, ok: true, connected: true, file: res.data };
   } catch (error) {
+    console.error('Drive 점검 실패:', error.message, error.stack);
     return { ...required, ok: false, connected: false, error: error.message };
   }
 }
