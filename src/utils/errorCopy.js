@@ -4,7 +4,7 @@ const FAILURE_HINTS = [
     hint: '네트워크를 확인한 뒤 잠시 후 다시 시도하세요.',
   },
   {
-    test: /(401|403|unauthorized|forbidden|jwt|token|api key|auth)/i,
+    test: /(401|403|unauthorized|forbidden|jwt|token|api[_ ]?key|auth|invalid[_ ]grant|credentials|service[_ ]account)/i,
     hint: '설정에서 연결 정보를 다시 확인하세요.',
   },
   {

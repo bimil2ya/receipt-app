@@ -22,9 +22,7 @@ function withTimeout(promise, ms, label) {
 
 async function checkDrive() {
   const required = envSection([
-    'GDRIVE_CLIENT_ID',
-    'GDRIVE_CLIENT_SECRET',
-    'GDRIVE_REFRESH_TOKEN',
+    'GDRIVE_SERVICE_ACCOUNT_JSON',
     'GDRIVE_MAIN_FOLDER_ID',
   ]);
   if (!required.ok) return required;

@@ -1,6 +1,12 @@
 /**
  * Google Drive 공유 유틸리티
  * upload.js / aggregate.js 양쪽에서 사용
+ *
+ * 인증: 서비스 계정 (Vercel 환경변수 GDRIVE_SERVICE_ACCOUNT_JSON 에
+ *       Google Cloud Console에서 받은 JSON 키 파일 내용을 통째로 저장)
+ *
+ * 저장소: 공유 드라이브("공유 문서함") 안의 폴더
+ *       → 모든 files API 호출에 supportsAllDrives: true 가 자동으로 추가됨
  */
 import { google } from 'googleapis';
 
@@ -11,22 +17,52 @@ export function driveQueryString(value) {
   return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-/**
- * OAuth2 인증으로 Drive 인스턴스 생성
- * 필요 환경변수: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
- */
+// 공유 드라이브(Shared Drive)에서 동작하려면 모든 files.* 호출에
+// supportsAllDrives 가 필요. 호출 사이트마다 추가하지 않고 한곳에서 처리.
+function wrapDriveForSharedDrives(drive) {
+  const filesProxy = new Proxy(drive.files, {
+    get(target, prop) {
+      const original = target[prop];
+      if (typeof original !== 'function') return original;
+      return function (params = {}, ...rest) {
+        const augmented = {
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+          ...params,
+        };
+        return original.call(target, augmented, ...rest);
+      };
+    },
+  });
+  return new Proxy(drive, {
+    get(target, prop) {
+      if (prop === 'files') return filesProxy;
+      return target[prop];
+    },
+  });
+}
+
 export function createDrive() {
-  const clientId     = process.env.GDRIVE_CLIENT_ID     || process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GDRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GDRIVE_REFRESH_TOKEN || process.env.GOOGLE_REFRESH_TOKEN;
-  if (!clientId || !clientSecret || !refreshToken) {
+  const json = process.env.GDRIVE_SERVICE_ACCOUNT_JSON;
+  if (!json) {
     throw new Error(
-      'Google OAuth 환경변수 누락 (GDRIVE_CLIENT_ID / GDRIVE_CLIENT_SECRET / GDRIVE_REFRESH_TOKEN)'
+      'GDRIVE_SERVICE_ACCOUNT_JSON 환경변수가 없습니다. Vercel에 서비스 계정 JSON 키 전체를 저장하세요.'
     );
   }
-  const auth = new google.auth.OAuth2(clientId, clientSecret);
-  auth.setCredentials({ refresh_token: refreshToken });
-  return google.drive({ version: 'v3', auth });
+  let credentials;
+  try {
+    credentials = JSON.parse(json);
+  } catch {
+    throw new Error(
+      'GDRIVE_SERVICE_ACCOUNT_JSON 파싱 실패 — Vercel 환경변수에 JSON 전체가 올바르게 저장됐는지 확인하세요.'
+    );
+  }
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+  const drive = google.drive({ version: 'v3', auth });
+  return wrapDriveForSharedDrives(drive);
 }
 
 /**
