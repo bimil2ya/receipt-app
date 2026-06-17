@@ -60,10 +60,24 @@ export default function App() {
 
   // ── 헤더 상태 아이콘 말풍선 (저장/동기화 아이콘 탭 시 설명 노출)
   const [statusPopover, setStatusPopover] = useState(null); // 'save' | 'sync' | null
+  const statusRef = useRef(null);
   useEffect(() => {
     if (!statusPopover) return;
+    // 1.5초 자동 닫힘
     const t = setTimeout(() => setStatusPopover(null), 1500);
-    return () => clearTimeout(t);
+    // 영역 밖 탭/클릭 시 즉시 닫힘
+    const onOutside = (e) => {
+      if (statusRef.current && !statusRef.current.contains(e.target)) {
+        setStatusPopover(null);
+      }
+    };
+    document.addEventListener('mousedown', onOutside);
+    document.addEventListener('touchstart', onOutside);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', onOutside);
+      document.removeEventListener('touchstart', onOutside);
+    };
   }, [statusPopover]);
 
   // ── 앱 설정 (localStorage 동기화)
@@ -476,7 +490,7 @@ export default function App() {
         <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
-            <div className="flex items-center gap-1 relative">
+            <div ref={statusRef} className="flex items-center gap-1 relative">
               {/* 로컬 저장 — 아이콘만, 탭하면 말풍선 (에러일 때만 라벨 표시) */}
               <button
                 type="button"
