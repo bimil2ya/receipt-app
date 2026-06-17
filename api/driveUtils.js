@@ -20,24 +20,30 @@ export function driveQueryString(value) {
 // 공유 드라이브(Shared Drive)에서 동작하려면 모든 files.* 호출에
 // supportsAllDrives 가 필요. 호출 사이트마다 추가하지 않고 한곳에서 처리.
 function wrapDriveForSharedDrives(drive) {
-  const filesProxy = new Proxy(drive.files, {
-    get(target, prop) {
-      const original = target[prop];
-      if (typeof original !== 'function') return original;
-      return function (params = {}, ...rest) {
-        const augmented = {
+  const originalFiles = drive.files;
+  const wrappedFiles = {};
+  for (const key of Object.keys(originalFiles)) {
+    const original = originalFiles[key];
+    if (typeof original === 'function') {
+      wrappedFiles[key] = function (params, ...rest) {
+        const merged = {
           supportsAllDrives: true,
           includeItemsFromAllDrives: true,
-          ...params,
+          ...(params || {}),
         };
-        return original.call(target, augmented, ...rest);
+        return original.call(originalFiles, merged, ...rest);
       };
-    },
-  });
-  return new Proxy(drive, {
-    get(target, prop) {
-      if (prop === 'files') return filesProxy;
-      return target[prop];
+    } else {
+      wrappedFiles[key] = original;
+    }
+  }
+  // drive 의 다른 리소스(about, drives, ...)는 그대로 forward,
+  // files 만 wrap된 객체로 교체. plain object를 Proxy 대상으로 쓰면
+  // non-configurable invariant 위반이 발생하지 않음.
+  return new Proxy({}, {
+    get(_target, prop) {
+      if (prop === 'files') return wrappedFiles;
+      return drive[prop];
     },
   });
 }
