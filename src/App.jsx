@@ -474,14 +474,14 @@ export default function App() {
                   <Loader2 size={14} className="animate-spin" /> 저장중
                 </span>
               )}
-              {saveStatus === 'success' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
-                  <HardDrive size={14} /> 저장됨
-                </span>
-              )}
               {saveStatus === 'error' && (
                 <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
                   <HardDrive size={14} /> 저장실패
+                </span>
+              )}
+              {saveStatus !== 'saving' && saveStatus !== 'error' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
+                  <HardDrive size={14} /> 저장됨
                 </span>
               )}
               {syncStatus === 'syncing' && (
@@ -489,14 +489,19 @@ export default function App() {
                   <Loader2 size={14} className="animate-spin" /> 동기화중
                 </span>
               )}
-              {syncStatus === 'success' && (
-                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
-                  <Cloud size={14} /> 동기화됨
-                </span>
-              )}
               {syncStatus === 'error' && (
                 <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
                   <Cloud size={14} /> 동기화실패
+                </span>
+              )}
+              {syncStatus === 'offline' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-amber-300 shrink-0">
+                  <Cloud size={14} /> 오프라인
+                </span>
+              )}
+              {(syncStatus === 'idle' || syncStatus === 'success') && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
+                  <Cloud size={14} /> 동기화됨
                 </span>
               )}
               {pendingSyncCount > 0 && (
