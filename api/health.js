@@ -55,21 +55,15 @@ async function checkKakao() {
   }
 }
 
-export default async function handler(req) {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/json',
-  };
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Cache-Control', 'no-store');
 
-  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers });
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET') {
-    return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), {
-      status: 405,
-      headers,
-    });
+    return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
   // 외부 호출 두 건을 병렬로, 한쪽 hang이 다른 쪽을 막지 않도록
@@ -89,13 +83,13 @@ export default async function handler(req) {
   const upload = envSection(['UPLOAD_API_TOKEN'], ['VITE_UPLOAD_TOKEN']);
 
   // 관리자 모드 (?admin=TOKEN)에서만 상세 정보 노출 — 일반 응답은 ok만
-  const url = new URL(req.url, `http://${req.headers.host || req.headers.get?.('host') || 'localhost'}`);
+  const adminQuery = (req.query && req.query.admin) || '';
   const adminToken = process.env.ADMIN_TOKEN;
-  const isAdmin = adminToken && url.searchParams.get('admin') === adminToken;
+  const isAdmin = adminToken && adminQuery === adminToken;
 
   const summarize = (svc) => isAdmin ? svc : { ok: Boolean(svc?.ok) };
 
-  return new Response(JSON.stringify({
+  return res.status(200).json({
     success: true,
     checkedAt: new Date().toISOString(),
     services: {
@@ -104,5 +98,5 @@ export default async function handler(req) {
       kakao: summarize(kakao),
       upload: summarize(upload),
     },
-  }), { status: 200, headers });
+  });
 }
