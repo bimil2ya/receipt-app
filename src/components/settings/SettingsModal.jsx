@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Modal from '../layout/Modal';
-import { encryptData, decryptData } from '../../utils/crypto';
 import { formatFailureMessage } from '../../utils/errorCopy';
 import { summarizeSyncFailureReasons } from '../../utils/syncActivity';
-import { readStorageItem, writeStorageItem } from '../../utils/storage';
 import { APP_VERSION } from '../../utils/version';
 
 export default function SettingsModal({
@@ -22,51 +20,22 @@ export default function SettingsModal({
   syncDaily = [],
   onRetrySync,
 }) {
-  const [tempKey, setTempKey] = useState('');
-  const [tempBiznoKey, setTempBiznoKey] = useState('');
-  const [testResult, setTestResult] = useState({ loading: false, msg: '', type: '' });
   const [healthResult, setHealthResult] = useState({ loading: false, data: null, msg: '' });
-  const [showApiKeys, setShowApiKeys] = useState(false);
   const [showOpsDetail, setShowOpsDetail] = useState(false);
   const [showOpsStats, setShowOpsStats] = useState(false);
   const [eventFilter, setEventFilter] = useState('all');
   const [showLogHistory, setShowLogHistory] = useState(false);
   const [showDangerZone, setShowDangerZone] = useState(false);
 
-  // 설정 열릴 때마다 암호화된 키 복호화
   useEffect(() => {
     if (!show) return;
-    const loadKey = async () => {
-      try {
-        const encrypted = readStorageItem('claude_api_key_v2');
-        if (encrypted) { const dec = await decryptData(encrypted); setTempKey(dec); }
-        else setTempKey('');
-      } catch (e) { if (import.meta.env.DEV) console.error(e); }
-    };
-    loadKey();
-    setTempBiznoKey(readStorageItem('bizno_api_key'));
-    setShowApiKeys(false);
     setShowOpsDetail(false);
     setShowOpsStats(false);
     setShowLogHistory(false);
     setShowDangerZone(false);
-    setTestResult({ loading: false, msg: '', type: '' });
     setHealthResult({ loading: false, data: null, msg: '' });
     setEventFilter('all');
   }, [show]);
-
-  const testConnection = async () => {
-    setTestResult({ loading: true, msg: '연결 확인 중...', type: 'info' });
-    try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: tempKey, isTest: true }),
-      });
-      const data = await res.json();
-      if (res.ok) setTestResult({ loading: false, msg: data.message, type: 'success' });
-      else setTestResult({ loading: false, msg: formatFailureMessage('연결 테스트 실패', data.error || `상태 ${res.status}`), type: 'error' });
-    } catch (e) { setTestResult({ loading: false, msg: formatFailureMessage('연결 테스트 실패', e), type: 'error' }); }
-  };
 
   const checkSystemStatus = async () => {
     setHealthResult({ loading: true, data: null, msg: '시스템 상태 확인 중...' });
@@ -80,10 +49,7 @@ export default function SettingsModal({
     }
   };
 
-  const saveSettings = async () => {
-    const enc = await encryptData(tempKey);
-    writeStorageItem('claude_api_key_v2', enc);
-    writeStorageItem('bizno_api_key', tempBiznoKey);
+  const saveSettings = () => {
     onClose();
     showToast('🛡️ 저장 완료');
   };
@@ -426,56 +392,6 @@ export default function SettingsModal({
             )}
           </div>
         )}
-
-        {/* API 설정 (접기/펼치기) */}
-        <div className="border-b border-slate-800 pb-3">
-          <button
-            onClick={() => setShowApiKeys(v => !v)}
-            className="w-full flex items-center justify-between text-slate-300 font-black text-base py-1.5"
-          >
-            <span>🔑 API 설정 (고급)</span>
-            <span className="text-slate-500">{showApiKeys ? '▲' : '▶'}</span>
-          </button>
-
-          {showApiKeys && (
-            <div className="mt-3 space-y-4">
-              {/* Claude API 키 */}
-              <div>
-                <label className="text-sm text-slate-300 font-black mb-1.5 block">Claude API 키</label>
-                <input
-                  type="password"
-                  value={tempKey}
-                  onChange={e => setTempKey(e.target.value)}
-                  placeholder="sk-ant-api..."
-                  className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-3.5 text-white font-black text-base"
-                />
-                <button
-                  onClick={testConnection}
-                  disabled={testResult.loading}
-                  className="w-full py-3.5 mt-2.5 bg-slate-800 text-slate-100 rounded-xl font-black border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {testResult.loading ? '확인 중...' : '연결 테스트'}
-                </button>
-                {testResult.msg && (
-                  <div className={`mt-3 p-3 rounded-2xl text-sm font-bold leading-6 border ${testResult.type === 'success' ? 'bg-green-900/20 text-green-300 border-green-900' : 'bg-red-900/20 text-red-300 border-red-900'}`}>
-                    {testResult.msg}
-                  </div>
-                )}
-              </div>
-
-              {/* 비즈노 API 키 */}
-              <div>
-                <label className="text-sm text-slate-300 font-black mb-1.5 block">비즈노(Bizno) API 키</label>
-                <input
-                  type="password"
-                  value={tempBiznoKey}
-                  onChange={e => setTempBiznoKey(e.target.value)}
-                  className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-3.5 text-white font-black text-base"
-                />
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* 설정 저장 */}
         <button onClick={saveSettings} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">

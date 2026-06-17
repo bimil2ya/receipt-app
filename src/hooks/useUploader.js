@@ -1,18 +1,13 @@
 import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
 import { getToday, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
-import { decryptData } from '../utils/crypto';
-import { readStorageItem } from '../utils/storage';
 
 export default function useUploader({ onUploadSuccess, onUploadError }) {
   const [processing, setProcessing] = useState(false);
   const [procMsg, setProcMsg] = useState('');
 
   const handleFiles = useCallback(async (files, existingReceipts = []) => {
-    const encryptedKey = readStorageItem('claude_api_key_v2');
-    const apiKey = await decryptData(encryptedKey);
-    const biznoKey = readStorageItem('bizno_api_key');
-
+    // API 키는 모두 서버(Vercel env)에서 처리. 사용자(노인)는 키 입력 안 함.
     setProcessing(true);
     const added = [];
     const failedFiles = [];
@@ -29,7 +24,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         const res = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64: b64, mediaType: mimeType, apiKey })
+          body: JSON.stringify({ base64: b64, mediaType: mimeType })
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -41,12 +36,12 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         // 영수증 항목별 비즈노 조회 — 한 파일 안의 영수증은 병렬
         const enriched = await Promise.all((result.receipts || []).map(async (r) => {
           const initialBizNum = r.bizNum ? r.bizNum.toString().replace(/[^0-9]/g, '') : '';
-          if (initialBizNum.length >= 8 && biznoKey) {
+          if (initialBizNum.length >= 8) {
             try {
               const lookupRes = await fetch('/api/lookup-biz', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bizNum: initialBizNum, apiKey: biznoKey })
+                body: JSON.stringify({ bizNum: initialBizNum })
               });
               if (lookupRes.ok) {
                 const lookupData = await lookupRes.json();
