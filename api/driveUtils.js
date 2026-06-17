@@ -19,13 +19,16 @@ export function driveQueryString(value) {
 
 // 공유 드라이브(Shared Drive)에서 동작하려면 모든 files.* 호출에
 // supportsAllDrives 가 필요. 호출 사이트마다 추가하지 않고 한곳에서 처리.
+//
+// googleapis는 메서드를 prototype에 둬서 Object.keys로는 못 찾음.
+// Proxy 동적 접근으로 함수만 wrap하고 그대로 forward.
 function wrapDriveForSharedDrives(drive) {
   const originalFiles = drive.files;
-  const wrappedFiles = {};
-  for (const key of Object.keys(originalFiles)) {
-    const original = originalFiles[key];
-    if (typeof original === 'function') {
-      wrappedFiles[key] = function (params, ...rest) {
+  const filesProxy = new Proxy({}, {
+    get(_target, prop) {
+      const original = originalFiles[prop];
+      if (typeof original !== 'function') return original;
+      return function (params, ...rest) {
         const merged = {
           supportsAllDrives: true,
           includeItemsFromAllDrives: true,
@@ -33,16 +36,13 @@ function wrapDriveForSharedDrives(drive) {
         };
         return original.call(originalFiles, merged, ...rest);
       };
-    } else {
-      wrappedFiles[key] = original;
-    }
-  }
+    },
+  });
   // drive 의 다른 리소스(about, drives, ...)는 그대로 forward,
-  // files 만 wrap된 객체로 교체. plain object를 Proxy 대상으로 쓰면
-  // non-configurable invariant 위반이 발생하지 않음.
+  // files 만 wrap된 Proxy로 교체.
   return new Proxy({}, {
     get(_target, prop) {
-      if (prop === 'files') return wrappedFiles;
+      if (prop === 'files') return filesProxy;
       return drive[prop];
     },
   });
