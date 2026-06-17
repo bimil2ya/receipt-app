@@ -469,12 +469,36 @@ export default function App() {
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
             <div className="flex items-center gap-1">
-              {saveStatus === 'saving' && <Loader2 size={18} className="text-blue-300 animate-spin shrink-0" title="로컬 저장 중" />}
-              {saveStatus === 'success' && <HardDrive size={18} className="text-emerald-300 shrink-0" title="로컬 저장 완료" />}
-              {saveStatus === 'error' && <HardDrive size={18} className="text-red-300 shrink-0" title="로컬 저장 실패" />}
-              {syncStatus === 'syncing' && <Loader2 size={18} className="text-cyan-300 animate-spin shrink-0" title="클라우드 동기화 중" />}
-              {syncStatus === 'success' && <Cloud size={18} className="text-emerald-300 shrink-0" title="클라우드 동기화 완료" />}
-              {syncStatus === 'error' && <Cloud size={18} className="text-red-300 shrink-0" title="클라우드 동기화 실패" />}
+              {saveStatus === 'saving' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-blue-300 shrink-0">
+                  <Loader2 size={14} className="animate-spin" /> 저장중
+                </span>
+              )}
+              {saveStatus === 'success' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
+                  <HardDrive size={14} /> 저장됨
+                </span>
+              )}
+              {saveStatus === 'error' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
+                  <HardDrive size={14} /> 저장실패
+                </span>
+              )}
+              {syncStatus === 'syncing' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-cyan-300 shrink-0">
+                  <Loader2 size={14} className="animate-spin" /> 동기화중
+                </span>
+              )}
+              {syncStatus === 'success' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-emerald-300 shrink-0">
+                  <Cloud size={14} /> 동기화됨
+                </span>
+              )}
+              {syncStatus === 'error' && (
+                <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300 shrink-0">
+                  <Cloud size={14} /> 동기화실패
+                </span>
+              )}
               {pendingSyncCount > 0 && (
                 <span className="ml-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-200 whitespace-nowrap">
                   보류 {pendingSyncCount}
