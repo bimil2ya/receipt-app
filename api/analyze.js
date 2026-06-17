@@ -62,16 +62,17 @@ export default async function handler(req) {
 
   try {
     const body = await req.json();
-    // 클라이언트 키만 사용 — 서버 폴백 키(CLAUDE_API_KEY/ANTHROPIC_API_KEY) 의존 제거.
-    // 외부 호출자가 서버 키를 소진하는 시나리오 차단.
-    const rawKey = body.apiKey;
+    // 클라이언트 키 우선, 없으면 서버 환경변수 사용.
+    // 사용자(노인 10여명)가 키 입력을 못 하므로 서버 키를 허용.
+    // 출처 화이트리스트 + rate limit 이 abuse를 막는다.
+    const rawKey = body.apiKey || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
     const apiKey = rawKey ? rawKey.replace(/[\s\u200B-\u200D\uFEFF]/g, '') : null;
     
     if (!apiKey || !apiKey.startsWith('sk-ant-')) {
       return new Response(JSON.stringify({
         success: false,
         error: 'API 키 형식 오류',
-        detail: 'API 키가 비어있거나 잘못되었습니다. 다시 입력해 주세요.'
+        detail: 'API 키가 비어있거나 잘못되었습니다. 관리자에게 문의하세요.'
       }), { status: 401, headers: resHeaders });
     }
 
