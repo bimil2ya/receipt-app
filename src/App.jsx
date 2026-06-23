@@ -224,7 +224,7 @@ export default function App() {
       showToast('🔄 새 주 시작 완료');
     } catch (e) {
       if (import.meta.env.DEV) console.error('startNewWeek failed:', e);
-      showToast('새 주 시작 실패 — 다시 시도해 주세요');
+      showToast('서버 삭제 실패 — 앱을 껐다 켜면 데이터가 다시 나타날 수 있습니다. 네트워크 확인 후 재시도해 주세요.');
     }
   };
 
@@ -589,7 +589,7 @@ export default function App() {
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="text-xl font-black whitespace-nowrap">{formatCurrency(remainingBudget)}</span>
                   <span className="text-xs text-slate-400 whitespace-nowrap">/ {formatCurrency(weeklyBudget)}</span>
-                  <button onClick={() => { setTempBudget(0); setShowBudgetCalcModal(true); }} className="ml-1 w-8 h-8 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 text-sm flex items-center justify-center" aria-label="예산 설정">⚙️</button>
+                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 w-8 h-8 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 text-sm flex items-center justify-center" aria-label="예산 설정">⚙️</button>
                 </div>
               </div>
               <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">

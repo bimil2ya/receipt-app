@@ -253,10 +253,9 @@ export default function useReceiptCrud({
             const { error } = await supabase.from('receipts').delete().eq('userId', deviceId);
             if (error) throw error;
           } catch (err) {
-            // 원격 삭제 실패해도 로컬은 이미 비워졌으니 계속 진행, 사용자에겐 status로 알림
             if (import.meta.env.DEV) console.error('Supabase reset delete failed:', err);
             onSaveStatusChange('error');
-            resolve();
+            reject(err);
             return;
           }
         }
