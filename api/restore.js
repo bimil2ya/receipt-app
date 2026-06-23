@@ -82,8 +82,8 @@ export default async function handler(req, res) {
       if (surveyorName.length > 80) {
         return res.status(400).json({ success: false, error: 'surveyorName이 너무 깁니다.' });
       }
-      // upload.js와 동일한 경로 분리자/제어문자 차단
-      if (/[\\/:*?"<>| -]/.test(surveyorName)) {
+      // Drive 폴더명에서 실제로 금지된 문자만 차단 (공백·쉼표는 한국 이름에 허용)
+      if (/[\\/:*?"<>|]/.test(surveyorName)) {
         return res.status(400).json({ success: false, error: 'surveyorName에 사용할 수 없는 문자가 포함됨.' });
       }
       if (!yearMonth || typeof yearMonth !== 'string' || !/^\d{4}년 \d{2}월$/.test(yearMonth)) {
