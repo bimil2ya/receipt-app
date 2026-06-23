@@ -241,18 +241,39 @@ export default async function handler(req, res) {
         return res.status(413).json({ success: false, error: 'xlsxBase64 데이터가 너무 큽니다.' });
       }
       const xlsxBuffer = Buffer.from(xlsxBase64, 'base64');
+
+      // ── 0행 시트 거부 (데이터 손실 방지)
+      // 빈 XLSX가 업로드되면 아래의 기존 파일 정리 로직이 정상 집계 파일을 삭제할 수 있음.
+      // 클라이언트에서 1차 차단되지만, 직접 API 호출/버그/레이스 케이스에 대비한 서버측 방어선.
+      let parsedRows;
+      try {
+        parsedRows = readReceiptRowsFromXlsx(xlsxBuffer);
+      } catch (parseErr) {
+        return res.status(400).json({ success: false, error: 'XLSX 파싱 실패', detail: parseErr.message });
+      }
+      if (parsedRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: '빈 영수증 데이터입니다.',
+          detail: '업로드할 영수증이 0건입니다. 기존 집계 파일을 보호하기 위해 거부했습니다.',
+        });
+      }
+
       const xlsxName   = `출장비_${today}.xlsx`;
 
       const xlsxResult = await uploadFile(drive, xlsxBuffer, xlsxName, personId,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
       // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일 정리
+      // 영구 삭제 대신 휴지통 이동 — 사고 시 30일 안에 Drive 휴지통에서 복원 가능.
       const oldFiles = await drive.files.list({
         q: `'${personId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
         fields: 'files(id,name)',
       });
       for (const f of oldFiles.data.files || []) {
-        if (f.id !== xlsxResult.id) await drive.files.delete({ fileId: f.id }).catch(() => {});
+        if (f.id !== xlsxResult.id) {
+          await drive.files.update({ fileId: f.id, requestBody: { trashed: true } }).catch(() => {});
+        }
       }
 
       // ── 월별 전체집계 자동 업데이트
@@ -273,13 +294,12 @@ export default async function handler(req, res) {
         const hhmm   = `${String(kstNow.getUTCHours()).padStart(2, '0')}:${String(kstNow.getUTCMinutes()).padStart(2, '0')}`;
 
         if (xlsxResult.status !== 'skipped') {
-          const receiptRows = readReceiptRowsFromXlsx(xlsxBuffer);
           const kakaoMessages = buildReceiptKakaoMessages({
             fileName: xlsxName,
             surveyorName,
             mmdd,
             hhmm,
-            rows: receiptRows,
+            rows: parsedRows,
             imageCount: receiptSummary?.imageCount || 0,
           });
           kakaoSent = (await sendKakaoNotifications(kakaoMessages)) !== false;

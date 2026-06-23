@@ -222,6 +222,14 @@ export default function App() {
 
   // ── Drive 업로드
   const uploadToDrive = async () => {
+    // 데이터 손실 방지 — 빈 receipts로 정산하면 서버가 기존 정상 파일을 덮어쓸 수 있음
+    if (!receipts || receipts.length === 0) {
+      showToast('업로드할 영수증이 없습니다. 영수증을 추가한 뒤 다시 시도해 주세요.');
+      return;
+    }
+    const _totalAmount = receipts.reduce((s, r) => s + (r.totalAmount || 0), 0);
+    if (!window.confirm(`${receipts.length}건 / ${_totalAmount.toLocaleString()}원을 Drive로 업로드합니다.\n진행할까요?`)) return;
+
     setDriveUploading(true); setUploadProgress(0);
     setLastUploadFailures([]);  // 새 전송 시작 — 이전 실패 목록 초기화
     const sessionFailures = [];
