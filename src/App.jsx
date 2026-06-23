@@ -892,32 +892,7 @@ export default function App() {
       {showBudgetCalcModal && (
         <Modal title="📅 예산 설정" onClose={closeBudgetModal}>
           <div className="space-y-5 p-4">
-            {/* 새 출장 시작 (맨 위 — 정산 직후 진입 시 가장 먼저 보이는 액션) */}
-            <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
-              <div>
-                <p className="text-sm text-red-300 font-black">🔄 새 출장 시작</p>
-                <p className="text-xs text-red-200/80 font-bold mt-1 leading-5">
-                  아래에서 기간과 예산을 확인·수정한 뒤 시작하세요.
-                  현재 시작일 <span className="text-red-100">{tripStartDate}</span>,
-                  예산 <span className="text-red-100">{(parseInt(tempBudget) || 0).toLocaleString()}원</span>으로 새로 시작합니다.
-                  현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제됩니다.
-                </p>
-              </div>
-              <button
-                onClick={async () => {
-                  const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
-                  if (budgetVal <= 0) { alert('예산을 먼저 입력해 주세요.'); return; }
-                  if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
-                  await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
-                  setShowBudgetCalcModal(false);
-                }}
-                className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
-              >
-                🔄 새로 시작 (영수증 모두 삭제)
-              </button>
-            </div>
-
-            {/* 날짜 범위 캘린더 — 캘린더에서 시작일 변경 시 헤더의 날짜도 즉시 반영됨 */}
+            {/* ① 날짜 범위 캘린더 */}
             <DateRangePicker
               startDate={tripStartDate}
               endDate={tripEndDate}
@@ -928,7 +903,7 @@ export default function App() {
                 writeStorageItem('trip_end_date', e);
               }}
             />
-            {/* 자동계산 미리보기 */}
+            {/* ② 자동계산 미리보기 */}
             {(() => {
               const s = new Date(tripStartDate), e = new Date(tripEndDate);
               const n = Math.ceil((e - s) / 86400000) + 1;
@@ -951,7 +926,7 @@ export default function App() {
                 </button>
               );
             })()}
-            {/* 직접 입력 */}
+            {/* ③ 직접 입력 */}
             <div>
               <label className="text-sm text-slate-400 font-black mb-2 block">예산 직접 입력 (원)</label>
               <input
@@ -961,7 +936,38 @@ export default function App() {
                 className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-4 text-2xl text-white font-black text-right"
               />
             </div>
-            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">설정 저장</button>
+
+            {/* 시각적 구분선 — 입력 영역과 실행 영역 분리 */}
+            <div className="border-t border-slate-800 pt-1" />
+
+            {/* ④ 안전 액션: 예산만 저장 (영수증 유지) */}
+            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">
+              ✓ 저장 (예산만 변경)
+            </button>
+
+            {/* ⑤ 위험 액션: 새 출장 시작 — 격리된 빨간 박스 */}
+            <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
+              <div>
+                <p className="text-sm text-red-300 font-black">⚠️ 새 출장 시작</p>
+                <p className="text-xs text-red-200/80 font-bold mt-1 leading-5">
+                  위에서 정한 시작일 <span className="text-red-100">{tripStartDate}</span>,
+                  예산 <span className="text-red-100">{(parseInt(tempBudget) || 0).toLocaleString()}원</span>으로 새 출장을 시작합니다.
+                  현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제되며 되돌릴 수 없습니다.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
+                  if (budgetVal <= 0) { alert('예산을 먼저 입력해 주세요.'); return; }
+                  if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
+                  await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
+                  setShowBudgetCalcModal(false);
+                }}
+                className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
+              >
+                🔄 새로 시작 (영수증 모두 삭제)
+              </button>
+            </div>
           </div>
         </Modal>
       )}
