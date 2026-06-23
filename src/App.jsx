@@ -120,6 +120,9 @@ export default function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
   // 부분 실패 항목 (이미지/명세) — '다시 보내기'에 사용. 세션 메모리만.
   const [lastUploadFailures, setLastUploadFailures] = useState([]);
+  // ── Drive 복원 진행 — { stage: 'list'|'process', current, total } | null
+  const [restoreProgress, setRestoreProgress] = useState(null);
+  const restoring = restoreProgress !== null;
   // 각 항목: { kind: 'image' | 'xlsx', img?: {filename, dataUrl}, xlsxBase64?, receiptSummary?, error: string }
 
   // ── 파일 OCR 업로드 훅
@@ -361,6 +364,104 @@ export default function App() {
     setDriveUploading(false);
     setUploadProgress(0);
     showToast(`${remaining.length === 0 ? '✅' : '⚠️'} 재전송 ${succeeded}건 성공${remaining.length > 0 ? ` / ${remaining.length}건 실패` : ''}`);
+  };
+
+  // ── Drive 복원 — 손실/사고 후 Drive에 남은 영수증 이미지에서 receipts 재구성
+  const restoreFromDrive = async () => {
+    if (restoring || driveUploading) return;
+    const surveyorName = (names || '').trim();
+    if (!surveyorName) {
+      showToast('이름을 먼저 설정해 주세요.');
+      return;
+    }
+    const baseDate = tripStartDate || getToday();
+    const d = new Date(baseDate + 'T00:00:00');
+    const yearMonth = `${d.getFullYear()}년 ${String(d.getMonth() + 1).padStart(2, '0')}월`;
+
+    if (!window.confirm(
+      `Drive의 "${yearMonth} / ${surveyorName}" 폴더에서 영수증 이미지를 가져와 OCR로 재분석합니다.\n\n` +
+      `· 영수증 1장당 약 5초가 걸리고 OCR 비용이 발생합니다.\n` +
+      `· 기존 영수증은 유지되며, 복원된 영수증이 추가됩니다.\n\n계속할까요?`
+    )) return;
+
+    setRestoreProgress({ stage: 'list', current: 0, total: 0 });
+    const _uploadToken = import.meta.env.VITE_UPLOAD_TOKEN || '';
+    const _authHeaders = { 'Content-Type': 'application/json', ...(_uploadToken ? { 'Authorization': `Bearer ${_uploadToken}` } : {}) };
+
+    try {
+      // 1) 목록 조회
+      const listRes = await fetch('/api/restore', {
+        method: 'POST', headers: _authHeaders,
+        body: JSON.stringify({ action: 'list', surveyorName, yearMonth }),
+      });
+      const listData = await listRes.json().catch(() => ({}));
+      if (!listRes.ok || !listData.success) {
+        throw new Error(listData.error || `목록 조회 실패 (${listRes.status})`);
+      }
+      const files = listData.files || [];
+      if (files.length === 0) {
+        showToast(`Drive의 "${yearMonth} / ${surveyorName}" 폴더에 영수증 이미지가 없습니다.`);
+        setRestoreProgress(null);
+        return;
+      }
+
+      setRestoreProgress({ stage: 'process', current: 0, total: files.length });
+
+      let restoredReceipts = 0;
+      let failedFiles = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          // 2) 다운로드 (base64)
+          const dlRes = await fetch('/api/restore', {
+            method: 'POST', headers: _authHeaders,
+            body: JSON.stringify({ action: 'download', fileId: file.id }),
+          });
+          const dlData = await dlRes.json().catch(() => ({}));
+          if (!dlRes.ok || !dlData.success) { failedFiles++; continue; }
+
+          // 3) OCR 재분석
+          const ocrRes = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64: dlData.base64, mediaType: dlData.mediaType }),
+          });
+          const ocrData = await ocrRes.json().catch(() => ({}));
+          if (!ocrRes.ok || !ocrData.success || !Array.isArray(ocrData.receipts)) { failedFiles++; continue; }
+
+          // 4) IndexedDB 저장 (이미지+영수증 항목)
+          const imageId = crypto.randomUUID();
+          const dataUrl = `data:${dlData.mediaType};base64,${dlData.base64}`;
+          for (const r of ocrData.receipts) {
+            const newId = crypto.randomUUID();
+            await saveReceipts({
+              id: newId,
+              date: r.date || '',
+              storeName: r.storeName || '',
+              totalAmount: parseInt(r.totalAmount) || 0,
+              category: r.suggestedCategory || '식비',
+              note: `Drive 복원: ${file.name}`,
+              imageId,
+              imageUrl: dataUrl,
+              createdAt: Date.now(),
+            });
+            restoredReceipts++;
+          }
+        } catch (e) {
+          if (import.meta.env.DEV) console.warn('복원 실패:', file.name, e);
+          failedFiles++;
+        }
+        setRestoreProgress({ stage: 'process', current: i + 1, total: files.length });
+      }
+
+      const failTail = failedFiles > 0 ? ` / 실패 ${failedFiles}장` : '';
+      showToast(`✅ ${restoredReceipts}건 복원 완료 (${files.length - failedFiles}장 처리${failTail})`);
+    } catch (e) {
+      showToast(`❌ 복원 실패: ${e.message}`);
+    } finally {
+      setRestoreProgress(null);
+    }
   };
 
   // ── 내보내기
@@ -804,6 +905,8 @@ export default function App() {
         syncEvents={syncEvents}
         syncDaily={syncDaily}
         onRetrySync={retryPendingSync}
+        onRestoreFromDrive={restoreFromDrive}
+        restoreProgress={restoreProgress}
       />
 
       {/* ── 인라인 수정 모달 */}

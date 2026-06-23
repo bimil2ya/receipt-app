@@ -19,6 +19,8 @@ export default function SettingsModal({
   syncEvents = [],
   syncDaily = [],
   onRetrySync,
+  onRestoreFromDrive,
+  restoreProgress = null,
 }) {
   const [healthResult, setHealthResult] = useState({ loading: false, data: null, msg: '' });
   const [showOpsDetail, setShowOpsDetail] = useState(false);
@@ -26,6 +28,7 @@ export default function SettingsModal({
   const [eventFilter, setEventFilter] = useState('all');
   const [showLogHistory, setShowLogHistory] = useState(false);
   const [showDangerZone, setShowDangerZone] = useState(false);
+  const [showDataManage, setShowDataManage] = useState(false);
 
   useEffect(() => {
     if (!show) return;
@@ -33,9 +36,12 @@ export default function SettingsModal({
     setShowOpsStats(false);
     setShowLogHistory(false);
     setShowDangerZone(false);
+    setShowDataManage(false);
     setHealthResult({ loading: false, data: null, msg: '' });
     setEventFilter('all');
   }, [show]);
+
+  const restoring = restoreProgress !== null;
 
   const checkSystemStatus = async () => {
     setHealthResult({ loading: true, data: null, msg: '시스템 상태 확인 중...' });
@@ -397,6 +403,53 @@ export default function SettingsModal({
         <button onClick={saveSettings} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">
           설정 저장
         </button>
+
+        {/* 자료 관리 — Drive 복원 등 */}
+        <div className="border border-slate-700 rounded-xl bg-slate-900/40 overflow-hidden">
+          <button
+            onClick={() => setShowDataManage(v => !v)}
+            className="w-full flex items-center justify-between gap-3 px-3 py-3 text-left"
+          >
+            <div>
+              <p className="text-sm text-slate-200 font-black">💾 자료 관리</p>
+              <p className="text-xs text-slate-400 font-bold mt-1">
+                Drive에 남은 영수증을 다시 가져와 복원합니다.
+              </p>
+            </div>
+            <span className="text-slate-400 text-sm font-black">
+              {showDataManage ? '접기' : '펼치기'}
+            </span>
+          </button>
+
+          {showDataManage && (
+            <div className="px-3 pb-3 space-y-2">
+              <button
+                onClick={() => onRestoreFromDrive && onRestoreFromDrive()}
+                disabled={!onRestoreFromDrive || restoring}
+                className="w-full bg-slate-800 border border-slate-700 text-slate-100 py-3.5 rounded-xl font-black text-base active:scale-95 transition-transform disabled:opacity-50"
+              >
+                {restoring
+                  ? (restoreProgress?.stage === 'list'
+                      ? '🔍 Drive 목록 조회 중…'
+                      : `🔄 OCR 재분석 중 ${restoreProgress?.current ?? 0}/${restoreProgress?.total ?? 0}장`)
+                  : '🔄 Drive에서 영수증 복원'}
+              </button>
+              {restoring && restoreProgress?.stage === 'process' && restoreProgress?.total > 0 && (
+                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500/80 transition-all"
+                    style={{ width: `${Math.round((restoreProgress.current / restoreProgress.total) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <p className="text-xs text-slate-400 leading-4">
+                현재 이름·출장 시작일 기준의 Drive 폴더에서 영수증 이미지를 가져와 OCR로 재분석하고
+                <b className="text-slate-200"> 기존 영수증에 추가</b>합니다.
+                영수증 1장당 약 5초가 걸리고 OCR 비용이 발생합니다.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* 위험 구역 */}
         <div className="border border-red-900/40 rounded-xl bg-red-900/10 overflow-hidden">
