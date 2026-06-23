@@ -186,15 +186,6 @@ export default function App() {
     showToast('✅ 1건 추가 완료');
   };
 
-  const handleBudgetCalc = () => {
-    const start = new Date(tripStartDate); const end = new Date(tripEndDate);
-    const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-    if (diffDays <= 0) { alert('날짜 오류'); return; }
-    // 마지막 날 80,000원, 나머지 130,000원
-    const calc = diffDays <= 1 ? 80000 : (diffDays - 1) * 130000 + 80000;
-    setTempBudget(calc);  // 모달 입력란에 반영만 (저장은 saveBudget)
-  };
-
   const saveBudget = () => {
     const val = Math.max(0, parseInt(tempBudget) || 0);
     if (val <= 0) {
@@ -915,7 +906,7 @@ export default function App() {
               <button
                 onClick={async () => {
                   const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
-                  if (budgetVal <= 0) { alert('예산을 먼저 입력하거나 "이 값 적용"을 눌러 주세요.'); return; }
+                  if (budgetVal <= 0) { alert('예산을 먼저 입력해 주세요.'); return; }
                   if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
                   await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
                   setShowBudgetCalcModal(false);
@@ -947,13 +938,17 @@ export default function App() {
                 ? '1일 출장 (마지막날만 적용)'
                 : `${n}일 출장: ${n - 1}일 × 13만 + 마지막날 8만`;
               return (
-                <div className="bg-slate-900/80 rounded-2xl p-4 border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setTempBudget(auto)}
+                  className="w-full bg-slate-900/80 rounded-2xl p-4 border border-slate-700 text-left active:scale-[0.98] transition-transform"
+                >
                   <p className="text-sm text-slate-400 font-bold mb-2">{desc}</p>
                   <div className="flex items-center justify-between">
                     <span className="text-2xl font-black text-blue-300">{auto.toLocaleString('ko-KR')}원</span>
-                    <button onClick={handleBudgetCalc} className="bg-blue-700 hover:bg-blue-600 px-4 py-3 rounded-xl text-sm font-black">이 값 적용</button>
+                    <span className="text-xs text-slate-500 font-black">탭하여 적용 ↓</span>
                   </div>
-                </div>
+                </button>
               );
             })()}
             {/* 직접 입력 */}
