@@ -88,6 +88,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showBudgetCalcModal, setShowBudgetCalcModal] = useState(false);
+  const [showResetDanger, setShowResetDanger] = useState(false);
   const [tempBudget, setTempBudget] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const manualStoreRef = useRef(null);
@@ -580,7 +581,7 @@ export default function App() {
                 <div className="flex items-center gap-1 shrink-0">
                   <span className="text-xl font-black whitespace-nowrap">{formatCurrency(remainingBudget)}</span>
                   <span className="text-xs text-slate-400 whitespace-nowrap">/ {formatCurrency(weeklyBudget)}</span>
-                  <button onClick={() => { setTempBudget(weeklyBudget); setShowBudgetCalcModal(true); }} className="ml-1 w-8 h-8 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 text-sm flex items-center justify-center" aria-label="예산 설정">⚙️</button>
+                  <button onClick={() => { setTempBudget(weeklyBudget); setShowResetDanger(false); setShowBudgetCalcModal(true); }} className="ml-1 w-8 h-8 rounded-lg border border-slate-700 bg-slate-900/70 text-slate-300 text-sm flex items-center justify-center" aria-label="예산 설정">⚙️</button>
                 </div>
               </div>
               <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">
@@ -937,36 +938,46 @@ export default function App() {
               />
             </div>
 
-            {/* 시각적 구분선 — 입력 영역과 실행 영역 분리 */}
-            <div className="border-t border-slate-800 pt-1" />
-
-            {/* ④ 안전 액션: 예산만 저장 (영수증 유지) */}
-            <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">
-              ✓ 저장 (예산만 변경)
-            </button>
-
-            {/* ⑤ 위험 액션: 새 출장 시작 — 격리된 빨간 박스 */}
-            <div className="border border-red-900/50 rounded-2xl bg-red-900/10 p-4 space-y-3">
-              <div>
-                <p className="text-sm text-red-300 font-black">⚠️ 새 출장 시작</p>
-                <p className="text-xs text-red-200/80 font-bold mt-1 leading-5">
-                  위에서 정한 시작일 <span className="text-red-100">{tripStartDate}</span>,
-                  예산 <span className="text-red-100">{(parseInt(tempBudget) || 0).toLocaleString()}원</span>으로 새 출장을 시작합니다.
-                  현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제되며 되돌릴 수 없습니다.
-                </p>
-              </div>
-              <button
-                onClick={async () => {
-                  const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
-                  if (budgetVal <= 0) { alert('예산을 먼저 입력해 주세요.'); return; }
-                  if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
-                  await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
-                  setShowBudgetCalcModal(false);
-                }}
-                className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
-              >
-                🔄 새로 시작 (영수증 모두 삭제)
+            {/* 실행 영역 — 입력 위에서 정한 값으로 무엇을 할지 선택 */}
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              {/* ④ 안전 액션: 예산만 저장 (영수증 유지) */}
+              <button onClick={saveBudget} className="w-full bg-blue-600 py-4 rounded-2xl text-xl font-black">
+                ✓ 저장 (예산만 변경)
               </button>
+
+              {/* ⑤ 위험 액션: Danger Zone 패턴 — 평소엔 접혀 있고, 칩을 탭해야 펼쳐짐 */}
+              <div className="border border-red-900/40 rounded-2xl bg-red-900/10 overflow-hidden">
+                <button
+                  onClick={() => setShowResetDanger(v => !v)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
+                >
+                  <p className="text-sm text-red-300 font-black">⚠️ 새 출장 시작 (영수증 모두 삭제)</p>
+                  <span className="text-red-300/70 text-xs font-black shrink-0">
+                    {showResetDanger ? '접기' : '펼치기 ▾'}
+                  </span>
+                </button>
+                {showResetDanger && (
+                  <div className="px-4 pb-4 space-y-3">
+                    <p className="text-xs text-red-200/80 font-bold leading-5">
+                      위에서 정한 시작일 <span className="text-red-100">{tripStartDate}</span>,
+                      예산 <span className="text-red-100">{(parseInt(tempBudget) || 0).toLocaleString()}원</span>으로 새 출장을 시작합니다.
+                      현재 기기의 영수증·이미지·이력·보류 전송이 모두 삭제되며 되돌릴 수 없습니다.
+                    </p>
+                    <button
+                      onClick={async () => {
+                        const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
+                        if (budgetVal <= 0) { alert('예산을 먼저 입력해 주세요.'); return; }
+                        if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
+                        await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
+                        setShowBudgetCalcModal(false);
+                      }}
+                      className="w-full bg-red-900/40 border border-red-700 text-red-100 py-4 rounded-2xl text-base font-black active:scale-95 transition-transform"
+                    >
+                      🔄 새로 시작 (영수증 모두 삭제)
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </Modal>
