@@ -121,6 +121,9 @@ export default function App() {
   const [mf, setMf] = useState({ date: getToday(), storeName: '', totalAmount: '', category: '식비', note: '' });
   const [editState, setEditState] = useState({ id: null, field: null, value: '' });
 
+  // ── SummaryTab ref — 자료관리 패널에서 카톡 공유를 직접 트리거하기 위해
+  const summaryTabRef = useRef(null);
+
   // ── 방금 추가한 영수증을 정렬과 무관하게 맨 위에 유지 (사용자가 정렬 토글하면 해제)
   const [pinnedNewIds, setPinnedNewIds] = useState([]);
 
@@ -772,26 +775,55 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="pt-1">
-                    <div className="grid grid-cols-3 gap-2">
-                      <button onClick={saveToJSON} className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-white min-h-0">💾 백업</button>
-                      <label className="bg-slate-800 border border-slate-700 hover:bg-slate-700 py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer text-white min-h-0">
-                        📂 불러오기
-                        <input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
-                      </label>
-                      <button onClick={uploadToDrive} disabled={driveUploading} className={`py-2.5 rounded-2xl text-sm font-black transition-all flex items-center justify-center gap-1.5 active:scale-95 border min-h-0 ${driveUploading ? 'bg-emerald-900/50 border-emerald-700 text-emerald-50' : 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-white'}`}>
-                        {driveUploading ? <><Loader2 size={16} className="animate-spin shrink-0" />{uploadProgress}%</> : '📤 전송하기'}
-                      </button>
-                    </div>
+                  <div className="pt-1 space-y-2">
+                    {/* ① 카톡보내기 */}
+                    <button
+                      onClick={() => {
+                        setTab('summary');
+                        setTimeout(() => summaryTabRef.current?.triggerKakaoShare(), 600);
+                      }}
+                      className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-yellow-400/10 border-2 border-yellow-400/50 active:scale-[0.98] transition-transform"
+                    >
+                      <span className="shrink-0 w-9 h-9 rounded-xl bg-yellow-400 text-slate-900 flex items-center justify-center font-black text-lg">①</span>
+                      <div className="text-left">
+                        <p className="text-yellow-300 font-black text-base leading-tight">💬 카톡보내기</p>
+                        <p className="text-yellow-200/60 text-xs font-bold mt-0.5">집계내역을 담당자에게 전송</p>
+                      </div>
+                    </button>
+
+                    {/* ② 구글 업로드 */}
+                    <button
+                      onClick={uploadToDrive}
+                      disabled={driveUploading}
+                      className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-blue-500/10 border-2 border-blue-500/50 active:scale-[0.98] transition-transform disabled:opacity-60"
+                    >
+                      <span className="shrink-0 w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center font-black text-lg">②</span>
+                      <div className="text-left flex-1">
+                        <p className="text-blue-300 font-black text-base leading-tight">
+                          {driveUploading ? <span className="flex items-center gap-2"><Loader2 size={15} className="animate-spin" />{uploadProgress}% 업로드 중…</span> : '☁️ 구글 업로드'}
+                        </p>
+                        <p className="text-blue-200/60 text-xs font-bold mt-0.5">영수증을 Drive에 저장</p>
+                      </div>
+                    </button>
+
+                    {/* 실패 재전송 */}
                     {lastUploadFailures.length > 0 && !driveUploading && (
                       <button
                         type="button"
                         onClick={retryFailedUploads}
-                        className="mt-2 w-full bg-amber-900/30 border border-amber-700 text-amber-100 py-2.5 rounded-2xl text-sm font-black active:scale-95 transition-transform"
+                        className="w-full bg-amber-900/30 border border-amber-700 text-amber-100 py-2.5 rounded-2xl text-sm font-black active:scale-95 transition-transform"
                       >
                         ⚠️ 실패 {lastUploadFailures.length}건 다시 보내기
                       </button>
                     )}
+
+                    {/* 백업 / 불러오기 — 아이콘만 */}
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button onClick={saveToJSON} className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg active:scale-95" title="백업">💾</button>
+                      <label className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg active:scale-95 cursor-pointer" title="불러오기">
+                        📂<input type="file" accept=".json" className="hidden" onChange={loadFromFile} />
+                      </label>
+                    </div>
                   </div>
                 )}
                 <input id="file-i" type="file" multiple accept="image/*" className="hidden" onChange={(e) => {
@@ -893,7 +925,7 @@ export default function App() {
 
           {/* ── 집계 탭 */}
           {tab === 'summary' && (
-            <SummaryTab receipts={receipts} names={names} reportDate={tripStartDate} />
+            <SummaryTab ref={summaryTabRef} receipts={receipts} names={names} reportDate={tripStartDate} />
           )}
         </div>
       </main>

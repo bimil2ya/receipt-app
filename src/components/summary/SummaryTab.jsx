@@ -1,13 +1,15 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import { getToday, formatDateKorean, formatCurrency, decodeHtmlEntities } from '../../utils/formatter';
 
-export default function SummaryTab({ receipts, names, reportDate }) {
+const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate }, ref) {
   const [summaryMode, setSummaryMode] = useState('category');
   const [expandedItems, setExpandedItems] = useState([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showKakaoGuide, setShowKakaoGuide] = useState(false);
   const [kakaoBlob, setKakaoBlob] = useState(null);
   const summaryRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({ triggerKakaoShare: prepareKakaoShare }));
 
   const toggleExpand = (item) =>
     setExpandedItems(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
@@ -286,4 +288,6 @@ export default function SummaryTab({ receipts, names, reportDate }) {
       )}
     </div>
   );
-}
+});
+
+export default SummaryTab;
