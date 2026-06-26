@@ -23,12 +23,15 @@ if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
 const updateSW = registerSW({
   immediate: true,
   onRegisteredSW(_swUrl, registration) {
-    // 앱이 켜져 있는 동안에도 1시간마다 새 버전을 검사한다.
-    if (registration) {
-      setInterval(() => {
+    if (!registration) return;
+    // 1시간마다 백그라운드 확인 (폴백)
+    setInterval(() => registration.update().catch(() => {}), 60 * 60 * 1000);
+    // 앱으로 돌아올 때마다 즉시 확인 — 배포 후 바로 반영됨
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
         registration.update().catch(() => {});
-      }, 60 * 60 * 1000);
-    }
+      }
+    });
   },
   onNeedRefresh() {
     // autoUpdate 모드에선 호출되지 않지만, 안전망으로 즉시 적용.
