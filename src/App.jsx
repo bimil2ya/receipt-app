@@ -16,7 +16,8 @@ import Modal from './components/layout/Modal';
 import ReceiptRow from './components/receipts/ReceiptRow';
 import SettingsModal from './components/settings/SettingsModal';
 import WorkerPickerModal from './components/onboarding/WorkerPickerModal';
-import TEAMS from './config/teams.json';
+import BUNDLED_TEAMS from './config/teams.json';
+import useTeams from './hooks/useTeams';
 import SummaryTab from './components/summary/SummaryTab';
 import ImagesTab from './components/images/ImagesTab';
 import DateRangePicker from './components/calendar/DateRangePicker';
@@ -84,10 +85,12 @@ export default function App() {
 
   // ── 앱 설정 (localStorage 동기화)
   const [names, setNames] = useState(() => readStorageItem('receipt_names', ''));
+  const { teams, refreshTeams } = useTeams();
 
-  // 이름이 팀 목록에 없으면 온보딩 피커 표시 (앱 최초 실행 또는 잘못된 입력)
-  const isNameValid = TEAMS.some(t => t.names === names);
-  const [showWorkerPicker, setShowWorkerPicker] = useState(!isNameValid);
+  // 이름이 번들 팀 목록에 없으면 온보딩 피커 표시 (앱 최초 실행 또는 잘못된 입력)
+  const [showWorkerPicker, setShowWorkerPicker] = useState(
+    () => !BUNDLED_TEAMS.some(t => t.names === readStorageItem('receipt_names', ''))
+  );
   const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(readStorageItem('weekly_budget', '1000000')));
 
   // ── 모달 토글
@@ -901,6 +904,8 @@ export default function App() {
         onClose={() => setShowSettings(false)}
         showToast={showToast}
         names={names}
+        teams={teams}
+        onTeamsUpdated={refreshTeams}
         onNamesChange={(v) => { setNames(v); writeStorageItem('receipt_names', v); }}
         onReset={() => { resetAll(); }}
         onResetDeviceData={resetDeviceData}
@@ -919,11 +924,13 @@ export default function App() {
       <WorkerPickerModal
         show={showWorkerPicker}
         currentNames={names}
+        teams={teams}
         onSelect={(selected) => {
           setNames(selected);
           writeStorageItem('receipt_names', selected);
           setShowWorkerPicker(false);
         }}
+        onTeamsUpdated={refreshTeams}
         onClose={() => setShowWorkerPicker(false)}
         isOnboarding={true}
       />

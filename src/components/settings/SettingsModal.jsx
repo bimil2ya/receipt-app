@@ -4,13 +4,14 @@ import { formatFailureMessage } from '../../utils/errorCopy';
 import { summarizeSyncFailureReasons } from '../../utils/syncActivity';
 import { APP_VERSION } from '../../utils/version';
 import WorkerPickerModal from '../onboarding/WorkerPickerModal';
-import TEAMS from '../../config/teams.json';
 
 export default function SettingsModal({
   show,
   onClose,
   showToast,
   names,
+  teams = [],
+  onTeamsUpdated,
   onNamesChange,
   onReset,
   onResetDeviceData,
@@ -33,7 +34,7 @@ export default function SettingsModal({
   const [showDataManage, setShowDataManage] = useState(false);
   const [showWorkerPicker, setShowWorkerPicker] = useState(false);
 
-  const matchedTeam = TEAMS.find(t => t.names === names);
+  const matchedTeam = teams.find(t => t.names === names);
 
   useEffect(() => {
     if (!show) return;
@@ -520,7 +521,9 @@ export default function SettingsModal({
     <WorkerPickerModal
       show={showWorkerPicker}
       currentNames={names}
+      teams={teams}
       onSelect={(selected) => { onNamesChange(selected); setShowWorkerPicker(false); }}
+      onTeamsUpdated={onTeamsUpdated}
       onClose={() => setShowWorkerPicker(false)}
       isOnboarding={false}
     />
