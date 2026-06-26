@@ -48,10 +48,10 @@ async function listExistingAggregateFiles(drive, folderId, namePrefix) {
 }
 
 async function deleteFiles(drive, files, keepId = null) {
-  for (const file of files || []) {
-    if (file.id === keepId) continue
-    await drive.files.delete({ fileId: file.id }).catch(() => {})
-  }
+  await Promise.all((files || []).map(file => {
+    if (file.id === keepId) return Promise.resolve()
+    return drive.files.update({ fileId: file.id, requestBody: { trashed: true } }).catch(() => {})
+  }))
 }
 
 async function createReplacingAggregateSheet(drive, folderId, finalName, buffer) {
@@ -246,44 +246,44 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   })
   const personFolders = personRes.data.files || []
 
-  const allRows = []
-  const personOrder = []
+  const personOrder = personFolders.map(pf => pf.name)
 
-  for (const pf of personFolders) {
-    const personName = pf.name
-    if (!personOrder.includes(personName)) personOrder.push(personName)
-
-    // 담당자 폴더 안의 출장비_*.xlsx
-    const xlsxRes = await drive.files.list({
+  // 담당자 폴더별 XLSX 목록 조회 — 병렬
+  const xlsxLists = await Promise.all(personFolders.map(pf =>
+    drive.files.list({
       q: `'${pf.id}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
       fields: 'files(id,name)',
       orderBy: 'createdTime desc',
-    })
+    }).then(r => ({ personName: pf.name, files: r.data.files || [] }))
+  ))
 
-    for (const file of xlsxRes.data.files || []) {
-      try {
-        const fileRes = await drive.files.get(
-          { fileId: file.id, alt: 'media' },
-          { responseType: 'arraybuffer' }
-        )
-        const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
-        const ws = wb.Sheets[wb.SheetNames[0]]
-        const rows = XLSX.utils.sheet_to_json(ws)
-        for (const r of rows) {
-          allRows.push({
+  // 모든 XLSX 파일 다운로드 — 병렬
+  const rowChunks = await Promise.all(
+    xlsxLists.flatMap(({ personName, files }) =>
+      files.map(async file => {
+        try {
+          const fileRes = await drive.files.get(
+            { fileId: file.id, alt: 'media' },
+            { responseType: 'arraybuffer' }
+          )
+          const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          return XLSX.utils.sheet_to_json(ws).map(r => ({
             date:      r['날짜']  || '',
             storeName: r['사용처'] || '',
             category:  r['용도']  || '',
             amount:    Number(r['금액']) || 0,
             note:      r['비고']  || '',
             person:    personName,
-          })
+          }))
+        } catch (e) {
+          console.warn(`월집계: 파일 읽기 실패 ${file.name}`, e.message)
+          return []
         }
-      } catch (e) {
-        console.warn(`월집계: 파일 읽기 실패 ${file.name}`, e.message)
-      }
-    }
-  }
+      })
+    )
+  )
+  const allRows = rowChunks.flat()
 
   if (allRows.length === 0) return { count: 0 }
 

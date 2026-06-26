@@ -276,13 +276,17 @@ export default async function handler(req, res) {
         }
       }
 
-      // ── 월별 전체집계 자동 업데이트
+      // ── 월별 전체집계 자동 업데이트 (중복 파일이면 데이터 변화 없으므로 생략)
       let aggregateResult = null;
-      try {
-        aggregateResult = await runMonthAggregate(drive, monthId, yearMonth);
-      } catch (aggErr) {
-        console.warn('월집계 실패 (업로드는 성공):', aggErr.message);
-        aggregateResult = { success: false, error: aggErr.message };
+      if (xlsxResult.status !== 'skipped') {
+        try {
+          aggregateResult = await runMonthAggregate(drive, monthId, yearMonth);
+        } catch (aggErr) {
+          console.warn('월집계 실패 (업로드는 성공):', aggErr.message);
+          aggregateResult = { success: false, error: aggErr.message };
+        }
+      } else {
+        aggregateResult = { success: true, skipped: true };
       }
 
       // ── 카카오톡 알림
