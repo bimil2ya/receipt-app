@@ -119,7 +119,15 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
             }`}
           />
           {pinError && (
-            <p className="text-red-400 text-sm font-bold -mt-2">비밀번호가 틀렸습니다</p>
+            <div className="flex flex-col items-center gap-3 -mt-2">
+              <p className="text-amber-400 text-sm font-bold">비밀번호는 *6**, 알지?</p>
+              <button
+                onClick={handleClose}
+                className="text-slate-500 text-sm font-bold underline underline-offset-2 active:text-slate-300"
+              >
+                나가기
+              </button>
+            </div>
           )}
           <button
             onClick={handlePinSubmit}
