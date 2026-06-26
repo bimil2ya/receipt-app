@@ -3,6 +3,8 @@ import Modal from '../layout/Modal';
 import { formatFailureMessage } from '../../utils/errorCopy';
 import { summarizeSyncFailureReasons } from '../../utils/syncActivity';
 import { APP_VERSION } from '../../utils/version';
+import WorkerPickerModal from '../onboarding/WorkerPickerModal';
+import TEAMS from '../../config/teams.json';
 
 export default function SettingsModal({
   show,
@@ -29,6 +31,9 @@ export default function SettingsModal({
   const [showLogHistory, setShowLogHistory] = useState(false);
   const [showDangerZone, setShowDangerZone] = useState(false);
   const [showDataManage, setShowDataManage] = useState(false);
+  const [showWorkerPicker, setShowWorkerPicker] = useState(false);
+
+  const matchedTeam = TEAMS.find(t => t.names === names);
 
   useEffect(() => {
     if (!show) return;
@@ -37,6 +42,7 @@ export default function SettingsModal({
     setShowLogHistory(false);
     setShowDangerZone(false);
     setShowDataManage(false);
+    setShowWorkerPicker(false);
     setHealthResult({ loading: false, data: null, msg: '' });
     setEventFilter('all');
   }, [show]);
@@ -126,26 +132,24 @@ export default function SettingsModal({
   if (!show) return null;
 
   return (
+    <>
     <Modal title="⚙️ 설정" onClose={onClose}>
       <div className="space-y-5 p-1">
 
         {/* 기본 정보 */}
         <div className="border-b border-slate-800 pb-4 space-y-3">
-          {/* 이름 */}
+          {/* 작업자(조) 선택 */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-400 font-black w-12 shrink-0">이름</span>
-            <input
-              value={names}
-              onChange={e => onNamesChange(e.target.value)}
-              placeholder="홍길동, 김철수"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              inputMode="text"
-              enterKeyHint="done"
-              className="flex-1 h-[52px] bg-slate-900 border-2 border-slate-700 rounded-xl px-4 text-white font-black text-base"
-            />
+            <button
+              onClick={() => setShowWorkerPicker(true)}
+              className="flex-1 h-[52px] bg-slate-900 border-2 border-slate-700 rounded-xl px-4 text-left flex items-center justify-between gap-2 active:border-blue-500 transition-colors"
+            >
+              <span className="font-black text-base text-white truncate">
+                {matchedTeam ? `${matchedTeam.id}조  ${names}` : (names || '조를 선택하세요')}
+              </span>
+              <span className="text-slate-400 text-sm shrink-0">변경 ›</span>
+            </button>
           </div>
         </div>
 
@@ -512,5 +516,14 @@ export default function SettingsModal({
 
       </div>
     </Modal>
+
+    <WorkerPickerModal
+      show={showWorkerPicker}
+      currentNames={names}
+      onSelect={(selected) => { onNamesChange(selected); setShowWorkerPicker(false); }}
+      onClose={() => setShowWorkerPicker(false)}
+      isOnboarding={false}
+    />
+    </>
   );
 }

@@ -15,6 +15,8 @@ import useUploader from './hooks/useUploader';
 import Modal from './components/layout/Modal';
 import ReceiptRow from './components/receipts/ReceiptRow';
 import SettingsModal from './components/settings/SettingsModal';
+import WorkerPickerModal from './components/onboarding/WorkerPickerModal';
+import TEAMS from './config/teams.json';
 import SummaryTab from './components/summary/SummaryTab';
 import ImagesTab from './components/images/ImagesTab';
 import DateRangePicker from './components/calendar/DateRangePicker';
@@ -81,7 +83,11 @@ export default function App() {
   }, [statusPopover]);
 
   // ── 앱 설정 (localStorage 동기화)
-  const [names, setNames] = useState(() => readStorageItem('receipt_names', '노경호, 김영일'));
+  const [names, setNames] = useState(() => readStorageItem('receipt_names', ''));
+
+  // 이름이 팀 목록에 없으면 온보딩 피커 표시 (앱 최초 실행 또는 잘못된 입력)
+  const isNameValid = TEAMS.some(t => t.names === names);
+  const [showWorkerPicker, setShowWorkerPicker] = useState(!isNameValid);
   const [weeklyBudget, setWeeklyBudget] = useState(() => parseInt(readStorageItem('weekly_budget', '1000000')));
 
   // ── 모달 토글
@@ -907,6 +913,19 @@ export default function App() {
         onRetrySync={retryPendingSync}
         onRestoreFromDrive={restoreFromDrive}
         restoreProgress={restoreProgress}
+      />
+
+      {/* ── 작업자 온보딩 피커 */}
+      <WorkerPickerModal
+        show={showWorkerPicker}
+        currentNames={names}
+        onSelect={(selected) => {
+          setNames(selected);
+          writeStorageItem('receipt_names', selected);
+          setShowWorkerPicker(false);
+        }}
+        onClose={() => setShowWorkerPicker(false)}
+        isOnboarding={true}
       />
 
       {/* ── 인라인 수정 모달 */}
