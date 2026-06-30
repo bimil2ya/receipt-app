@@ -1,0 +1,147 @@
+import SettingsModal from './settings/SettingsModal';
+import WorkerPickerModal from './onboarding/WorkerPickerModal';
+import SummaryCaptureOverlay from './summary/SummaryCaptureOverlay';
+import ReceiptEditModal from './receipts/ReceiptEditModal';
+import DeleteConfirmModal from './receipts/DeleteConfirmModal';
+import DuplicateReportModal from './receipts/DuplicateReportModal';
+import ManualReceiptModal from './receipts/ManualReceiptModal';
+import BudgetModal from './budget/BudgetModal';
+
+export default function AppModals({
+  summaryCapturing,
+  showSettings,
+  onCloseSettings,
+  showToast,
+  names,
+  teams,
+  onTeamsUpdated,
+  onNamesChange,
+  onReset,
+  onResetDeviceData,
+  onResetActivityLogs,
+  saveStatus,
+  syncStatus,
+  pendingSyncCount,
+  syncEvents,
+  syncDaily,
+  onRetrySync,
+  onRestoreFromDrive,
+  restoreProgress,
+  showWorkerPicker,
+  currentNames,
+  onWorkerPick,
+  onWorkerPickerTeamsUpdated,
+  onCloseWorkerPicker,
+  isOnboarding,
+  editState,
+  categories,
+  onEditChange,
+  onEditClose,
+  onEditSubmit,
+  deleteConfirmId,
+  onDeleteCancel,
+  onDeleteConfirm,
+  showDuplicateReportModal,
+  duplicateReport,
+  onCloseDuplicateReport,
+  showManualModal,
+  manualReceipt,
+  manualStoreRef,
+  onManualChange,
+  onManualClose,
+  onManualSubmit,
+  showBudgetCalcModal,
+  tripStartDate,
+  tripEndDate,
+  calculatedBudget,
+  tempBudget,
+  showResetDanger,
+  onCloseBudgetModal,
+  onTripRangeChange,
+  onTempBudgetChange,
+  onSaveBudget,
+  onToggleResetDanger,
+  onStartNewTrip,
+}) {
+  return (
+    <>
+      <SummaryCaptureOverlay show={summaryCapturing} />
+
+      <SettingsModal
+        show={showSettings}
+        onClose={onCloseSettings}
+        showToast={showToast}
+        names={names}
+        teams={teams}
+        onTeamsUpdated={onTeamsUpdated}
+        onNamesChange={onNamesChange}
+        onReset={onReset}
+        onResetDeviceData={onResetDeviceData}
+        onResetActivityLogs={onResetActivityLogs}
+        saveStatus={saveStatus}
+        syncStatus={syncStatus}
+        pendingSyncCount={pendingSyncCount}
+        syncEvents={syncEvents}
+        syncDaily={syncDaily}
+        onRetrySync={onRetrySync}
+        onRestoreFromDrive={onRestoreFromDrive}
+        restoreProgress={restoreProgress}
+      />
+
+      <WorkerPickerModal
+        show={showWorkerPicker}
+        currentNames={currentNames}
+        teams={teams}
+        onSelect={onWorkerPick}
+        onTeamsUpdated={onWorkerPickerTeamsUpdated}
+        onClose={onCloseWorkerPicker}
+        isOnboarding={isOnboarding}
+      />
+
+      <ReceiptEditModal
+        editState={editState}
+        categories={categories}
+        onChange={onEditChange}
+        onClose={onEditClose}
+        onSubmit={onEditSubmit}
+      />
+
+      <DeleteConfirmModal
+        show={Boolean(deleteConfirmId)}
+        onCancel={onDeleteCancel}
+        onConfirm={onDeleteConfirm}
+      />
+
+      <DuplicateReportModal
+        show={showDuplicateReportModal}
+        report={duplicateReport}
+        onClose={onCloseDuplicateReport}
+      />
+
+      <ManualReceiptModal
+        show={showManualModal}
+        value={manualReceipt}
+        categories={categories}
+        initialFocusRef={manualStoreRef}
+        onChange={onManualChange}
+        onClose={onManualClose}
+        onSubmit={onManualSubmit}
+      />
+
+      <BudgetModal
+        show={showBudgetCalcModal}
+        tripStartDate={tripStartDate}
+        tripEndDate={tripEndDate}
+        calculatedBudget={calculatedBudget}
+        tempBudget={tempBudget}
+        showResetDanger={showResetDanger}
+        onClose={onCloseBudgetModal}
+        onDateRangeChange={onTripRangeChange}
+        onTempBudgetChange={onTempBudgetChange}
+        onSaveBudget={onSaveBudget}
+        onToggleResetDanger={onToggleResetDanger}
+        onStartNewTrip={onStartNewTrip}
+      />
+    </>
+  );
+}

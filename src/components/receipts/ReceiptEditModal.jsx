@@ -1,0 +1,62 @@
+import Modal from '../layout/Modal';
+
+export default function ReceiptEditModal({ editState, categories, onChange, onClose, onSubmit }) {
+  if (!editState.id) return null;
+
+  const updateDetail = (patch) => {
+    onChange(prev => ({ ...prev, value: { ...prev.value, ...patch } }));
+  };
+
+  return (
+    <Modal title="📝 수정" onClose={onClose}>
+      <div className="p-1">
+        {editState.field === 'detail' ? (
+          <div className="space-y-4">
+            <input type="date" value={editState.value.date} onChange={e => updateDetail({ date: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+            <input value={editState.value.useTime || ''} onChange={e => updateDetail({ useTime: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="사용시간 예: 14:30" />
+            <input value={editState.value.storeName} onChange={e => updateDetail({ storeName: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+            <input type="number" value={editState.value.totalAmount} onChange={e => updateDetail({ totalAmount: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" />
+            <input value={editState.value.approvalNum || ''} onChange={e => updateDetail({ approvalNum: e.target.value })} className="w-full bg-slate-900 border-2 border-amber-700/70 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="승인번호" />
+            <div className="grid grid-cols-2 gap-2">{categories.map(category => {
+              const active = editState.value.category === category;
+              const catClass = active
+                ? 'bg-blue-600 border-blue-400 text-white'
+                : 'bg-slate-900 border-slate-700 text-slate-100';
+              return (
+                <button
+                  key={category}
+                  onClick={() => updateDetail({ category })}
+                  className={`py-3 rounded-xl font-black text-sm border-2 ${catClass}`}
+                >
+                  {category}
+                </button>
+              );
+            })}</div>
+            <input value={editState.value.bizNum || ''} onChange={e => updateDetail({ bizNum: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="사업자번호" />
+            <input value={editState.value.cardNumber || ''} onChange={e => updateDetail({ cardNumber: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="카드번호" />
+            <input value={editState.value.note} onChange={e => updateDetail({ note: e.target.value })} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-4 py-4 text-white font-black text-base" placeholder="비고" />
+          </div>
+        ) : editState.field === 'category' ? (
+          <div className="grid grid-cols-2 gap-3 mb-8">{categories.map(category => {
+            const active = editState.value === category;
+            const catClass = active
+              ? 'bg-blue-600 border-blue-400 text-white shadow-lg scale-105'
+              : 'bg-slate-900 border-slate-700 text-slate-100';
+            return (
+              <button
+                key={category}
+                onClick={() => onChange(prev => ({ ...prev, value: category }))}
+                className={`py-5 rounded-2xl font-black text-lg border-2 transition-all ${catClass}`}
+              >
+                {category}
+              </button>
+            );
+          })}</div>
+        ) : (
+          <input autoFocus value={editState.value} onChange={e => onChange(prev => ({ ...prev, value: e.target.value }))} className="w-full bg-slate-900 border-2 border-slate-700 rounded-2xl px-5 py-5 mb-8 text-2xl text-white font-black" />
+        )}
+        <button onClick={onSubmit} className="w-full bg-blue-600 py-5 rounded-2xl text-xl font-black mt-6">저장</button>
+      </div>
+    </Modal>
+  );
+}

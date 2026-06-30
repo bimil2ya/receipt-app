@@ -21,6 +21,82 @@ function rateLimitCheck(key) {
   return { ok: true };
 }
 
+function normalizeApprovalNum(value) {
+  return String(value ?? '')
+    .replace(/[Oo]/g, '0')
+    .replace(/[Iil|]/g, '1')
+    .replace(/[Ss]/g, '5')
+    .replace(/[Bb]/g, '8')
+    .replace(/[Zz]/g, '2')
+    .replace(/[^0-9]/g, '');
+}
+
+function hasMissingApprovalNum(receipts) {
+  return Array.isArray(receipts) && receipts.some(receipt => !normalizeApprovalNum(receipt?.approvalNum));
+}
+
+function normalizeIsoDate(value) {
+  const text = String(value || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
+function buildTripDateContext({ reportDate, tripStartDate, tripEndDate }) {
+  const report = normalizeIsoDate(reportDate);
+  const start = normalizeIsoDate(tripStartDate) || report;
+  const end = normalizeIsoDate(tripEndDate) || start;
+  if (!start && !end && !report) return '';
+
+  const tripYear = (start || end || report || '').slice(0, 4);
+
+  return `
+[출장 기간 날짜 기준 - CRITICAL]
+이번 영수증은 출장 중 사용한 것이다.
+- 출장 시작일: ${start || '미지정'}
+- 출장 종료일: ${end || start || '미지정'}
+- 출장 연도: ${tripYear}년
+
+규칙 (반드시 따를 것):
+1. 읽은 날짜의 연도가 ${tripYear}년이 아니면 즉시 ${tripYear}년으로 교체하라. 예: 2024-06-15 → 2026-06-15.
+2. 영수증 날짜는 출장 기간 ±7일 안에 있어야 정상이다. 이 범위를 벗어나더라도 연도만 틀린 경우라면 연도를 ${tripYear}년으로 교체한 뒤 반환하라.
+3. 월/일이 명확하면 연도를 ${tripYear}년으로 강제 적용하라. 연도가 불분명할 때도 마찬가지다.
+`;
+}
+
+// AI 응답 날짜를 서버에서 2차 검증 — 연도가 출장 연도와 다르면 교정
+function repairReceiptDates(receipts, { tripStartDate, tripEndDate, reportDate }) {
+  const start = normalizeIsoDate(tripStartDate) || normalizeIsoDate(reportDate);
+  const end = normalizeIsoDate(tripEndDate) || start;
+  if (!start) return receipts;
+
+  const tripYear = start.slice(0, 4);
+  const WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // ±7일
+
+  const startTs = Date.parse(start) - WINDOW_MS;
+  const endTs = Date.parse(end) + WINDOW_MS;
+
+  return receipts.map(r => {
+    const raw = String(r.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return r;
+
+    const ts = Date.parse(raw);
+    if (ts >= startTs && ts <= endTs) return r; // 범위 안 — 그대로
+
+    // 범위 밖: 연도만 tripYear로 교체해서 재시도
+    const corrected = tripYear + raw.slice(4);
+    const correctedTs = Date.parse(corrected);
+    if (correctedTs >= startTs && correctedTs <= endTs) {
+      return { ...r, date: corrected };
+    }
+
+    // 교정 후에도 범위 밖이지만 연도가 틀린 경우라면 연도만 교체
+    if (raw.slice(0, 4) !== tripYear) {
+      return { ...r, date: corrected };
+    }
+
+    return r;
+  });
+}
+
 export default async function handler(req) {
   // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
   const ALLOWED_ORIGINS = [
@@ -62,21 +138,21 @@ export default async function handler(req) {
 
   try {
     const body = await req.json();
-    // 클라이언트 키 우선, 없으면 서버 환경변수 사용.
-    // 사용자(노인 10여명)가 키 입력을 못 하므로 서버 키를 허용.
-    // 출처 화이트리스트 + rate limit 이 abuse를 막는다.
-    const rawKey = body.apiKey || process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    // 분석용 Anthropic 키는 서버 환경변수에서만 읽는다.
+    // 사용자가 브라우저에서 키를 입력하거나 저장하지 않도록 고정한다.
+    const rawKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
     const apiKey = rawKey ? rawKey.replace(/[\s\u200B-\u200D\uFEFF]/g, '') : null;
     
     if (!apiKey || !apiKey.startsWith('sk-ant-')) {
       return new Response(JSON.stringify({
         success: false,
-        error: 'API 키 형식 오류',
-        detail: 'API 키가 비어있거나 잘못되었습니다. 관리자에게 문의하세요.'
+        error: 'OCR 설정 없음',
+        detail: '서버의 Anthropic API 키가 설정되지 않았습니다. 관리자에게 문의하세요.'
       }), { status: 401, headers: resHeaders });
     }
 
-    const { isTest, base64, mediaType } = body;
+    const { isTest, base64, mediaType, reportDate, tripStartDate, tripEndDate } = body;
+    const tripDateContext = buildTripDateContext({ reportDate, tripStartDate, tripEndDate });
 
     const fetchWithTimeout = (url, options, timeout = 10000) => {
       const controller = new AbortController();
@@ -144,6 +220,7 @@ export default async function handler(req) {
 3. **부분적으로 잘린 영수증**: 일부만 보여도 읽을 수 있는 정보가 있으면 별도 항목으로 추출하라. 불가능하면 그 항목만 제외한다.
 4. **순서**: 위에서 아래, 왼쪽에서 오른쪽 순서로 receipts 배열에 담아라.
 
+${tripDateContext}
 [사업자등록번호 추출 지침 - CRITICAL]
 1. **10자리 고정 규칙**: 대한민국 사업자번호는 '무조건 10자리'입니다. 만약 8~9자리(예: 123-45-678)로 인식되었다면, 하이픈 근처나 앞뒤에 숫자로 오인될 수 있는 문자(I, l, O, |, . 등)가 있는지 반드시 확인하여 10자리를 완성하십시오.
 2. **키워드 근처 탐색**: '사업자', '등록번호', 'Saupja', 'No.' 키워드 바로 옆이나 아래에 있는 숫자 뭉치를 우선적으로 추출하십시오.
@@ -159,7 +236,14 @@ export default async function handler(req) {
    - '25-12-31' → 연도 25 → **2025-12-31** ✓
    - 앞 두 자리가 00~99면 2000+YY로 변환해 YYYY-MM-DD로 반환.
    - '거래일시', '승인일시', '일자' 옆 숫자가 대상이다.
-5. **JSON 형식 엄수**.
+   - 대한민국 영수증 기준으로 읽어라. 미국식 MM/DD/YYYY, 유럽식 DD/MM/YYYY로 재해석하지 마라.
+   - 월/일만 보이는 경우에도 미국식/유럽식 순서 추정을 하지 말고, 한국 영수증 문맥의 연-월-일 또는 월-일 표기만 사용하라.
+5. **승인번호(approvalNum) — CRITICAL**:
+   - 라벨이 '승인번호'로 붙어 있지 않아도 된다. '승 인 번 호', '승인 번호', '승인번 호', '승 인번 호', '승 인번호', '승 인 번 호', '승 인 번호', ' 승 인 번 호 ', ' 승인 번호 ', 'A P P R O V A L'처럼 글자가 한 글자씩 떨어져 있거나 줄바꿈·슬래시·하이픈이 섞여 있어도 같은 항목으로 본다.
+   - 승인번호는 카드번호와 혼동하지 말고, **승인/승인일시/APPROVAL/승 인 번 호 옆의 숫자열만** 추출한다.
+   - 숫자 사이 공백, 하이픈, 점, 슬래시는 제거하고 숫자만 approvalNum으로 반환한다.
+   - 영수증에 승인번호가 분명히 보이면 빈 문자열로 두지 마라.
+6. **JSON 형식 엄수**.
 </system_instructions>
 <output_format>
 이미지에 영수증이 1장이면 receipts 배열에 1개, N장이면 N개를 담아라.
@@ -192,6 +276,7 @@ export default async function handler(req) {
 분석 후 JSON 결과값만 출력해.`;
 
     let finalData = null;
+    let finalModelId = null;
     let lastErr = null;
 
     for (const modelId of modelsToTry) {
@@ -212,6 +297,7 @@ export default async function handler(req) {
           if (match) {
             try {
               finalData = JSON.parse(match[0]);
+              finalModelId = modelId;
               break;
             } catch (parseErr) {
               // 모델이 부분 JSON이나 잘못된 형식을 반환한 경우 — 다음 후보 모델로 넘어감
@@ -226,7 +312,63 @@ export default async function handler(req) {
       } catch (e) { lastErr = { message: e.message, model: modelId }; continue; }
     }
 
-    if (finalData) return new Response(JSON.stringify({ success: true, ...finalData }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+    if (finalData) {
+      let receipts = Array.isArray(finalData.receipts)
+        ? finalData.receipts.map(receipt => ({
+            ...receipt,
+            approvalNum: normalizeApprovalNum(receipt.approvalNum),
+          }))
+        : finalData.receipts;
+
+      // 서버 2차 날짜 교정 — AI가 연도를 잘못 돌려줘도 출장 연도로 강제 보정
+      if (Array.isArray(receipts)) {
+        receipts = repairReceiptDates(receipts, { tripStartDate, tripEndDate, reportDate });
+      }
+
+      if (Array.isArray(receipts) && receipts.length > 0 && hasMissingApprovalNum(receipts)) {
+        try {
+          const approvalRepairPrompt = `
+너는 영수증에서 승인번호만 다시 읽는 보조 추출기다.
+아래 이미지의 영수증 개수는 ${receipts.length}장이다.
+각 영수증의 순서는 위에서 아래, 왼쪽에서 오른쪽이다.
+
+중요:
+1. 승인번호 라벨은 "승 인 번 호", "승인 번호", "승인번 호", "승 인번 호", "승 인번호", "승 인 번 호", " 승 인 번 호 ", " 승인 번호 ", "승 인 / 번 호", "승 인-번 호", "APPROVAL"처럼 띄어쓰기나 줄바꿈·슬래시·하이픈이 섞여 보여도 모두 같은 항목으로 본다.
+2. 카드번호와 혼동하지 말고, 승인/승인번호/승인일시/APPROVAL/승 인 번 호 근처의 숫자열만 찾는다.
+3. 숫자만 반환하고 하이픈/공백은 제거한다.
+4. 정말 보이지 않는 경우에만 빈 문자열을 넣는다.
+
+출력 형식은 JSON 하나만:
+{"approvalNums":["첫번째","두번째","세번째"]}
+`;
+          const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+            body: JSON.stringify({
+              model: finalModelId || modelsToTry[0],
+              max_tokens: 1024,
+              messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }, { type: 'text', text: approvalRepairPrompt }] }]
+            })
+          }, 30000);
+          const data = await response.json();
+          if (response.ok) {
+            const match = (data.content?.[0]?.text || '').match(/\{[\s\S]*\}/);
+            if (match) {
+              const parsed = JSON.parse(match[0]);
+              const approvalNums = Array.isArray(parsed.approvalNums) ? parsed.approvalNums : [];
+              receipts = receipts.map((receipt, index) => ({
+                ...receipt,
+                approvalNum: normalizeApprovalNum(receipt.approvalNum || approvalNums[index] || ''),
+              }));
+            }
+          }
+        } catch (repairErr) {
+          console.warn('approval repair failed:', repairErr);
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, ...finalData, receipts }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+    }
 
     return new Response(JSON.stringify({
       success: false,

@@ -1,3 +1,11 @@
+const FALLBACK_APP_URL = 'https://receipt-app-rho.vercel.app';
+
+export function getAppBaseUrl() {
+  const vercelUrl = process.env.VERCEL_URL || '';
+  if (vercelUrl) return `https://${vercelUrl}`;
+  return process.env.APP_BASE_URL || FALLBACK_APP_URL;
+}
+
 /**
  * 카카오톡 "나에게 보내기" 유틸리티
  *
@@ -35,12 +43,13 @@ export async function getKakaoAccessToken() {
 }
 
 async function sendKakaoText(accessToken, text) {
+  const appUrl = getAppBaseUrl();
   const template = JSON.stringify({
     object_type: 'text',
     text,
     link: {
-      web_url:        'https://receipt-app-rho.vercel.app',
-      mobile_web_url: 'https://receipt-app-rho.vercel.app',
+      web_url:        appUrl,
+      mobile_web_url: appUrl,
     },
   });
 

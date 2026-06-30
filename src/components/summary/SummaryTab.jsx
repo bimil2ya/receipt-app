@@ -1,13 +1,28 @@
+import { flushSync } from 'react-dom';
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import { getToday, formatDateKorean, formatCurrency, decodeHtmlEntities } from '../../utils/formatter';
+import {
+  buildCategorySummary,
+  buildDateSummary,
+  getReceiptGrandTotal,
+  safeCategory,
+  safeDateLabel,
+  summaryCategories,
+  summaryNonBudgetCategories,
+} from './summaryUtils';
 
-const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate }, ref) {
+const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate, visible = true, onShareComplete, onCaptureStart, onCaptureEnd, onError }, ref) {
   const [summaryMode, setSummaryMode] = useState('category');
   const [expandedItems, setExpandedItems] = useState([]);
   const [isCapturing, setIsCapturing] = useState(false);
   const [showKakaoGuide, setShowKakaoGuide] = useState(false);
   const [kakaoBlob, setKakaoBlob] = useState(null);
   const summaryRef = useRef(null);
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const shareImageType = isAndroid ? 'image/jpeg' : 'image/png';
+  const shareImageExt = isAndroid ? 'jpg' : 'png';
+  const captureScale = isAndroid ? 1.25 : 2;
+  const shouldRenderFull = visible || isCapturing || showKakaoGuide;
 
   useImperativeHandle(ref, () => ({ triggerKakaoShare: prepareKakaoShare }));
 
@@ -16,7 +31,12 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
 
   // 단일 뷰 캡처 (html2canvas)
   const captureCurrentView = async (html2canvas) => {
-    return html2canvas(summaryRef.current, { backgroundColor: '#0f172a', scale: 2, useCORS: true });
+    return html2canvas(summaryRef.current, { backgroundColor: '#0f172a', scale: captureScale, useCORS: true });
+  };
+
+  const waitForPaint = async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
   };
 
   // 이미지 저장 (기존 기능)
@@ -47,8 +67,10 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
       objectUrl = URL.createObjectURL(blob);
       a.href = objectUrl;
       a.download = `집계표_${getToday()}.png`;
+      document.body.appendChild(a);
       a.click();
-    } catch (e) { setIsCapturing(false); alert(e.message); }
+      a.remove();
+    } catch (e) { setIsCapturing(false); onError?.(e.message || '이미지 저장에 실패했습니다.'); }
     finally {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       setIsCapturing(false);
@@ -58,26 +80,27 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
   // 카톡 공유용 — 용도별 + 일자별 합친 이미지 생성
   const prepareKakaoShare = async () => {
     if (!summaryRef.current) return;
+    onCaptureStart?.();
     setIsCapturing(true);
     const origMode = summaryMode;
     try {
       const html2canvas = (await import('html2canvas')).default;
 
       // 용도별 캡처
-      setSummaryMode('category');
-      await new Promise(res => setTimeout(res, 400));
+      flushSync(() => setSummaryMode('category'));
+      await waitForPaint();
       const cvs1 = await captureCurrentView(html2canvas);
 
       // 일자별 캡처
-      setSummaryMode('date');
-      await new Promise(res => setTimeout(res, 400));
+      flushSync(() => setSummaryMode('date'));
+      await waitForPaint();
       const cvs2 = await captureCurrentView(html2canvas);
 
       // 원래 탭 복원
-      setSummaryMode(origMode);
+      flushSync(() => setSummaryMode(origMode));
 
       // 두 캔버스를 세로로 합치기 (구분선 40px)
-      const gap = 40;
+      const gap = isAndroid ? 28 : 40;
       const combined = document.createElement('canvas');
       combined.width = cvs1.width;
       combined.height = cvs1.height + gap + cvs2.height;
@@ -95,46 +118,67 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
       ctx.drawImage(cvs2, 0, cvs1.height + gap);
 
       const blob = await new Promise((resolve, reject) => {
-        combined.toBlob(result => result ? resolve(result) : reject(new Error('캡처 실패')), 'image/png');
+        combined.toBlob(result => result ? resolve(result) : reject(new Error('캡처 실패')), shareImageType, 0.88);
       });
 
       setKakaoBlob(blob);
       setShowKakaoGuide(true);
     } catch (e) {
-      setSummaryMode(origMode);
-      alert(e.message);
+      flushSync(() => setSummaryMode(origMode));
+      onError?.(e.message || '캡처에 실패했습니다.');
     } finally {
       setIsCapturing(false);
+      onCaptureEnd?.();
     }
   };
 
   // 실제 공유 실행
   const doShare = async () => {
     if (!kakaoBlob) return;
-    const file = new File([kakaoBlob], `집계표_${getToday()}.png`, { type: 'image/png' });
-    setShowKakaoGuide(false);
-    setKakaoBlob(null);
+    const file = new File([kakaoBlob], `집계표_${getToday()}.${shareImageExt}`, { type: shareImageType });
+    const downloadShareFile = () => {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    };
     try {
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file] });
+        setShowKakaoGuide(false);
+        await navigator.share({
+          title: '출장비 집계표',
+          text: '출장비 집계표입니다.',
+          files: [file],
+        });
+        setKakaoBlob(null);
+        onShareComplete?.();
       } else {
-        const url = URL.createObjectURL(kakaoBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `집계표_${getToday()}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
+        downloadShareFile();
+        onError?.('공유창을 열 수 없어 이미지 파일만 저장했습니다. 저장한 이미지를 카카오톡으로 직접 보내주세요.');
       }
     } catch (e) {
-      if (e.name !== 'AbortError') alert(e.message);
+      if (e.name !== 'AbortError') {
+        downloadShareFile();
+        onError?.(`공유창 오류로 이미지 파일만 저장했습니다. 저장한 이미지를 카카오톡으로 직접 보내주세요. (${e.message})`);
+      } else {
+        setShowKakaoGuide(true);
+      }
     }
   };
 
-  const grandTotal = (receipts || []).reduce((s, r) => s + (r.totalAmount || 0), 0);
-  const safeDate = (value) => String(value || '').slice(2).replace(/-/g, '.');
-  const safeCategory = (value) => String(value || '기타');
+  const grandTotal = getReceiptGrandTotal(receipts);
+  const categorySummary = buildCategorySummary(receipts);
+  const dateSummary = buildDateSummary(receipts);
   const categoryTabClass = summaryMode === 'category' ? 'bg-blue-600 text-white' : 'text-slate-200';
   const dateTabClass = summaryMode === 'date' ? 'bg-blue-600 text-white' : 'text-slate-200';
+
+  if (!shouldRenderFull) {
+    return <div ref={summaryRef} className="fixed left-[-200vw] top-0 w-screen pointer-events-none" aria-hidden="true" />;
+  }
 
   return (
     <div className="space-y-3">
@@ -172,32 +216,51 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
 
         <div className="space-y-4">
           {summaryMode === 'category' ? (
-            (() => {
-              const order = ['숙박비', '식비', '기타'];
-              const nonBudgetCats = ['유류비', '의료비등'];
-              const genTotal = receipts.filter(r => order.includes(r.category)).reduce((s, r) => s + (r.totalAmount || 0), 0);
-
-              const renderGroup = (cat) => {
-                const list = receipts
-                  .filter(r => r.category === cat)
-                  .sort((a, b) => {
-                    const byDate = (b.date || '').localeCompare(a.date || '');
-                    if (byDate !== 0) return byDate;
-                    return (b.useTime || '').localeCompare(a.useTime || '');
-                  });
-                if (list.length === 0) return null;
-                const isExp = isCapturing || expandedItems.includes(cat);
+            <>
+              {categorySummary.sections
+                .filter(({ category }) => summaryCategories.includes(category))
+                .map(({ key, category, total, items }) => {
+                  const isExp = isCapturing || expandedItems.includes(key);
+                  return (
+                    <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
+                      <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
+                        <span className="font-black text-slate-100 text-lg">{category}</span>
+                        <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
+                      </button>
+                      {isExp && (
+                        <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
+                          {items.map(r => (
+                            <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
+                              <span className="text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
+                              <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              {categorySummary.subtotal > 0 && (
+                <div className="flex justify-between items-center px-4 py-3 bg-orange-500/10 border-2 border-orange-500/30 rounded-xl mx-1">
+                  <span className="text-orange-300 font-black text-sm">소계</span>
+                  <span className="text-orange-300 font-black text-lg">{formatCurrency(categorySummary.subtotal)}</span>
+                </div>
+              )}
+              {categorySummary.sections
+                .filter(({ category }) => summaryNonBudgetCategories.includes(category))
+                .map(({ key, category, total, items }) => {
+                const isExp = isCapturing || expandedItems.includes(key);
                 return (
-                  <div key={cat} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <button type="button" onClick={() => toggleExpand(cat)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
-                      <span className="font-black text-slate-100 text-lg">{cat}</span>
-                      <span className="font-black text-white text-xl">{formatCurrency(list.reduce((s, r) => s + r.totalAmount, 0))}</span>
+                  <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
+                    <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
+                      <span className="font-black text-slate-100 text-lg">{category}</span>
+                      <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
                     </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
-                        {list.map(r => (
+                        {items.map(r => (
                           <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                            <span className="text-slate-300 font-bold leading-6">{safeDate(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
+                            <span className="text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                           </div>
                         ))}
@@ -205,37 +268,21 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
                     )}
                   </div>
                 );
-              };
-
-              return (
-                <>
-                  {order.map(renderGroup)}
-                  {genTotal > 0 && (
-                    <div className="flex justify-between items-center px-4 py-3 bg-orange-500/10 border-2 border-orange-500/30 rounded-xl mx-1">
-                      <span className="text-orange-300 font-black text-sm">소계</span>
-                      <span className="text-orange-300 font-black text-lg">{formatCurrency(genTotal)}</span>
-                    </div>
-                  )}
-                  {nonBudgetCats.map(cat => renderGroup(cat))}
-                </>
-              );
-            })()
+              })}
+            </>
           ) : (
-            (() => {
-              const dates = [...new Set(receipts.map(r => r.date))].sort((a, b) => (b || '').localeCompare(a || ''));
-              return dates.map(d => {
-                const list = receipts.filter(r => r.date === d).sort((a, b) => (b.useTime || '').localeCompare(a.useTime || ''));
-                const isExp = isCapturing || expandedItems.includes(d);
-                const displayDate = d.slice(2).replace(/-/g, '.');
+            <>
+              {dateSummary.map(({ key, date, displayDate, total, items }) => {
+                const isExp = isCapturing || expandedItems.includes(key);
                 return (
-                  <div key={d} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <button type="button" onClick={() => toggleExpand(d)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
-                      <span className="font-black text-slate-100 text-lg">{displayDate}</span>
-                      <span className="font-black text-white text-xl">{formatCurrency(list.reduce((s, r) => s + r.totalAmount, 0))}</span>
+                  <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
+                    <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
+                      <span className="font-black text-slate-100 text-lg">{displayDate || safeDateLabel(date)}</span>
+                      <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
                     </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
-                        {list.map(r => (
+                        {items.map(r => (
                           <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
                             <span className="text-slate-300 font-bold leading-6">{decodeHtmlEntities(r.storeName) || '사용처 없음'} ({safeCategory(r.category)})</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
@@ -245,8 +292,8 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
                     )}
                   </div>
                 );
-              });
-            })()
+              })}
+            </>
           )}
         </div>
 
@@ -258,7 +305,7 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate 
 
       {/* 카톡 가이드 오버레이 */}
       {showKakaoGuide && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-5">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-5 pointer-events-auto">
           <div className="w-full bg-slate-800 rounded-3xl p-6 space-y-4 shadow-2xl">
             <p className="text-white font-black text-lg text-center">💬 카카오톡으로 전송</p>
             <div className="bg-yellow-500/10 border border-yellow-500/40 rounded-2xl p-4">

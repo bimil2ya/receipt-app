@@ -2,6 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { Download, Share2, X } from 'lucide-react';
 import ZoomableImage from '../gallery/ZoomableImage';
 import { decodeHtmlEntities } from '../../utils/formatter';
+import {
+  buildImageReceipts,
+  buildReceiptImageFileName,
+  downloadFiles,
+  getReceiptImageExt,
+  makeCombinedReceiptFile,
+} from './imageShareUtils';
 
 /** 이미지 썸네일 — imageId 기반 비동기 로딩 */
 function ImageThumb({ imageId, getImageUrl, className }) {
@@ -26,26 +33,11 @@ function ImageThumb({ imageId, getImageUrl, className }) {
  * @param {string|null} props.selectedId     — App에서 관리하는 선택된 영수증 ID
  * @param {Function}    props.onSelectChange — (id|null) => void
  */
-export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, selectedId, onSelectChange }) {
+export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, selectedId, onSelectChange, onError }) {
   const [detailImgSrc, setDetailImgSrc] = useState('');
   const [sharing, setSharing] = useState(false);
 
-  const imageReceipts = useMemo(() => {
-    const byImageId = new Map();
-    const sorted = [...(receipts || [])]
-      .filter(r => r.imageId)
-      .sort((a, b) => {
-        const byDate = (b.date || '').localeCompare(a.date || '');
-        if (byDate !== 0) return byDate;
-        return (b.useTime || '').localeCompare(a.useTime || '');
-      });
-
-    for (const receipt of sorted) {
-      if (!byImageId.has(receipt.imageId)) byImageId.set(receipt.imageId, receipt);
-    }
-
-    return [...byImageId.values()];
-  }, [receipts]);
+  const imageReceipts = useMemo(() => buildImageReceipts(receipts), [receipts]);
 
   const selectedReceipt = useMemo(() => {
     if (!selectedId) return null;
@@ -61,32 +53,37 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
     const url = await getImageUrl(receipt.imageId);
     if (!url) return null;
     const blob = await fetch(url).then(res => res.blob());
-    const ext = blob.type?.includes('png') ? 'png' : 'jpg';
-    const storeName = (decodeHtmlEntities(receipt.storeName) || '영수증').replace(/[/\\:*?"<>|]/g, '_').slice(0, 18);
-    const fileName = `${receipt.date || '날짜없음'}_${storeName}_${String(index + 1).padStart(2, '0')}.${ext}`;
+    const ext = getReceiptImageExt(blob.type);
+    const fileName = buildReceiptImageFileName(receipt, index, ext);
     return new File([blob], fileName, { type: blob.type || 'image/jpeg' });
-  };
-
-  const downloadFiles = (files) => {
-    for (const file of files) {
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    }
   };
 
   const shareAllImages = async () => {
     if (imageReceipts.length === 0 || sharing) return;
     setSharing(true);
+    let files = [];
     try {
-      const files = (await Promise.all(imageReceipts.map(makeImageFile))).filter(Boolean);
+      files = (await Promise.all(imageReceipts.map(makeImageFile))).filter(Boolean);
       if (files.length === 0) return;
 
+      const isAndroid = /Android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        const combinedFile = await makeCombinedReceiptFile(files);
+        if (navigator.canShare?.({ files: [combinedFile] })) {
+          await navigator.share({
+            title: '영수증 이미지',
+            text: `영수증 ${files.length}장을 합친 이미지입니다.`,
+            files: [combinedFile],
+          });
+        } else {
+          downloadFiles([combinedFile]);
+        }
+        return;
+      }
+
       if (!navigator.canShare?.({ files })) {
-        downloadFiles(files);
+        const combinedFile = await makeCombinedReceiptFile(files);
+        downloadFiles([combinedFile]);
         return;
       }
 
@@ -98,6 +95,11 @@ export default function ImagesTab({ receipts, getImageUrl, onUpdateRotation, sel
         });
       } catch (err) {
         if (err?.name !== 'AbortError') downloadFiles(files);
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        if (files.length > 0) downloadFiles(files);
+        onError?.(err?.message || '영수증 공유에 실패했습니다.');
       }
     } finally {
       setSharing(false);

@@ -83,7 +83,8 @@ export default async function handler(req, res) {
   const ocr = envSection([], ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY']);
   ocr.ok = ocr.optional.some(item => item.present);
   ocr.note = '환경 변수 확인만 수행';
-  const upload = envSection(['UPLOAD_API_TOKEN'], ['VITE_UPLOAD_TOKEN']);
+  const upload = envSection([], ['UPLOAD_API_TOKEN']);
+  const adminAuth = envSection(['ADMIN_PIN'], []);
 
   // 관리자 모드 (?admin=TOKEN)에서만 상세 정보 노출 — 일반 응답은 ok만
   const adminQuery = (req.query && req.query.admin) || '';
@@ -100,6 +101,7 @@ export default async function handler(req, res) {
       ocr: summarize(ocr),
       kakao: summarize(kakao),
       upload: summarize(upload),
+      adminAuth: summarize(adminAuth),
     },
   });
 }

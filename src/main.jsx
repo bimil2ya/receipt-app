@@ -34,8 +34,14 @@ const updateSW = registerSW({
     });
   },
   onNeedRefresh() {
-    // autoUpdate 모드에선 호출되지 않지만, 안전망으로 즉시 적용.
-    updateSW(true);
+    window.__receiptAppPendingUpdate = {
+      applyUpdate: () => updateSW(true),
+    };
+    window.dispatchEvent(new CustomEvent('receipt-app:update-available', {
+      detail: {
+        applyUpdate: () => updateSW(true),
+      },
+    }));
   },
   onOfflineReady() {
     if (import.meta.env.DEV) console.info('[PWA] 오프라인 사용 준비 완료');
@@ -89,3 +95,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ErrorBoundary>
   </React.StrictMode>,
 )
+
+const initialSplash = document.getElementById('initial-splash');
+const removeInitialSplash = () => {
+  initialSplash?.remove();
+  window.removeEventListener('receipt-app:booted', removeInitialSplash);
+};
+window.addEventListener('receipt-app:booted', removeInitialSplash, { once: true });

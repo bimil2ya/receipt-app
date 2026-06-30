@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import AdminTeamModal from './AdminTeamModal';
+import { normalizeTeamNames } from '../../utils/teamNames';
 
 /**
  * 작업자(조) 선택 모달
@@ -40,7 +41,7 @@ export default function WorkerPickerModal({ show, currentNames, teams = [], onSe
         {/* 조 목록 */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
           {teams.map((team) => {
-            const isSelected = team.names === currentNames;
+            const isSelected = normalizeTeamNames(team.names) === normalizeTeamNames(currentNames);
             const [leader, member] = team.names.split(', ');
             return (
               <button

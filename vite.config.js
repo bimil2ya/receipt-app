@@ -129,7 +129,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon-192x192.png', 'icon-512x512.png', 'mask-icon.svg'],
       manifest: {
         name: '법인카드 영수증 정산',
         short_name: '영수증정산',
@@ -137,17 +137,17 @@ export default defineConfig({
         theme_color: '#3b82f6',
         icons: [
           {
-            src: 'icon-192.png',
+            src: 'icon-192x192.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'icon-512.png',
+            src: 'icon-512x512.png',
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: 'icon-512.png',
+            src: 'icon-512x512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'

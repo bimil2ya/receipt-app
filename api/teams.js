@@ -1,4 +1,5 @@
-import { createDrive, driveQueryString, MAIN_FOLDER_ID } from './driveUtils.js';
+import { Readable } from 'stream';
+import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';
 
@@ -23,7 +24,7 @@ function setCors(res, origin) {
   res.setHeader('Access-Control-Allow-Origin', allowed);
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Pin');
 }
 
 function bufferFromStream(stream) {
@@ -33,6 +34,15 @@ function bufferFromStream(stream) {
     stream.on('end', () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
   });
+}
+
+export function normalizeTeams(teams) {
+  return (teams || [])
+    .map((team, index) => ({
+      id: team?.id ?? index + 1,
+      names: normalizeDriveName(team?.names),
+    }))
+    .filter(team => team.names.length > 0);
 }
 
 async function findTeamsFile(drive) {
@@ -59,7 +69,7 @@ export default async function handler(req, res) {
 
       const stream = await drive.files.get({ fileId: file.id, alt: 'media' }, { responseType: 'stream' });
       const buffer = await bufferFromStream(stream.data);
-      const teams = JSON.parse(buffer.toString('utf8'));
+      const teams = normalizeTeams(JSON.parse(buffer.toString('utf8')));
       return res.json({ success: true, teams, source: 'drive' });
     } catch {
       return res.json({ success: true, teams: FALLBACK_TEAMS, source: 'bundled' });
@@ -67,14 +77,20 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
-    const authHeader = req.headers['authorization'] || '';
-    const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (UPLOAD_TOKEN && provided !== UPLOAD_TOKEN) {
-      return res.status(401).json({ success: false, error: '인증 실패' });
+    const ADMIN_PIN = process.env.VITE_ADMIN_PIN || process.env.ADMIN_PIN;
+    const providedPin = String(req.headers['x-admin-pin'] || '').trim();
+    if (!ADMIN_PIN) {
+      return res.status(503).json({ success: false, error: '관리자 인증이 설정되지 않았습니다.' });
+    }
+    if (providedPin !== ADMIN_PIN) {
+      return res.status(401).json({ success: false, error: '관리자 인증 실패' });
     }
 
-    const { teams } = req.body || {};
+    const { action, teams } = req.body || {};
+    if (action === 'verify') {
+      return res.json({ success: true });
+    }
+
     if (!Array.isArray(teams) || teams.length === 0) {
       return res.status(400).json({ success: false, error: '팀 목록이 없습니다.' });
     }
@@ -86,13 +102,14 @@ export default async function handler(req, res) {
 
     try {
       const drive = createDrive();
-      const content = Buffer.from(JSON.stringify(teams, null, 2), 'utf8');
+      const normalizedTeams = normalizeTeams(teams);
+      const content = JSON.stringify(normalizedTeams, null, 2);
       const existing = await findTeamsFile(drive);
 
       if (existing) {
         await drive.files.update({
           fileId: existing.id,
-          media: { mimeType: 'application/json', body: content },
+          media: { mimeType: 'application/json', body: Readable.from(Buffer.from(content, 'utf8')) },
         });
       } else {
         await drive.files.create({
@@ -101,7 +118,7 @@ export default async function handler(req, res) {
             mimeType: 'application/json',
             parents: [MAIN_FOLDER_ID],
           },
-          media: { mimeType: 'application/json', body: content },
+          media: { mimeType: 'application/json', body: Readable.from(Buffer.from(content, 'utf8')) },
         });
       }
 

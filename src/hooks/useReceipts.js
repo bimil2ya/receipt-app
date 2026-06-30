@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../utils/supabase';
-import { getReceiptImageUrl, openReceiptDb } from '../utils/receiptDb';
+import { clearReceiptImageUrlCache, getReceiptImageUrl, openReceiptDb } from '../utils/receiptDb';
 import useReceiptSync from './useReceiptSync';
 import useReceiptBootstrap from './useReceiptBootstrap';
 import useReceiptCrud from './useReceiptCrud';
@@ -57,6 +57,10 @@ export default function useReceipts() {
 
   const getImageUrl = useCallback(async (imageId) => {
     return getReceiptImageUrl(imageId);
+  }, []);
+
+  useEffect(() => {
+    return () => clearReceiptImageUrlCache();
   }, []);
 
   return {

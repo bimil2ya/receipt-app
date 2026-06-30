@@ -1,4 +1,10 @@
-import { createDrive, driveQueryString, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js';
+import {
+  ARCHIVE_FOLDER_NAME,
+  createDrive,
+  getOrCreateFolder,
+  getOrCreateFolderByNormalizedName,
+  MAIN_FOLDER_ID,
+} from './driveUtils.js';
 
 const ALLOWED_ORIGINS = [
   'https://receipt-app-rho.vercel.app',
@@ -25,6 +31,33 @@ function bufferFromStream(stream) {
   });
 }
 
+async function listChildEntries(drive, parentId) {
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and trashed = false`,
+    fields: 'files(id,name,mimeType,size,createdTime)',
+    pageSize: 200,
+  });
+  return res.data.files || [];
+}
+
+async function collectImageFilesRecursive(drive, folderId, seenFileIds = new Set()) {
+  const entries = await listChildEntries(drive, folderId);
+  const files = [];
+  for (const entry of entries) {
+    if (entry.mimeType === 'application/vnd.google-apps.folder') {
+      if (String(entry.name || '').trim() === ARCHIVE_FOLDER_NAME) continue;
+      const nested = await collectImageFilesRecursive(drive, entry.id, seenFileIds);
+      files.push(...nested);
+      continue;
+    }
+    if (!IMAGE_MIME_PATTERN.test(entry.mimeType || '')) continue;
+    if (seenFileIds.has(entry.id)) continue;
+    seenFileIds.add(entry.id);
+    files.push(entry);
+  }
+  return files;
+}
+
 /**
  * POST /api/restore
  *
@@ -36,7 +69,7 @@ function bufferFromStream(stream) {
  *   { action: 'download', fileId }
  *   → { success, base64, mediaType, fileName }
  *
- * 인증: upload.js와 동일한 UPLOAD_API_TOKEN
+ * 인증: 브라우저 호출은 출처 검증, 서버 간 호출은 선택적 UPLOAD_API_TOKEN
  */
 export default async function handler(req, res) {
   const origin = req.headers.origin || '';
@@ -54,14 +87,10 @@ export default async function handler(req, res) {
   }
 
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
-  const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
-  if (!UPLOAD_TOKEN && isVercelHosted) {
-    return res.status(503).json({ success: false, error: '복원 인증이 설정되지 않았습니다.' });
-  }
-  if (UPLOAD_TOKEN) {
-    const authHeader = req.headers['authorization'] || '';
+  const authHeader = req.headers['authorization'] || '';
+  if (authHeader) {
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (provided !== UPLOAD_TOKEN) {
+    if (!UPLOAD_TOKEN || provided !== UPLOAD_TOKEN) {
       return res.status(401).json({ success: false, error: '인증 실패' });
     }
   }
@@ -93,18 +122,9 @@ export default async function handler(req, res) {
       // 폴더 경로: MAIN / yearMonth / surveyorName
       // getOrCreateFolder는 없으면 만들지만, 복원 케이스에선 빈 폴더가 만들어져도 무해 (이미지 0개 반환)
       const monthId  = await getOrCreateFolder(drive, yearMonth,    MAIN_FOLDER_ID);
-      const personId = await getOrCreateFolder(drive, surveyorName, monthId);
-
-      // 이미지 파일만 조회 (xlsx는 제외)
-      const safeFolder = driveQueryString(personId);
-      const { data } = await drive.files.list({
-        q: `'${safeFolder}' in parents and (mimeType contains 'image/') and trashed = false`,
-        fields: 'files(id, name, size, createdTime, mimeType)',
-        pageSize: 200,
-        orderBy: 'createdTime',
-      });
-
-      const files = (data.files || []).filter(f => IMAGE_MIME_PATTERN.test(f.mimeType || ''));
+      const personId = await getOrCreateFolderByNormalizedName(drive, surveyorName, monthId);
+      const files = (await collectImageFilesRecursive(drive, personId))
+        .sort((a, b) => new Date(b.createdTime || 0) - new Date(a.createdTime || 0));
       return res.status(200).json({
         success: true,
         files,

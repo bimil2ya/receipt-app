@@ -33,11 +33,11 @@ npm run build
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `VITE_UPLOAD_TOKEN`
 
 ### 서버
 
-- `UPLOAD_API_TOKEN`
+- `ADMIN_PIN`
+- `UPLOAD_API_TOKEN` optional, server-to-server Authorization only
 - `GDRIVE_CLIENT_ID`
 - `GDRIVE_CLIENT_SECRET`
 - `GDRIVE_REFRESH_TOKEN`
@@ -60,7 +60,8 @@ npm run build
 1. 앱이 안 열리면 브라우저 콘솔과 화면 에러 메시지를 먼저 확인합니다.
 2. 저장은 되는데 다른 기기에 안 보이면 상단의 동기화 상태와 `보류 N` 배지를 확인합니다.
 3. Drive 전송이 실패하면 `/api/health`에서 `upload`, `drive`, `kakao` 상태를 확인합니다.
-4. 인증 관련 문제는 Vercel 환경변수와 재배포 여부를 먼저 봅니다.
+4. 관리자 인증 문제가 있으면 서버 환경변수 `ADMIN_PIN`과 재배포 여부를 먼저 봅니다.
+5. 인증 관련 문제는 Vercel 환경변수와 재배포 여부를 먼저 봅니다.
 
 ## 데이터 저장
 

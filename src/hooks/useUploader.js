@@ -2,11 +2,88 @@ import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
 import { getToday, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
 
+function normalizeApprovalNum(value) {
+  return String(value || '')
+    .replace(/[Oo]/g, '0')
+    .replace(/[Iil|]/g, '1')
+    .replace(/[Ss]/g, '5')
+    .replace(/[Bb]/g, '8')
+    .replace(/[Zz]/g, '2')
+    .replace(/[^0-9]/g, '');
+}
+
+const MAX_TRIP_DATE_DRIFT_DAYS = 31;
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function formatDate(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function parseKoreanReceiptDate(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{2}|\d{4})[-./년\s]+(\d{1,2})[-./월\s]+(\d{1,2})/);
+  if (!match) return null;
+
+  const rawYear = Number(match[1]);
+  const year = match[1].length === 2 ? 2000 + rawYear : rawYear;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function buildDateContext(options = {}) {
+  const report = parseKoreanReceiptDate(options.reportDate);
+  const start = parseKoreanReceiptDate(options.tripStartDate) || report || parseKoreanReceiptDate(getToday());
+  const end = parseKoreanReceiptDate(options.tripEndDate) || start;
+  const windowStart = new Date(start.getFullYear(), start.getMonth(), start.getDate() - MAX_TRIP_DATE_DRIFT_DAYS);
+  const windowEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + MAX_TRIP_DATE_DRIFT_DAYS);
+  const candidateYears = [...new Set([start, end, report].filter(Boolean).map(date => date.getFullYear()))];
+
+  return { report, start, end, windowStart, windowEnd, candidateYears };
+}
+
+function isWithinTripWindow(date, context) {
+  return date >= context.windowStart && date <= context.windowEnd;
+}
+
+function normalizeReceiptDate(value, context) {
+  const parsed = parseKoreanReceiptDate(value);
+  if (!parsed) return formatDate(context.start);
+  if (isWithinTripWindow(parsed, context)) return formatDate(parsed);
+
+  for (const year of context.candidateYears) {
+    const corrected = new Date(year, parsed.getMonth(), parsed.getDate());
+    if (
+      corrected.getFullYear() === year &&
+      corrected.getMonth() === parsed.getMonth() &&
+      corrected.getDate() === parsed.getDate() &&
+      isWithinTripWindow(corrected, context)
+    ) {
+      return formatDate(corrected);
+    }
+  }
+
+  return formatDate(context.start);
+}
+
 export default function useUploader({ onUploadSuccess, onUploadError }) {
   const [processing, setProcessing] = useState(false);
   const [procMsg, setProcMsg] = useState('');
+  const isAndroid = /Android/i.test(navigator.userAgent);
 
-  const handleFiles = useCallback(async (files, existingReceipts = []) => {
+  const handleFiles = useCallback(async (files, existingReceipts = [], dateOptions = {}) => {
     // API 키는 모두 서버(Vercel env)에서 처리. 사용자(노인)는 키 입력 안 함.
     setProcessing(true);
     const added = [];
@@ -14,6 +91,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     let duplicateCount = 0;
     let completedCount = 0;
     const totalImages = files.length;
+    const dateContext = buildDateContext(dateOptions);
 
     setProcMsg(`분석 중 0/${totalImages}`);
 
@@ -24,7 +102,13 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         const res = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64: b64, mediaType: mimeType })
+          body: JSON.stringify({
+            base64: b64,
+            mediaType: mimeType,
+            reportDate: dateOptions.reportDate || dateOptions.tripStartDate || getToday(),
+            tripStartDate: dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
+            tripEndDate: dateOptions.tripEndDate || dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
+          })
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -70,7 +154,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     };
 
     // 동시성 3 배치로 처리 — 분석 API의 무거운 호출은 병렬, 결과 누적/dedup은 순차
-    const CONCURRENCY = 3;
+    const CONCURRENCY = isAndroid ? 1 : 3;
     for (let i = 0; i < files.length; i += CONCURRENCY) {
       const batch = files.slice(i, i + CONCURRENCY);
       const results = await Promise.all(batch.map(analyzeFile));
@@ -88,20 +172,12 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         }
 
         for (const r of fileResult.receipts) {
-          // 중복 판단: 승인번호가 같거나(승인번호 OR), 같은 날짜의 사용시간이 같으면(시간 OR) 같은 건.
-          // 날짜+금액+상호명/사업자번호만 같은 경우는 이제 다른 건으로 본다 (같은 가게에서 다른 시각 결제 누락 방지).
+          // 중복 판단은 승인번호가 양쪽에 있고 정규화 값이 완전히 같을 때만 자동 처리한다.
+          // 날짜/시간/금액/상호명만 같은 경우는 실제 다른 결제일 수 있으므로 자동 중복으로 보지 않는다.
           const isDuplicate = [...existingReceipts, ...added].some(ex => {
-            const approvalA = (ex.approvalNum || '').toString().trim();
-            const approvalB = (r.approvalNum || '').toString().trim();
-            const sameApproval = approvalA && approvalB && approvalA === approvalB;
-            if (sameApproval) return true;
-
-            const timeA = (ex.useTime || '').toString().trim();
-            const timeB = (r.useTime || '').toString().trim();
-            const sameTime = timeA && timeB && timeA === timeB && ex.date === r.date;
-            if (sameTime) return true;
-
-            return false;
+            const approvalA = normalizeApprovalNum(ex.approvalNum);
+            const approvalB = normalizeApprovalNum(r.approvalNum);
+            return Boolean(approvalA && approvalB && approvalA === approvalB);
           });
           if (isDuplicate) { duplicateCount += 1; continue; }
 
@@ -120,7 +196,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             id: crypto.randomUUID(),
             imageId: fileResult.imageId,
             imageUrl: fileResult.imageBase64,
-            date: r.date || getToday(),
+            date: normalizeReceiptDate(r.date, dateContext),
             useTime: (r.useTime || '').toString().trim(),
             storeName: decodeHtmlEntities(r.storeName) || '미상',
             totalAmount: r.totalAmount || 0,
@@ -133,6 +209,10 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             createdAt: Date.now(),
           });
         }
+
+        if (isAndroid) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
     }
 
@@ -143,7 +223,7 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
       onUploadError({ failedFiles, duplicateCount });
     }
     return { totalImages, successCount: added.length, duplicateCount };
-  }, [onUploadSuccess, onUploadError]);
+  }, [onUploadSuccess, onUploadError, isAndroid]);
 
   return { handleFiles, processing, procMsg };
 }

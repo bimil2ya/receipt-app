@@ -10,7 +10,9 @@ function loadCached() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-  } catch {}
+  } catch {
+    return null;
+  }
   return null;
 }
 
@@ -26,7 +28,9 @@ export default function useTeams() {
           writeStorageItem(CACHE_KEY, JSON.stringify(data.teams));
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        return;
+      });
   }, []);
 
   useEffect(() => { fetchTeams(); }, [fetchTeams]);

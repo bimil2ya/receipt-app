@@ -1,9 +1,20 @@
 import { Readable } from 'stream';
 import crypto from 'crypto';
 import * as XLSX from 'xlsx';
-import { createDrive, driveQueryString, getOrCreateFolder, getYearMonth, MAIN_FOLDER_ID } from './driveUtils.js';
+import {
+  ARCHIVE_FOLDER_NAME,
+  createDrive,
+  driveQueryString,
+  getOrCreateFolder,
+  getOrCreateFolderByNormalizedName,
+  getWeekFolderName,
+  getYearMonth,
+  MAIN_FOLDER_ID,
+  moveFileToParent,
+} from './driveUtils.js';
 import { sendKakaoNotification, sendKakaoNotifications } from './notify/kakao.js';
 import { runMonthAggregate } from './aggregate.js';
+import { buildApprovalDuplicateReport } from './approvalReport.js';
 
 const KAKAO_TEXT_LIMIT = 180;
 
@@ -20,15 +31,26 @@ function shorten(value, max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function hasControlChars(value) {
+  for (const ch of String(value ?? '')) {
+    if (ch.charCodeAt(0) < 32) return true;
+  }
+  return false;
+}
+
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   return rows.map((row) => ({
     date: safeText(row['날짜']),
+    useTime: safeText(row['사용시간']),
     storeName: safeText(row['사용처']),
     amount: Number(row['금액']) || 0,
     category: safeText(row['용도']),
+    approvalNum: safeText(row['승인번호']),
+    bizNum: safeText(row['사업자번호']),
+    cardNumber: safeText(row['카드번호']),
     note: safeText(row['비고']),
   })).filter(row => row.date || row.storeName || row.amount);
 }
@@ -78,7 +100,8 @@ function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, i
   const detailLines = rows.map((row, index) => {
     const mmddDate = row.date?.includes('-') ? row.date.slice(5) : row.date;
     const main = `${index + 1}. ${mmddDate} ${shorten(row.storeName || '사용처 없음', 12)}`;
-    return shorten(`${main} ${formatWon(row.amount)} ${row.category || '기타'}`, 90);
+    const approvalTail = row.approvalNum ? ` 승인 ${shorten(row.approvalNum, 12)}` : '';
+    return shorten(`${main} ${formatWon(row.amount)} ${row.category || '기타'}${approvalTail}`, 90);
   });
 
   return buildKakaoChunks(summaryLines, detailLines);
@@ -86,7 +109,7 @@ function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, i
 
 /**
  * Drive에 파일 업로드 (이름+크기+MD5 중복 체크 포함)
- * @returns {{status:'uploaded'|'updated'|'skipped', id:string|null}} 업로드 결과
+ * @returns {{status:'uploaded'|'updated'|'replaced', id:string|null}} 업로드 결과
  */
 async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'application/octet-stream') {
   // ── 중복 체크: 동일 이름 파일 조회
@@ -97,22 +120,31 @@ async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'applica
   });
 
   if (data.files.length > 0) {
-    const existing = data.files[0];
     const localMd5 = crypto.createHash('md5').update(buffer).digest('hex');
+    const exactMatches = data.files.filter(file => Number(file.size) === buffer.length && file.md5Checksum === localMd5);
 
-    // 이름 + 크기 + MD5 모두 일치 → 동일 파일, 건너뜀
-    if (Number(existing.size) === buffer.length && existing.md5Checksum === localMd5) {
+    // 이름 + 크기 + MD5 모두 일치 → 완전히 동일한 파일들만 정리한다.
+    // 같은 이름이지만 내용이 다른 파일은 사용자가 의도적으로 남겼을 수 있으므로 건드리지 않는다.
+    if (exactMatches.length > 0) {
+      const created = await drive.files.create({
+        requestBody: { name: fileName, parents: [folderId] },
+        media: { mimeType, body: Readable.from(buffer) },
+        fields: 'id,name,size',
+      });
+
+      for (const file of exactMatches) {
+        await drive.files.update({ fileId: file.id, requestBody: { trashed: true } }).catch(() => {});
+      }
+
       return {
-        status: 'skipped',
-        id: existing.id,
-        duplicateReason: 'same_name_size_md5',
-        existing: {
-          id: existing.id,
-          name: existing.name,
-          size: Number(existing.size) || 0,
-        },
+        status: 'replaced',
+        id: created.data.id,
+        duplicateReason: 'same_name_size_md5_replaced',
+        replacedExistingIds: exactMatches.map(file => file.id),
       };
     }
+
+    const existing = data.files[0];
 
     // 내용이 달라진 경우 → 기존 파일을 삭제하지 않고 안전하게 덮어쓰기
     const updated = await drive.files.update({
@@ -176,26 +208,19 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── 인증 토큰 검증 (defense in depth)
+  // ── 브라우저 번들에 비밀 토큰을 넣지 않는다.
+  // Authorization이 있는 서버 간 호출은 검증하되, 앱 브라우저 호출은 위 출처 검증과 입력 검증으로 보호한다.
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
-  const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV);
-  if (!UPLOAD_TOKEN && isVercelHosted) {
-    return res.status(503).json({
-      success: false,
-      error: '전송 인증이 설정되지 않았습니다.',
-      detail: 'UPLOAD_API_TOKEN 환경변수가 필요합니다.',
-    });
-  }
-  if (UPLOAD_TOKEN) {
-    const authHeader = req.headers['authorization'] || '';
+  const authHeader = req.headers['authorization'] || '';
+  if (authHeader) {
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (provided !== UPLOAD_TOKEN) {
+    if (!UPLOAD_TOKEN || provided !== UPLOAD_TOKEN) {
       return res.status(401).json({ success: false, error: '인증 실패', detail: '유효하지 않은 토큰입니다.' });
     }
   }
 
   try {
-    const { surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary } = req.body;
+    const { surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary, teamId, teamNames, tripStartDate, tripEndDate } = req.body;
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 25 * 1024 * 1024) {
       return res.status(413).json({ success: false, error: '요청이 너무 큽니다.' });
@@ -209,11 +234,22 @@ export default async function handler(req, res) {
       return res.status(400).json({ success: false, error: '담당자 이름이 너무 깁니다 (최대 80자).' });
     }
     // 경로 분리자/제어문자 차단 — Drive 폴더 경로 조작 방지
-    if (/[\\/:*?"<>| -]/.test(surveyorName)) {
+    if (/[\\/:*?"<>|]/.test(surveyorName) || hasControlChars(surveyorName)) {
       return res.status(400).json({ success: false, error: '담당자 이름에 사용할 수 없는 문자가 포함됨.' });
     }
     if (reportDate && (typeof reportDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate))) {
       return res.status(400).json({ success: false, error: 'reportDate 형식 오류 (YYYY-MM-DD 필요).' });
+    }
+    for (const [field, value] of Object.entries({ tripStartDate, tripEndDate })) {
+      if (value && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))) {
+        return res.status(400).json({ success: false, error: `${field} 형식 오류 (YYYY-MM-DD 필요).` });
+      }
+    }
+    if (teamId !== undefined && teamId !== null && !['string', 'number'].includes(typeof teamId)) {
+      return res.status(400).json({ success: false, error: 'teamId 형식 오류.' });
+    }
+    if (teamNames !== undefined && teamNames !== null && typeof teamNames !== 'string') {
+      return res.status(400).json({ success: false, error: 'teamNames 형식 오류.' });
     }
     if (receiptSummary && typeof receiptSummary !== 'object') {
       return res.status(400).json({ success: false, error: 'receiptSummary 형식 오류.' });
@@ -221,16 +257,30 @@ export default async function handler(req, res) {
 
     const drive = createDrive();
 
-    // ── 폴더 경로: MAIN / YYYY년 MM월 / 담당자이름
+    // ── 폴더 경로: MAIN / YYYY년 MM월 / 담당자이름 / YYYY-MM-DD~YYYY-MM-DD
     const yearMonth = getYearMonth(reportDate);
     const monthId   = await getOrCreateFolder(drive, yearMonth,    MAIN_FOLDER_ID);
-    const personId  = await getOrCreateFolder(drive, surveyorName, monthId);
-    const targetPath = `영수증정산관리/${yearMonth}/${surveyorName}`;
-
+    const personId  = await getOrCreateFolderByNormalizedName(drive, surveyorName, monthId);
     // ── 오늘 날짜 (서울 기준)
     const today = new Date().toLocaleDateString('ko-KR', {
       timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
     }).replace(/\. /g, '').replace('.', '').replace(/\s/g, '');
+    const archiveId  = await getOrCreateFolder(drive, ARCHIVE_FOLDER_NAME, personId);
+    const weekFolderName = getWeekFolderName(tripStartDate || reportDate || today);
+    const weekId     = await getOrCreateFolder(drive, weekFolderName, personId);
+    const targetPath = `영수증정산관리/${yearMonth}/${surveyorName}/${weekFolderName}`;
+
+    // ── person 폴더에 남은 기존 자료는 보관함으로 이동
+    // 현재 주 폴더와 보관함 폴더는 유지하고, 나머지 레거시 파일/폴더만 아카이브한다.
+    const legacyRes = await drive.files.list({
+      q: `'${personId}' in parents and trashed = false`,
+      fields: 'files(id,name,mimeType)',
+      pageSize: 200,
+    });
+    for (const item of legacyRes.data.files || []) {
+      if (item.id === weekId || item.id === archiveId) continue;
+      await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
+    }
 
     if (!isImageOnly) {
       // ── XLSX 업로드
@@ -258,21 +308,21 @@ export default async function handler(req, res) {
           detail: '업로드할 영수증이 0건입니다. 기존 집계 파일을 보호하기 위해 거부했습니다.',
         });
       }
+      const receiptDuplicateReport = buildApprovalDuplicateReport(parsedRows);
 
       const xlsxName   = `출장비_${today}.xlsx`;
 
-      const xlsxResult = await uploadFile(drive, xlsxBuffer, xlsxName, personId,
+      const xlsxResult = await uploadFile(drive, xlsxBuffer, xlsxName, weekId,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일 정리
-      // 영구 삭제 대신 휴지통 이동 — 사고 시 30일 안에 Drive 휴지통에서 복원 가능.
+      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일은 보관함으로 이동
       const oldFiles = await drive.files.list({
-        q: `'${personId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
+        q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
         fields: 'files(id,name)',
       });
       for (const f of oldFiles.data.files || []) {
         if (f.id !== xlsxResult.id) {
-          await drive.files.update({ fileId: f.id, requestBody: { trashed: true } }).catch(() => {});
+          await moveFileToParent(drive, f.id, weekId, archiveId).catch(() => {});
         }
       }
 
@@ -331,7 +381,16 @@ export default async function handler(req, res) {
           mainId: MAIN_FOLDER_ID,
           monthId,
           personId,
+          weekId,
+          archiveId,
         },
+        uploadContext: {
+          teamId: teamId ?? null,
+          teamNames: teamNames || surveyorName,
+          tripStartDate: tripStartDate || reportDate || null,
+          tripEndDate: tripEndDate || null,
+        },
+        receiptDuplicateReport,
         aggregate: aggregateResult,
         kakaoSent,
         kakaoError,
@@ -356,7 +415,7 @@ export default async function handler(req, res) {
       if (!img.filename || typeof img.filename !== 'string' || img.filename.length > 160) {
         return res.status(400).json({ success: false, error: '이미지 파일명 누락 또는 너무 김.' });
       }
-      if (/[\\/:*?"<>|]/.test(img.filename) || /[\x00-\x1F]/.test(img.filename)) {
+      if (/[\\/:*?"<>|]/.test(img.filename) || hasControlChars(img.filename)) {
         return res.status(400).json({ success: false, error: '이미지 파일명에 사용할 수 없는 문자.' });
       }
       // MIME 화이트리스트 (data:image/jpeg;base64,... 패턴)
@@ -381,7 +440,7 @@ export default async function handler(req, res) {
       // 실제 MIME을 dataUrl 헤더에서 추출해 그대로 Drive에 전달 (이전엔 항상 image/jpeg로 잘못 저장)
       const mimeMatch = img.dataUrl.match(/^data:([^;]+);base64,/);
       const imgMime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const result     = await uploadFile(drive, imgBuffer, img.filename, personId, imgMime);
+      const result     = await uploadFile(drive, imgBuffer, img.filename, weekId, imgMime);
       const detail = {
         filename: img.filename,
         status: result.status,
@@ -403,6 +462,12 @@ export default async function handler(req, res) {
         mainId: MAIN_FOLDER_ID,
         monthId,
         personId,
+      },
+      uploadContext: {
+        teamId: teamId ?? null,
+        teamNames: teamNames || surveyorName,
+        tripStartDate: tripStartDate || reportDate || null,
+        tripEndDate: tripEndDate || null,
       },
     });
 

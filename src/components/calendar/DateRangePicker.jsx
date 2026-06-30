@@ -1,7 +1,7 @@
 import { useState } from 'react';
+import { getToday } from '../../utils/formatter';
 
 const DAY_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
-const TODAY_STR = new Date().toLocaleDateString('sv-SE'); // 'YYYY-MM-DD'
 
 function toStr(year, month, day) {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -28,7 +28,7 @@ function formatKorean(str) {
  */
 export default function DateRangePicker({ startDate, endDate, onChange }) {
   // 초기 표시 월: startDate가 있으면 해당 월, 없으면 오늘
-  const initDate = startDate ? parseDate(startDate) : new Date();
+  const initDate = startDate ? parseDate(startDate) : parseDate(getToday());
   const [viewYear, setViewYear] = useState(initDate.getFullYear());
   const [viewMonth, setViewMonth] = useState(initDate.getMonth()); // 0-11
 
@@ -116,7 +116,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           const isStart = dateStr === startDate;
           const isEnd = dateStr === endDate;
           const isInRange = startDate && endDate && dateStr > startDate && dateStr < endDate;
-          const isToday = dateStr === TODAY_STR;
+          const isToday = dateStr === getToday();
           const dayOfWeek = (firstDayOfMonth + day - 1) % 7; // 0=일
           const isSunday = dayOfWeek === 0;
 

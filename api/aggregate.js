@@ -1,6 +1,7 @@
 import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
-import { createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
+import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
+import { buildApprovalDuplicateReport } from './approvalReport.js'
 
 const MONEY_FORMAT = '#,##0'
 
@@ -54,6 +55,33 @@ async function deleteFiles(drive, files, keepId = null) {
   }))
 }
 
+async function listChildEntries(drive, parentId) {
+  const res = await drive.files.list({
+    q: `'${parentId}' in parents and trashed = false`,
+    fields: 'files(id,name,mimeType)',
+    pageSize: 200,
+  })
+  return res.data.files || []
+}
+
+async function collectXlsxFilesRecursive(drive, folderId, personName, seenFileIds = new Set()) {
+  const entries = await listChildEntries(drive, folderId)
+  const files = []
+  for (const entry of entries) {
+    if (entry.mimeType === 'application/vnd.google-apps.folder') {
+      if (normalizeDriveName(entry.name) === ARCHIVE_FOLDER_NAME) continue
+      const nested = await collectXlsxFilesRecursive(drive, entry.id, personName, seenFileIds)
+      files.push(...nested)
+      continue
+    }
+    if (!String(entry.name || '').includes('출장비') || !String(entry.name || '').includes('.xlsx')) continue
+    if (seenFileIds.has(entry.id)) continue
+    seenFileIds.add(entry.id)
+    files.push({ ...entry, personName })
+  }
+  return files
+}
+
 async function createReplacingAggregateSheet(drive, folderId, finalName, buffer) {
   const existingFiles = await listExistingAggregateFiles(drive, folderId, finalName)
   const tempName = `${finalName}__업데이트중_${Date.now()}`
@@ -79,6 +107,16 @@ async function createReplacingAggregateSheet(drive, folderId, finalName, buffer)
   })
 
   return created.data.id
+}
+
+export function groupPersonFolders(personFolders) {
+  const grouped = new Map()
+  for (const folder of personFolders || []) {
+    const name = normalizeDriveName(folder.name)
+    if (!grouped.has(name)) grouped.set(name, { name, folders: [] })
+    grouped.get(name).folders.push(folder)
+  }
+  return [...grouped.values()]
 }
 
 /**
@@ -107,6 +145,7 @@ export async function runAggregate(drive) {
   const allRows = []
   // 등장한 사람 이름 순서 보존 (날짜순 정렬용)
   const personOrder = []
+  const seenFileIds = new Set()
 
   for (const monthFolder of monthFolders) {
     // 월 폴더 안의 담당자 폴더들
@@ -114,42 +153,44 @@ export async function runAggregate(drive) {
       q: `'${monthFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       fields: 'files(id,name)',
     })
-    const personFolders = personRes.data.files || []
+    const personGroups = groupPersonFolders(personRes.data.files || [])
 
-    for (const personFolder of personFolders) {
-      const personName = personFolder.name
+    for (const personGroup of personGroups) {
+      const personName = personGroup.name
       if (!personOrder.includes(personName)) personOrder.push(personName)
 
-      // 담당자 폴더 안의 xlsx 파일 목록 (출장비_*.xlsx)
-      const xlsxRes = await drive.files.list({
-        q: `'${personFolder.id}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-        fields: 'files(id,name)',
-        orderBy: 'createdTime',
-      })
-      const xlsxFiles = xlsxRes.data.files || []
+      for (const personFolder of personGroup.folders) {
+        const xlsxFiles = await collectXlsxFilesRecursive(drive, personFolder.id, personName)
 
-      for (const file of xlsxFiles) {
-        try {
-          const fileRes = await drive.files.get(
-            { fileId: file.id, alt: 'media' },
-            { responseType: 'arraybuffer' }
-          )
-          const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
-          const ws = wb.Sheets[wb.SheetNames[0]]
-          const rows = XLSX.utils.sheet_to_json(ws)
+        for (const file of xlsxFiles) {
+          if (seenFileIds.has(file.id)) continue
+          seenFileIds.add(file.id)
+          try {
+            const fileRes = await drive.files.get(
+              { fileId: file.id, alt: 'media' },
+              { responseType: 'arraybuffer' }
+            )
+            const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
+            const ws = wb.Sheets[wb.SheetNames[0]]
+            const rows = XLSX.utils.sheet_to_json(ws)
 
-          for (const r of rows) {
-            allRows.push({
-              date:      r['날짜']  || '',
-              storeName: r['사용처'] || '',
-              category:  r['용도']  || '',
-              amount:    Number(r['금액']) || 0,
-              note:      r['비고']  || '',
-              person:    personName,
-            })
+            for (const r of rows) {
+              allRows.push({
+                date:      r['날짜']  || '',
+                useTime:   r['사용시간'] || '',
+                storeName: r['사용처'] || '',
+                category:  r['용도']  || '',
+                amount:    Number(r['금액']) || 0,
+                approvalNum: r['승인번호'] || '',
+                bizNum:    r['사업자번호'] || '',
+                cardNumber: r['카드번호'] || '',
+                note:      r['비고']  || '',
+                person:    personName,
+              })
+            }
+          } catch (e) {
+            console.warn(`파일 읽기 실패: ${file.name}`, e.message)
           }
-        } catch (e) {
-          console.warn(`파일 읽기 실패: ${file.name}`, e.message)
         }
       }
     }
@@ -158,6 +199,7 @@ export async function runAggregate(drive) {
   if (allRows.length === 0) {
     return { success: true, message: '집계할 데이터 없음', count: 0 }
   }
+  const duplicateReport = buildApprovalDuplicateReport(allRows)
 
   // ── 날짜별·사람별 집계
   const datePersonMap = {}
@@ -204,10 +246,14 @@ export async function runAggregate(drive) {
     })
     .map(r => ({
       '날짜':    r.date,
+      '사용시간': r.useTime,
       '이름':    r.person,
       '사용처':  r.storeName,
       '용도':    r.category,
       '금액(원)': r.amount,
+      '승인번호': r.approvalNum,
+      '사업자번호': r.bizNum,
+      '카드번호': r.cardNumber,
       '비고':    r.note,
     }))
 
@@ -231,6 +277,7 @@ export async function runAggregate(drive) {
     message: `전체집계 완료 (${allRows.length}건)`,
     filename: fname + ' (Google Sheet)',
     count: allRows.length,
+    duplicateReport,
   }
 }
 
@@ -244,18 +291,19 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
     q: `'${monthFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id,name)',
   })
-  const personFolders = personRes.data.files || []
+  const personGroups = groupPersonFolders(personRes.data.files || [])
 
-  const personOrder = personFolders.map(pf => pf.name)
+  const personOrder = personGroups.map(pg => pg.name)
+  const seenFileIds = new Set()
 
   // 담당자 폴더별 XLSX 목록 조회 — 병렬
-  const xlsxLists = await Promise.all(personFolders.map(pf =>
-    drive.files.list({
-      q: `'${pf.id}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-      fields: 'files(id,name)',
-      orderBy: 'createdTime desc',
-    }).then(r => ({ personName: pf.name, files: r.data.files || [] }))
-  ))
+  const xlsxLists = await Promise.all(personGroups.map(async pg => {
+    const files = [];
+    for (const pf of pg.folders) {
+      files.push(...await collectXlsxFilesRecursive(drive, pf.id, pg.name, seenFileIds));
+    }
+    return { personName: pg.name, files };
+  }))
 
   // 모든 XLSX 파일 다운로드 — 병렬
   const rowChunks = await Promise.all(
@@ -270,9 +318,13 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
           const ws = wb.Sheets[wb.SheetNames[0]]
           return XLSX.utils.sheet_to_json(ws).map(r => ({
             date:      r['날짜']  || '',
+            useTime:   r['사용시간'] || '',
             storeName: r['사용처'] || '',
             category:  r['용도']  || '',
             amount:    Number(r['금액']) || 0,
+            approvalNum: r['승인번호'] || '',
+            bizNum:    r['사업자번호'] || '',
+            cardNumber: r['카드번호'] || '',
             note:      r['비고']  || '',
             person:    personName,
           }))
@@ -286,6 +338,7 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   const allRows = rowChunks.flat()
 
   if (allRows.length === 0) return { count: 0 }
+  const duplicateReport = buildApprovalDuplicateReport(allRows)
 
   // Sheet1: 날짜×사람 피벗
   const datePersonMap2 = {}
@@ -327,10 +380,14 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
     })
     .map(r => ({
       '날짜':     r.date,
+      '사용시간':  r.useTime,
       '이름':     r.person,
       '사용처':   r.storeName,
       '용도':     r.category,
       '금액(원)': r.amount,
+      '승인번호':  r.approvalNum,
+      '사업자번호': r.bizNum,
+      '카드번호':  r.cardNumber,
       '비고':     r.note,
     }))
 
@@ -341,7 +398,7 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   const aggName = `전체집계_${yearMonth}`
   const fileId = await createReplacingAggregateSheet(drive, monthFolderId, aggName, buf2)
 
-  return { success: true, count: allRows.length, file: aggName, fileId }
+  return { success: true, count: allRows.length, file: aggName, fileId, duplicateReport }
 }
 
 export default async function handler(req, res) {

@@ -1,8 +1,9 @@
-// 로컬 시각 기준 오늘 날짜를 호출 시점마다 새로 계산.
+import { getTodayKst } from './kstDate';
+
+// 한국 시각 기준 오늘 날짜를 호출 시점마다 새로 계산.
 // 함수형이라 앱을 자정 너머까지 켜둬도 항상 정확한 오늘이 반환됨.
 export function getToday() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return getTodayKst();
 }
 
 /**

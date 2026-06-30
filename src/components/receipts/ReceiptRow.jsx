@@ -14,6 +14,8 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
   const category = receipt.category || '기타';
   const cs = CAT_STYLE[category] || CAT_STYLE['기타'];
   const zebra = rowIndex % 2 === 0 ? 'bg-white/[0.03]' : 'bg-white/[0.12]';
+  const approvalNum = String(receipt.approvalNum || '').trim();
+  const approvalLabel = approvalNum ? `승인 ${approvalNum.slice(-4)}` : '승인번호 없음';
 
   return (
     <div
@@ -47,8 +49,13 @@ function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowInd
         </div>
 
         <div className="col-start-2 col-end-4 flex items-center justify-between gap-2">
-          <div className="text-green-400 text-[0.95rem] font-black whitespace-nowrap leading-none">
-            {formatCurrency(receipt.totalAmount).replace('원','')}
+          <div className="min-w-0">
+            <div className="text-green-400 text-[0.95rem] font-black whitespace-nowrap leading-none">
+              {formatCurrency(receipt.totalAmount).replace('원','')}
+            </div>
+            <div className={`text-[10px] font-black mt-1 truncate ${approvalNum ? 'text-slate-500' : 'text-amber-300'}`}>
+              {approvalLabel}
+            </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button

@@ -6,9 +6,60 @@ import { google } from 'googleapis';
 
 export const MAIN_FOLDER_ID =
   process.env.GDRIVE_MAIN_FOLDER_ID || '14zsrX1vuLuO74Lfa6yr9s0nBTzrDBG8X';
+export const ARCHIVE_FOLDER_NAME = '보관함';
 
 export function driveQueryString(value) {
   return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+export function normalizeDriveName(value) {
+  return String(value ?? '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function parseYmd(value) {
+  const match = String(value ?? '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function formatYmd(date) {
+  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())}`;
+}
+
+export function getKstWeekRange(dateStr) {
+  const parsed = parseYmd(dateStr);
+  if (!parsed) return null;
+
+  const start = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+  const dayOfWeek = start.getUTCDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+
+  return {
+    startDate: formatYmd(start),
+    endDate: formatYmd(end),
+  };
+}
+
+export function getWeekFolderName(dateStr) {
+  const range = getKstWeekRange(dateStr);
+  if (!range) return '주간미상';
+  return `${range.startDate}~${range.endDate}`;
 }
 
 /**
@@ -46,6 +97,33 @@ export async function getOrCreateFolder(drive, name, parentId) {
     fields: 'id',
   });
   return created.data.id;
+}
+
+/**
+ * 이름의 공백/쉼표 차이를 정규화해서 기존 폴더를 먼저 찾고, 없으면 새로 생성한다.
+ * 조 이름처럼 사람이 직접 입력하는 경로에만 사용한다.
+ */
+export async function getOrCreateFolderByNormalizedName(drive, name, parentId) {
+  const targetName = normalizeDriveName(name);
+  const safeParent = driveQueryString(parentId);
+  const res = await drive.files.list({
+    q: `'${safeParent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id,name)',
+    pageSize: 200,
+  });
+
+  const matched = (res.data.files || []).find(folder => normalizeDriveName(folder.name) === targetName);
+  if (matched) return matched.id;
+  return getOrCreateFolder(drive, targetName, parentId);
+}
+
+export async function moveFileToParent(drive, fileId, fromParentId, toParentId) {
+  return drive.files.update({
+    fileId,
+    addParents: toParentId,
+    removeParents: fromParentId,
+    fields: 'id, parents',
+  });
 }
 
 /**

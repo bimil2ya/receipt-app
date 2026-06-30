@@ -40,8 +40,8 @@ and, only if needed for local testing, in a private `.env.local` file.
 Common variable names:
 
 - `ANTHROPIC_API_KEY`
-- `UPLOAD_API_TOKEN`
-- `VITE_UPLOAD_TOKEN`
+- `ADMIN_PIN`
+- `UPLOAD_API_TOKEN` (optional, server-to-server Authorization only)
 - `GDRIVE_CLIENT_ID`
 - `GDRIVE_CLIENT_SECRET`
 - `GDRIVE_REFRESH_TOKEN`

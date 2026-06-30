@@ -1,30 +1,5 @@
 import { useState } from 'react';
-
-const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN || '8633';
-const UPLOAD_TOKEN = import.meta.env.VITE_UPLOAD_TOKEN || '';
-
-function parseTeamsText(text) {
-  return text
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map((line, idx) => {
-      // "1조", "1.", "1:", "조1" 등 앞 접두사 제거
-      const cleaned = line
-        .replace(/^\d+조\s*/u, '')
-        .replace(/^조\d+\s*/u, '')
-        .replace(/^\d+[.:)\s]\s*/u, '')
-        .trim();
-      // 쉼표 또는 2칸 이상 공백으로 이름 분리, 정규화
-      const parts = cleaned.split(/,\s*|\s{2,}/).map(n => n.trim()).filter(Boolean);
-      return { id: idx + 1, names: parts.join(', ') };
-    })
-    .filter(t => t.names.length > 0);
-}
-
-function teamsToText(teams) {
-  return teams.map(t => t.names).join('\n');
-}
+import { parseTeamsText, teamsToText } from './teamText';
 
 export default function AdminTeamModal({ show, currentTeams, onSaved, onClose }) {
   const [step, setStep] = useState('pin');
@@ -32,6 +7,7 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
   const [pinError, setPinError] = useState(false);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [authChecking, setAuthChecking] = useState(false);
   const [saveError, setSaveError] = useState('');
 
   if (!show) return null;
@@ -40,19 +16,40 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
     setStep('pin');
     setPin('');
     setPinError(false);
+    setAuthChecking(false);
     setSaveError('');
     onClose();
   };
 
-  const handlePinSubmit = () => {
-    if (pin === ADMIN_PIN) {
-      setPin('');
-      setPinError(false);
-      setEditText(teamsToText(currentTeams));
-      setStep('edit');
-    } else {
+  const handlePinSubmit = async () => {
+    if (!pin.trim()) {
       setPinError(true);
-      setPin('');
+      return;
+    }
+    setAuthChecking(true);
+    setPinError(false);
+    setSaveError('');
+    try {
+      const res = await fetch('/api/teams', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Pin': pin,
+        },
+        body: JSON.stringify({ action: 'verify' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setEditText(teamsToText(currentTeams));
+        setStep('edit');
+      } else {
+        setPinError(true);
+        setSaveError(data.error || '관리자 인증 실패');
+      }
+    } catch {
+      setSaveError('네트워크 오류');
+    } finally {
+      setAuthChecking(false);
     }
   };
 
@@ -66,7 +63,7 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${UPLOAD_TOKEN}`,
+          'X-Admin-Pin': pin,
         },
         body: JSON.stringify({ teams }),
       });
@@ -74,6 +71,11 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
       if (data.success) {
         onSaved(teams);
         handleClose();
+      } else if (res.status === 401) {
+        setStep('pin');
+        setPin('');
+        setPinError(true);
+        setSaveError('');
       } else {
         setSaveError(data.error || '저장 실패');
       }
@@ -120,7 +122,7 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
           />
           {pinError && (
             <div className="flex flex-col items-center gap-3 -mt-2">
-              <p className="text-amber-400 text-sm font-bold">비밀번호는 *6**, 알지?</p>
+              <p className="text-amber-400 text-sm font-bold">{saveError || '비밀번호를 확인해 주세요.'}</p>
               <button
                 onClick={handleClose}
                 className="text-slate-500 text-sm font-bold underline underline-offset-2 active:text-slate-300"
@@ -131,10 +133,10 @@ export default function AdminTeamModal({ show, currentTeams, onSaved, onClose })
           )}
           <button
             onClick={handlePinSubmit}
-            disabled={pin.length === 0}
+            disabled={pin.length === 0 || authChecking}
             className="w-52 h-14 rounded-2xl bg-blue-600 text-white font-black text-base disabled:opacity-40 active:scale-95 transition-transform"
           >
-            확인
+            {authChecking ? '확인 중...' : '확인'}
           </button>
         </div>
       )}
