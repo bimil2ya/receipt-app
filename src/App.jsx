@@ -48,7 +48,6 @@ export default function App() {
     showManualModal,
     showBudgetCalcModal,
     showDuplicateReportModal,
-    showResetDanger,
     setShowResetDanger,
     tempBudget,
     setTempBudget,
@@ -65,7 +64,6 @@ export default function App() {
     openBudgetModal,
     openDuplicateReportModal,
     toggleBudgetDetails,
-    toggleResetDanger,
   } = useAppUiState();
 
   // ── 공지·알림

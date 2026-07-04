@@ -123,7 +123,7 @@ export default function useDriveRestore({
     } finally {
       setRestoreProgress(null);
     }
-  }, [canonicalNames, driveUploading, restoring, saveReceipts, showToast, tripStartDate]);
+  }, [canonicalNames, driveUploading, restoring, saveReceipts, showConfirm, showToast, tripStartDate]);
 
   return {
     restoreProgress,
