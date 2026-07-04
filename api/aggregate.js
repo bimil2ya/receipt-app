@@ -2,6 +2,7 @@ import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
 import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
+import { ALLOWED_ORIGINS } from './_cors.js'
 
 const MONEY_FORMAT = '#,##0'
 
@@ -403,11 +404,6 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
 
 export default async function handler(req, res) {
   // 출처 화이트리스트 + CORS 동적 매칭 (upload.js와 동일 패턴)
-  const ALLOWED_ORIGINS = [
-    'https://receipt-app-rho.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ]
   const origin = req.headers.origin || ''
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin)

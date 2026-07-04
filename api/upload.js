@@ -1,5 +1,6 @@
 import { Readable } from 'stream';
 import crypto from 'crypto';
+import { ALLOWED_ORIGINS } from './_cors.js';
 import * as XLSX from 'xlsx';
 import {
   ARCHIVE_FOLDER_NAME,
@@ -15,6 +16,25 @@ import {
 import { sendKakaoNotification, sendKakaoNotifications } from './notify/kakao.js';
 import { runMonthAggregate } from './aggregate.js';
 import { buildApprovalDuplicateReport } from './approvalReport.js';
+
+// 출처 단위 호출 제한 — 10분에 200회 (이미지 N장 업로드 시 1+N 요청 발생하므로 여유 있게 설정)
+const UPLOAD_RATE_WINDOW_MS = 10 * 60_000;
+const UPLOAD_RATE_MAX = 200;
+const uploadRateBuckets = new Map();
+
+function uploadRateLimitCheck(key) {
+  const now = Date.now();
+  const bucket = uploadRateBuckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    uploadRateBuckets.set(key, { count: 1, resetAt: now + UPLOAD_RATE_WINDOW_MS });
+    return { ok: true };
+  }
+  if (bucket.count >= UPLOAD_RATE_MAX) {
+    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+  bucket.count += 1;
+  return { ok: true };
+}
 
 const KAKAO_TEXT_LIMIT = 180;
 
@@ -185,11 +205,6 @@ async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'applica
  */
 export default async function handler(req, res) {
   // 출처 화이트리스트 — 클라 번들 토큰만으로는 부족하니, 출처와 토큰 둘 다 검증
-  const ALLOWED_ORIGINS = [
-    'https://receipt-app-rho.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
   const origin = req.headers.origin || '';
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
@@ -206,6 +221,17 @@ export default async function handler(req, res) {
     if (!refererOk) {
       return res.status(403).json({ success: false, error: '허용되지 않은 출처', detail: `origin: ${origin || '(없음)'}` });
     }
+  }
+
+  // ── 호출 빈도 제한
+  const rateKey = origin || 'unknown';
+  const rate = uploadRateLimitCheck(rateKey);
+  if (!rate.ok) {
+    return res.status(429).json({
+      success: false,
+      error: '호출 빈도 제한',
+      detail: `10분에 ${UPLOAD_RATE_MAX}회 초과. ${rate.retryAfterSec}초 후 재시도.`,
+    });
   }
 
   // ── 브라우저 번들에 비밀 토큰을 넣지 않는다.
@@ -473,6 +499,9 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Upload error:', error);
+    if (/invalid_grant|token.*expired|revoked|unauthorized/i.test(error.message || '')) {
+      return res.status(401).json({ success: false, error: 'Google Drive 인증이 만료되었습니다. 관리자에게 Drive 재연결을 요청하세요.' });
+    }
     return res.status(500).json({ success: false, error: error.message });
   }
 }

@@ -1,5 +1,7 @@
 export const config = { runtime: 'edge' };
 
+import { ALLOWED_ORIGINS } from './_cors.js';
+
 // 비즈노 API가 (주), & 같은 한글/특수문자를 XML 인코딩해 반환하는 경우 디코딩
 function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') return str;
@@ -16,11 +18,6 @@ function decodeHtmlEntities(str) {
 
 export default async function handler(req) {
   // 출처 화이트리스트 — 비즈노 API 무단 소모 방지 (upload/aggregate와 동일 패턴)
-  const ALLOWED_ORIGINS = [
-    'https://receipt-app-rho.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
   const origin = req.headers.get?.('origin') || req.headers.origin || '';
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   const resHeaders = {

@@ -1,5 +1,7 @@
 export const config = { runtime: 'edge' };
 
+import { ALLOWED_ORIGINS } from './_cors.js';
+
 // 모듈 메모리 기반 분당 호출 제한 — Edge 런타임은 워커 인스턴스마다 메모리가 분리되므로
 // 인스턴스 단위로만 적용됨(완전한 글로벌 제한은 외부 store 필요). 대량 자동화 호출의 단일
 // 인스턴스 폭주만 누그러뜨리는 1차 방어선으로 동작.
@@ -49,61 +51,45 @@ function buildTripDateContext({ reportDate, tripStartDate, tripEndDate }) {
   const tripYear = (start || end || report || '').slice(0, 4);
 
   return `
-[출장 기간 날짜 기준 - CRITICAL]
-이번 영수증은 출장 중 사용한 것이다.
-- 출장 시작일: ${start || '미지정'}
-- 출장 종료일: ${end || start || '미지정'}
-- 출장 연도: ${tripYear}년
+[연도 기준 - CRITICAL]
+출장 연도: ${tripYear}년
 
 규칙 (반드시 따를 것):
-1. 읽은 날짜의 연도가 ${tripYear}년이 아니면 즉시 ${tripYear}년으로 교체하라. 예: 2024-06-15 → 2026-06-15.
-2. 영수증 날짜는 출장 기간 ±7일 안에 있어야 정상이다. 이 범위를 벗어나더라도 연도만 틀린 경우라면 연도를 ${tripYear}년으로 교체한 뒤 반환하라.
-3. 월/일이 명확하면 연도를 ${tripYear}년으로 강제 적용하라. 연도가 불분명할 때도 마찬가지다.
+1. 영수증에서 날짜를 그대로 읽어라. 어떤 이유로도 날짜를 추정하거나 수정하지 마라.
+2. 읽은 날짜의 연도가 ${tripYear}년이 아니면 연도만 ${tripYear}년으로 교체하라. 월·일은 건드리지 마라.
+3. 날짜를 전혀 읽을 수 없으면 date 필드를 빈 문자열 ""로 반환하라.
 `;
 }
 
-// AI 응답 날짜를 서버에서 2차 검증 — 연도가 출장 연도와 다르면 교정
+// AI 응답 날짜를 서버에서 2차 검증
+// - 연도가 출장 연도와 다르면 연도만 교정
+// - 날짜가 비어 있으면 출장 시작일로 채움
+// - 월/일이 출장 기간 밖이어도 절대 수정하지 않음 (예전 영수증 나중에 올리는 경우 있음)
 function repairReceiptDates(receipts, { tripStartDate, tripEndDate, reportDate }) {
   const start = normalizeIsoDate(tripStartDate) || normalizeIsoDate(reportDate);
-  const end = normalizeIsoDate(tripEndDate) || start;
   if (!start) return receipts;
 
   const tripYear = start.slice(0, 4);
-  const WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // ±7일
-
-  const startTs = Date.parse(start) - WINDOW_MS;
-  const endTs = Date.parse(end) + WINDOW_MS;
 
   return receipts.map(r => {
     const raw = String(r.date || '').trim();
+
+    // 날짜가 비어 있으면 출장 시작일로 채움
+    if (!raw) return { ...r, date: start };
+
+    // YYYY-MM-DD 형식이 아니면 건드리지 않음
     if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return r;
 
-    const ts = Date.parse(raw);
-    if (ts >= startTs && ts <= endTs) return r; // 범위 안 — 그대로
+    // 연도가 맞으면 월/일 무관하게 그대로 사용
+    if (raw.slice(0, 4) === tripYear) return r;
 
-    // 범위 밖: 연도만 tripYear로 교체해서 재시도
-    const corrected = tripYear + raw.slice(4);
-    const correctedTs = Date.parse(corrected);
-    if (correctedTs >= startTs && correctedTs <= endTs) {
-      return { ...r, date: corrected };
-    }
-
-    // 교정 후에도 범위 밖이지만 연도가 틀린 경우라면 연도만 교체
-    if (raw.slice(0, 4) !== tripYear) {
-      return { ...r, date: corrected };
-    }
-
-    return r;
+    // 연도만 교정 (월/일은 건드리지 않음)
+    return { ...r, date: tripYear + raw.slice(4) };
   });
 }
 
 export default async function handler(req) {
   // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
-  const ALLOWED_ORIGINS = [
-    'https://receipt-app-rho.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
   const origin = req.headers.get('origin') || '';
   const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   const resHeaders = {

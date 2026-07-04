@@ -1,5 +1,6 @@
 import { Readable } from 'stream';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
+import { ALLOWED_ORIGINS } from './_cors.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';
 
@@ -11,12 +12,6 @@ const FALLBACK_TEAMS = [
   { id: 5, names: '송승수, 전상현' },
   { id: 6, names: '노경호, 김영일' },
   { id: 7, names: '신상대, 함윤성' },
-];
-
-const ALLOWED_ORIGINS = [
-  'https://receipt-app-rho.vercel.app',
-  'http://localhost:5173',
-  'http://localhost:3000',
 ];
 
 function setCors(res, origin) {
@@ -77,7 +72,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const ADMIN_PIN = process.env.VITE_ADMIN_PIN || process.env.ADMIN_PIN;
+    const ADMIN_PIN = process.env.ADMIN_PIN || process.env.VITE_ADMIN_PIN;
     const providedPin = String(req.headers['x-admin-pin'] || '').trim();
     if (!ADMIN_PIN) {
       return res.status(503).json({ success: false, error: '관리자 인증이 설정되지 않았습니다.' });
