@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
-export default function Modal({ title, onClose, children, initialFocusRef }) {
+export default function Modal({ title, onClose, children, initialFocusRef, compactTitle = false }) {
   const titleId = useId();
   const closeRef = useRef(null);
   const returnFocusRef = useRef(null);
@@ -77,7 +77,7 @@ export default function Modal({ title, onClose, children, initialFocusRef }) {
         aria-modal="true"
         aria-labelledby={titleId}
       >
-        <div className="flex justify-between items-center gap-3 mb-4">
+        <div className={`flex justify-between items-center gap-3 ${compactTitle ? 'mb-1' : 'mb-4'}`}>
           <h2 id={titleId} className="font-black text-xl text-slate-50">{title}</h2>
           {onClose && (
             <button

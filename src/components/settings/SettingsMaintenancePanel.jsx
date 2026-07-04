@@ -1,3 +1,7 @@
+import { useCallback } from 'react';
+import ConfirmModal from '../layout/ConfirmModal';
+import useConfirmModal from '../../hooks/useConfirmModal';
+
 export default function SettingsMaintenancePanel({
   showDataManage,
   onToggleDataManage,
@@ -11,8 +15,31 @@ export default function SettingsMaintenancePanel({
   onReset,
   onClose,
 }) {
+  const { confirmModalProps, showConfirm } = useConfirmModal();
+
+  const handleResetDeviceData = useCallback(async () => {
+    const ok = await showConfirm({
+      title: '이 기기 초기화',
+      message: '영수증, 이미지, 변경 이력, 보류 전송을\n이 기기에서만 삭제합니다.\n되돌릴 수 없습니다.',
+      confirmLabel: '초기화',
+      variant: 'danger',
+    });
+    if (ok) { (onResetDeviceData || onReset)(); onClose(); }
+  }, [showConfirm, onResetDeviceData, onReset, onClose]);
+
+  const handleResetActivityLogs = useCallback(async () => {
+    const ok = await showConfirm({
+      title: '운영 로그 초기화',
+      message: '로그와 일별 집계만 삭제합니다.\n영수증 데이터는 유지됩니다.',
+      confirmLabel: '초기화',
+      variant: 'danger',
+    });
+    if (ok) { (onResetActivityLogs || onReset)(); onClose(); }
+  }, [showConfirm, onResetActivityLogs, onReset, onClose]);
+
   return (
     <>
+      <ConfirmModal {...confirmModalProps} />
       <div className="border border-slate-700 rounded-xl bg-slate-900/40 overflow-hidden">
         <button
           onClick={onToggleDataManage}
@@ -79,12 +106,7 @@ export default function SettingsMaintenancePanel({
           <div className="px-3 pb-3 space-y-3">
             <div className="space-y-1.5">
               <button
-                onClick={() => {
-                  if (window.confirm('이 기기의 영수증 데이터가 삭제됩니다.\n계속하시겠습니까?')) {
-                    (onResetDeviceData || onReset)();
-                    onClose();
-                  }
-                }}
+                onClick={handleResetDeviceData}
                 className="w-full bg-red-900/30 border border-red-800 text-red-300 py-3.5 rounded-xl font-black text-base active:scale-95 transition-transform"
               >
                 🗑️ 이 기기 초기화
@@ -95,12 +117,7 @@ export default function SettingsMaintenancePanel({
             </div>
             <div className="space-y-1.5">
               <button
-                onClick={() => {
-                  if (window.confirm('운영 로그만 삭제합니다.\n계속하시겠습니까?')) {
-                    (onResetActivityLogs || onReset)();
-                    onClose();
-                  }
-                }}
+                onClick={handleResetActivityLogs}
                 className="w-full bg-slate-800 border border-slate-700 text-slate-100 py-3.5 rounded-xl font-black text-base active:scale-95 transition-transform"
               >
                 🧾 운영 로그 초기화

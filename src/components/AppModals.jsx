@@ -55,12 +55,10 @@ export default function AppModals({
   tripEndDate,
   calculatedBudget,
   tempBudget,
-  showResetDanger,
   onCloseBudgetModal,
   onTripRangeChange,
   onTempBudgetChange,
   onSaveBudget,
-  onToggleResetDanger,
   onStartNewTrip,
 }) {
   return (
@@ -134,12 +132,10 @@ export default function AppModals({
         tripEndDate={tripEndDate}
         calculatedBudget={calculatedBudget}
         tempBudget={tempBudget}
-        showResetDanger={showResetDanger}
         onClose={onCloseBudgetModal}
         onDateRangeChange={onTripRangeChange}
         onTempBudgetChange={onTempBudgetChange}
         onSaveBudget={onSaveBudget}
-        onToggleResetDanger={onToggleResetDanger}
         onStartNewTrip={onStartNewTrip}
       />
     </>

@@ -1,81 +1,61 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { decodeHtmlEntities, getToday } from '../utils/formatter';
+import { useEffect, useMemo, useState } from 'react';
+
+const STORAGE_PREFIX = 'receipt-app:send-count';
 
 function trimText(value, fallback = '') {
   return String(value ?? fallback).trim();
 }
 
-export default function useTripClosingState({ canonicalNames, selectedTeam, tripStartDate, tripEndDate, receipts }) {
-  const [kakaoDone, setKakaoDone] = useState(false);
-  const [uploadDone, setUploadDone] = useState(false);
+/**
+ * 출장 단위 전송 횟수를 localStorage에 영속 저장한다.
+ * - 앱을 껐다 켜도 카운트가 유지된다.
+ * - tripStartDate가 바뀌면 새 출장으로 인식해 카운트가 0부터 시작한다.
+ */
+export default function useTripClosingState({ canonicalNames, selectedTeam, tripStartDate }) {
+  const [kakaoSendCount, setKakaoSendCount] = useState(0);
+  const [uploadSendCount, setUploadSendCount] = useState(0);
   const [lastDuplicateReport, setLastDuplicateReport] = useState(null);
-  const closingStateLoadedRef = useRef(false);
 
-  const closingPayloadSignature = useMemo(() => JSON.stringify({
-    names: trimText(canonicalNames),
-    tripStartDate: tripStartDate || getToday(),
-    tripEndDate: tripEndDate || '',
-    receipts: (receipts || [])
-      .map(receipt => ({
-        id: receipt.id,
-        date: receipt.date || '',
-        useTime: receipt.useTime || '',
-        storeName: decodeHtmlEntities(receipt.storeName) || '',
-        totalAmount: receipt.totalAmount || 0,
-        category: receipt.category || '',
-        approvalNum: receipt.approvalNum || '',
-        bizNum: receipt.bizNum || '',
-        cardNumber: receipt.cardNumber || '',
-        note: decodeHtmlEntities(receipt.note) || '',
-        imageId: receipt.imageId || '',
-      }))
-      .sort((a, b) => String(a.id).localeCompare(String(b.id))),
-  }), [canonicalNames, tripStartDate, tripEndDate, receipts]);
+  // 출장별 고유 키 — tripStartDate가 바뀌면 다른 키
+  const storageKey = useMemo(() => {
+    const owner = selectedTeam?.id
+      ? `team-${selectedTeam.id}`
+      : trimText(canonicalNames, 'unknown');
+    return `${STORAGE_PREFIX}:${owner}:${tripStartDate || 'nodate'}`;
+  }, [selectedTeam, canonicalNames, tripStartDate]);
 
-  const closingStateStorageKey = useMemo(() => {
-    const owner = selectedTeam?.id ? `team-${selectedTeam.id}` : trimText(canonicalNames, 'unknown');
-    return `receipt-app:closing:${owner}:${tripStartDate || getToday()}:${tripEndDate || ''}`;
-  }, [selectedTeam, canonicalNames, tripStartDate, tripEndDate]);
-
+  // 출장 키가 바뀌면 저장된 카운트 읽기 (새 출장이면 0)
   useEffect(() => {
-    closingStateLoadedRef.current = false;
-    let nextKakaoDone = false;
-    let nextUploadDone = false;
     try {
-      const saved = JSON.parse(sessionStorage.getItem(closingStateStorageKey) || 'null');
-      if (saved?.signature === closingPayloadSignature) {
-        nextKakaoDone = Boolean(saved.kakaoDone);
-        nextUploadDone = Boolean(saved.uploadDone);
-      }
+      const raw = localStorage.getItem(storageKey);
+      const saved = raw ? JSON.parse(raw) : null;
+      setKakaoSendCount(Number(saved?.kakaoCount) || 0);
+      setUploadSendCount(Number(saved?.uploadCount) || 0);
     } catch {
-      nextKakaoDone = false;
-      nextUploadDone = false;
+      setKakaoSendCount(0);
+      setUploadSendCount(0);
     }
-    setKakaoDone(nextKakaoDone);
-    setUploadDone(nextUploadDone);
     setLastDuplicateReport(null);
-    const timer = window.setTimeout(() => {
-      closingStateLoadedRef.current = true;
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [closingStateStorageKey, closingPayloadSignature]);
+  }, [storageKey]);
 
+  // 카운트 변화 시 localStorage 저장
   useEffect(() => {
-    if (!closingStateLoadedRef.current) return;
-    sessionStorage.setItem(closingStateStorageKey, JSON.stringify({
-      signature: closingPayloadSignature,
-      kakaoDone,
-      uploadDone,
-    }));
-  }, [closingStateStorageKey, closingPayloadSignature, kakaoDone, uploadDone]);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({
+        kakaoCount: kakaoSendCount,
+        uploadCount: uploadSendCount,
+      }));
+    } catch {
+      // 저장 실패 시 조용히 무시 (프라이빗 모드 등)
+    }
+  }, [storageKey, kakaoSendCount, uploadSendCount]);
 
   return {
-    kakaoDone,
-    setKakaoDone,
-    uploadDone,
-    setUploadDone,
+    kakaoSendCount,
+    setKakaoSendCount,
+    uploadSendCount,
+    setUploadSendCount,
     lastDuplicateReport,
     setLastDuplicateReport,
-    closingPayloadSignature,
   };
 }

@@ -13,7 +13,7 @@ const INITIAL_MANUAL_RECEIPT = {
   note: '',
 };
 
-export default function useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast }) {
+export default function useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast, onClose }) {
   const [manualReceipt, setManualReceipt] = useState(INITIAL_MANUAL_RECEIPT);
   const manualStoreRef = useRef(null);
 
@@ -28,8 +28,8 @@ export default function useManualReceiptEntry({ saveReceipts, setPinnedNewIds, s
       createdAt: Date.now(),
     });
     setManualReceipt({ ...INITIAL_MANUAL_RECEIPT, date: getToday() });
-    requestAnimationFrame(() => manualStoreRef.current?.focus());
     showToast('✅ 1건 추가 완료');
+    onClose?.();
   };
 
   return {

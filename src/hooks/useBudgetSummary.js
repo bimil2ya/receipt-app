@@ -14,7 +14,7 @@ export default function useBudgetSummary({ receipts, weeklyBudget }) {
     receipts || []
   ).filter(receipt => receipt.category === '의료비등').reduce((sum, receipt) => sum + (receipt.totalAmount || 0), 0), [receipts]);
   const budgetRatio = useMemo(() => (budgetTotal / weeklyBudget) * 100, [budgetTotal, weeklyBudget]);
-  const remainingBudget = Math.max(0, weeklyBudget - budgetTotal);
+  const remainingBudget = weeklyBudget - budgetTotal;
 
   return {
     grandTotal,

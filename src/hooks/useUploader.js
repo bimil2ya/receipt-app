@@ -12,8 +12,6 @@ function normalizeApprovalNum(value) {
     .replace(/[^0-9]/g, '');
 }
 
-const MAX_TRIP_DATE_DRIFT_DAYS = 31;
-
 function pad2(value) {
   return String(value).padStart(2, '0');
 }
@@ -46,36 +44,21 @@ function parseKoreanReceiptDate(value) {
 function buildDateContext(options = {}) {
   const report = parseKoreanReceiptDate(options.reportDate);
   const start = parseKoreanReceiptDate(options.tripStartDate) || report || parseKoreanReceiptDate(getToday());
-  const end = parseKoreanReceiptDate(options.tripEndDate) || start;
-  const windowStart = new Date(start.getFullYear(), start.getMonth(), start.getDate() - MAX_TRIP_DATE_DRIFT_DAYS);
-  const windowEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate() + MAX_TRIP_DATE_DRIFT_DAYS);
-  const candidateYears = [...new Set([start, end, report].filter(Boolean).map(date => date.getFullYear()))];
-
-  return { report, start, end, windowStart, windowEnd, candidateYears };
+  return { start };
 }
 
-function isWithinTripWindow(date, context) {
-  return date >= context.windowStart && date <= context.windowEnd;
-}
-
+// 연도만 교정. 월/일이 출장 기간 밖이어도 수정하지 않음 (예전 영수증 나중에 올리는 경우 있음)
 function normalizeReceiptDate(value, context) {
   const parsed = parseKoreanReceiptDate(value);
-  if (!parsed) return formatDate(context.start);
-  if (isWithinTripWindow(parsed, context)) return formatDate(parsed);
+  if (!parsed) return formatDate(context.start); // 날짜 파싱 불가 → 출장 시작일 사용
 
-  for (const year of context.candidateYears) {
-    const corrected = new Date(year, parsed.getMonth(), parsed.getDate());
-    if (
-      corrected.getFullYear() === year &&
-      corrected.getMonth() === parsed.getMonth() &&
-      corrected.getDate() === parsed.getDate() &&
-      isWithinTripWindow(corrected, context)
-    ) {
-      return formatDate(corrected);
-    }
+  const tripYear = context.start.getFullYear();
+  if (parsed.getFullYear() !== tripYear) {
+    // 연도만 출장 연도로 교체, 월/일은 그대로
+    return formatDate(new Date(tripYear, parsed.getMonth(), parsed.getDate()));
   }
 
-  return formatDate(context.start);
+  return formatDate(parsed); // 연도가 맞으면 그대로
 }
 
 export default function useUploader({ onUploadSuccess, onUploadError }) {

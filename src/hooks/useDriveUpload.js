@@ -39,8 +39,9 @@ export default function useDriveUpload({
   tripEndDate,
   localApprovalReport,
   setLastDuplicateReport,
-  setUploadDone,
+  setUploadSendCount,
   showToast,
+  showConfirm,
 }) {
   const [driveUploading, setDriveUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -56,8 +57,14 @@ export default function useDriveUpload({
     if (localApprovalReport.confirmedGroupCount > 0) approvalWarnings.push(`승인번호 중복 후보 ${localApprovalReport.confirmedGroupCount}건`);
     if (localApprovalReport.reviewGroupCount > 0) approvalWarnings.push(`승인번호 확인 필요 ${localApprovalReport.reviewGroupCount}건`);
     if (localApprovalReport.missingApprovalCount > 0) approvalWarnings.push(`승인번호 없음 ${localApprovalReport.missingApprovalCount}건`);
-    const approvalWarningText = approvalWarnings.length > 0 ? `\n\n확인: ${approvalWarnings.join(' / ')}` : '';
-    if (!window.confirm(`${receipts.length}건 / ${totalAmount.toLocaleString()}원을 Drive로 업로드합니다.${approvalWarningText}\n진행할까요?`)) return;
+    const approvalWarningText = approvalWarnings.length > 0 ? `\n확인: ${approvalWarnings.join(' / ')}` : '';
+    const ok = await showConfirm({
+      title: 'Drive 업로드',
+      message: `${receipts.length}건 / ${totalAmount.toLocaleString()}원을 Drive로 업로드합니다.${approvalWarningText}`,
+      confirmLabel: '업로드',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setDriveUploading(true);
     setUploadProgress(0);
@@ -189,13 +196,13 @@ export default function useDriveUpload({
       if (xlsxData?.targetPath) parts.push(`대상 ${xlsxData.targetPath}`);
       if (imageResult.failed.length > 0) parts.push(`이미지 실패 ${imageResult.failed.length}장 — 자료관리에서 재전송 가능`);
       showToast(`${imageResult.failed.length ? '⚠️' : '✅'} ${parts.join(' · ')}`);
-      if (!imageResult.failed.length) setUploadDone(true);
+      if (!imageResult.failed.length) setUploadSendCount(prev => prev + 1);
     } catch (error) {
       showToast(`❌ ${error.message}`);
     }
     setLastUploadFailures(sessionFailures);
     setDriveUploading(false);
-  }, [canonicalNames, getImageUrl, localApprovalReport, receipts, selectedTeam, setLastDuplicateReport, setUploadDone, showToast, tripEndDate, tripStartDate]);
+  }, [canonicalNames, getImageUrl, localApprovalReport, receipts, selectedTeam, setLastDuplicateReport, setUploadSendCount, showConfirm, showToast, tripEndDate, tripStartDate]);
 
   const retryFailedUploads = useCallback(async () => {
     if (lastUploadFailures.length === 0 || driveUploading) return;

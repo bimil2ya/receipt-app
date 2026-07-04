@@ -18,6 +18,8 @@ import useDriveRestore from './hooks/useDriveRestore';
 import useAppUiState from './hooks/useAppUiState';
 import useToastMessage from './hooks/useToastMessage';
 import useStoredTeamNames from './hooks/useStoredTeamNames';
+import useConfirmModal from './hooks/useConfirmModal';
+import ConfirmModal from './components/layout/ConfirmModal';
 
 // Components
 import LaunchSplash from './components/layout/LaunchSplash';
@@ -68,6 +70,8 @@ export default function App() {
 
   // ── 공지·알림
   const { message: toastMsg, showToast } = useToastMessage();
+  const { message: alertMsg, showToast: showAlertToast } = useToastMessage(5000);
+  const { confirmModalProps, showConfirm } = useConfirmModal();
   const { saveToJSON, loadFromFile } = useReceiptBackup({ receipts, getImageUrl, saveReceipts, showToast });
 
   // ── 헤더 상태 아이콘 말풍선 (저장/동기화 아이콘 탭 시 설명 노출)
@@ -130,16 +134,15 @@ export default function App() {
   const summaryTabRef = useRef(null);
   const backupFileRef = useRef(null);
 
-  // ── 출장 마감 완료 상태 (출장 단위 sessionStorage 복원)
+  // ── 출장 마감 전송 횟수 (출장 단위 localStorage 영속)
   const {
-    kakaoDone,
-    setKakaoDone,
-    uploadDone,
-    setUploadDone,
+    kakaoSendCount,
+    setKakaoSendCount,
+    uploadSendCount,
+    setUploadSendCount,
     lastDuplicateReport,
     setLastDuplicateReport,
-    closingPayloadSignature,
-  } = useTripClosingState({ canonicalNames, selectedTeam, tripStartDate, tripEndDate, receipts });
+  } = useTripClosingState({ canonicalNames, selectedTeam, tripStartDate });
   // 카톡 캡처 중 — Android GPU가 off-screen 엘리먼트를 제외하는 문제 방지용
   const [summaryCapturing, setSummaryCapturing] = useState(false);
 
@@ -155,6 +158,21 @@ export default function App() {
       setPinnedNewIds(prev => [...prev, ...added.map(r => r.id)]);
       await saveReceipts(added);
       showToast(`${added.length}건 추가 완료`);
+
+      // 출장기간 밖 날짜 체크 — 해당 업로드 배치 내에서만 판단
+      const outOfRangeCount = added.filter(r => {
+        if (!r.date || !tripStartDate) return false;
+        const d = r.date.slice(0, 10);
+        const s = tripStartDate.slice(0, 10);
+        const e = (tripEndDate || tripStartDate).slice(0, 10);
+        return d < s || d > e;
+      }).length;
+      if (outOfRangeCount > 0) {
+        const msg = outOfRangeCount === 1
+          ? '날짜가 출장기간과 맞지 않습니다.\n필요하면 ✏️ 연필을 눌러 수정해주세요.'
+          : `날짜 불일치 ${outOfRangeCount}건.\n필요하면 ✏️ 연필을 눌러 수정해주세요.`;
+        showAlertToast(msg);
+      }
     },
     onUploadError: ({ failedFiles, duplicateCount }) => {
       const parts = [];
@@ -173,7 +191,7 @@ export default function App() {
     setManualReceipt,
     manualStoreRef,
     handleManualAdd,
-  } = useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast });
+  } = useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast, onClose: closeManualModal });
   const {
     driveUploading,
     uploadProgress,
@@ -189,8 +207,9 @@ export default function App() {
     tripEndDate,
     localApprovalReport,
     setLastDuplicateReport,
-    setUploadDone,
+    setUploadSendCount,
     showToast,
+    showConfirm,
   });
   const { restoreProgress, restoreFromDrive } = useDriveRestore({
     canonicalNames,
@@ -198,6 +217,7 @@ export default function App() {
     driveUploading,
     saveReceipts,
     showToast,
+    showConfirm,
   });
   const { saveBudget, startNewWeek } = useBudgetControls({
     tempBudget,
@@ -268,12 +288,14 @@ export default function App() {
   const handleStartNewTrip = useCallback(async () => {
     const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
     if (budgetVal <= 0) { showToast('예산을 먼저 입력해 주세요.'); return; }
-    if (!window.confirm(`새 출장을 시작합니다.\n시작일: ${tripStartDate}\n예산: ${budgetVal.toLocaleString()}원\n\n현재 영수증을 모두 삭제하고 진행할까요?`)) return;
     await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
+    setKakaoSendCount(0);
+    setUploadSendCount(0);
+    setLastDuplicateReport(null);
     closeBudgetModal();
-  }, [closeBudgetModal, showToast, startNewWeek, tempBudget, tripStartDate]);
+  }, [closeBudgetModal, setKakaoSendCount, setLastDuplicateReport, setUploadSendCount, showToast, startNewWeek, tempBudget, tripStartDate]);
 
-  const handleSetKakaoDone = useCallback(() => setKakaoDone(true), [setKakaoDone]);
+  const handleSetKakaoDone = useCallback(() => setKakaoSendCount(prev => prev + 1), [setKakaoSendCount]);
   const handleSummaryCaptureStart = useCallback(() => setSummaryCapturing(true), []);
   const handleSummaryCaptureEnd = useCallback(() => setSummaryCapturing(false), []);
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
@@ -287,6 +309,7 @@ export default function App() {
         onApply={applyUpdate}
       />
       <Toast message={toastMsg} />
+      <Toast message={alertMsg} bottomClass="bottom-40" variant="warning" />
 
       <AppHeader
         names={names}
@@ -320,8 +343,8 @@ export default function App() {
         onCamera={() => document.getElementById('cam-i').click()}
         onUpload={() => document.getElementById('file-i').click()}
         onManual={openManualModal}
-        kakaoDone={kakaoDone}
-        uploadDone={uploadDone}
+        kakaoSendCount={kakaoSendCount}
+        uploadSendCount={uploadSendCount}
         driveUploading={driveUploading}
         uploadProgress={uploadProgress}
         lastUploadFailures={lastUploadFailures}
@@ -351,6 +374,7 @@ export default function App() {
         sortDir={sortDir}
         onSort={handleSort}
         sortedReceipts={sortedReceipts}
+        pinnedNewIds={pinnedNewIds}
         detailId={detailId}
         onEdit={handleEdit}
         onViewImage={handleViewImage}
@@ -362,7 +386,7 @@ export default function App() {
         summaryTabRef={summaryTabRef}
         names={names}
         tripStartDate={tripStartDate}
-        closingPayloadSignature={closingPayloadSignature}
+        tripEndDate={tripEndDate}
         summaryCapturing={summaryCapturing}
         onShareComplete={handleSetKakaoDone}
         onCaptureStart={handleSummaryCaptureStart}
@@ -418,14 +442,13 @@ export default function App() {
         tripEndDate={tripEndDate}
         calculatedBudget={calculatedBudget}
         tempBudget={tempBudget}
-        showResetDanger={showResetDanger}
         onCloseBudgetModal={closeBudgetModal}
         onTripRangeChange={handleTripRangeChange}
         onTempBudgetChange={setTempBudget}
         onSaveBudget={saveBudget}
-        onToggleResetDanger={toggleResetDanger}
         onStartNewTrip={handleStartNewTrip}
       />
+      <ConfirmModal {...confirmModalProps} />
     </div>
   );
 }

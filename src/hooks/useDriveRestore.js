@@ -12,6 +12,7 @@ export default function useDriveRestore({
   driveUploading,
   saveReceipts,
   showToast,
+  showConfirm,
 }) {
   const [restoreProgress, setRestoreProgress] = useState(null);
   const restoring = restoreProgress !== null;
@@ -26,11 +27,16 @@ export default function useDriveRestore({
     const baseDate = tripStartDate || getToday();
     const yearMonth = buildRestoreYearMonth(baseDate);
 
-    if (!window.confirm(
-      `Drive의 "${yearMonth} / ${surveyorName}" 폴더에서 영수증 이미지를 가져와 OCR로 재분석합니다.\n\n` +
-      `· 영수증 1장당 약 5초가 걸리고 OCR 비용이 발생합니다.\n` +
-      `· 기존 영수증은 유지되며, 복원된 영수증이 추가됩니다.\n\n계속할까요?`
-    )) return;
+    const ok = await showConfirm({
+      title: 'Drive 복원',
+      message:
+        `Drive의 "${yearMonth} / ${surveyorName}" 폴더에서\n영수증 이미지를 가져와 OCR로 재분석합니다.\n\n` +
+        `· 영수증 1장당 약 5초, OCR 비용이 발생합니다.\n` +
+        `· 기존 영수증은 유지되고 복원본이 추가됩니다.`,
+      confirmLabel: '복원 시작',
+      variant: 'primary',
+    });
+    if (!ok) return;
 
     setRestoreProgress({ stage: 'list', current: 0, total: 0 });
     const authHeaders = { 'Content-Type': 'application/json' };

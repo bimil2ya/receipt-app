@@ -11,15 +11,26 @@ export default function BudgetPanel({
   showDetails,
   onToggleDetails,
 }) {
+  const isOver = remainingBudget < 0;
+  const overAmount = Math.abs(remainingBudget);
+
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-3.5 shadow-md">
+    <div className={`border rounded-2xl p-3.5 shadow-md ${isOver ? 'bg-red-950/40 border-red-700/60' : 'bg-slate-800 border-slate-700'}`}>
       <div className="flex justify-between items-end mb-1.5 gap-2">
         <div className="flex flex-col min-w-0">
-          <span className="text-base text-slate-200 font-black whitespace-nowrap">남은 예산</span>
+          <span className={`text-base font-black whitespace-nowrap ${isOver ? 'text-red-300' : 'text-slate-200'}`}>
+            {isOver ? '⚠️ 예산 초과' : '남은 예산'}
+          </span>
           <span className="text-xs text-blue-300 font-bold whitespace-nowrap">유류비·의료비등 제외</span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <span className="text-xl font-black whitespace-nowrap">{formatCurrency(remainingBudget)}</span>
+          {isOver ? (
+            <span className="text-xl font-black whitespace-nowrap text-red-400">
+              -{formatCurrency(overAmount)}
+            </span>
+          ) : (
+            <span className="text-xl font-black whitespace-nowrap">{formatCurrency(remainingBudget)}</span>
+          )}
           <span className="text-xs text-slate-400 whitespace-nowrap">/ {formatCurrency(weeklyBudget)}</span>
         </div>
       </div>
@@ -30,7 +41,9 @@ export default function BudgetPanel({
         </div>
         <div className="flex flex-col items-end">
           <span className="text-sm font-black text-slate-300">사용액</span>
-          <span className="text-base font-black text-blue-300">{formatCurrency(budgetTotal)}</span>
+          <span className={`text-base font-black ${isOver ? 'text-red-300' : 'text-blue-300'}`}>
+            {formatCurrency(budgetTotal)}
+          </span>
         </div>
         <button
           type="button"
@@ -46,6 +59,11 @@ export default function BudgetPanel({
           />
         </button>
       </div>
+      {isOver && (
+        <p className="mt-2 text-xs text-red-300 font-bold text-center">
+          예산을 {formatCurrency(overAmount)} 초과했습니다 ({Math.round(budgetRatio)}%)
+        </p>
+      )}
       {showDetails && (
         <BudgetStats
           weeklyBudget={weeklyBudget}

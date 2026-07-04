@@ -16,8 +16,8 @@ export default function ReceiptWorkspace({
   onCamera,
   onUpload,
   onManual,
-  kakaoDone,
-  uploadDone,
+  kakaoSendCount,
+  uploadSendCount,
   driveUploading,
   uploadProgress,
   lastUploadFailures,
@@ -47,7 +47,10 @@ export default function ReceiptWorkspace({
   sortDir,
   onSort,
   sortedReceipts,
+  pinnedNewIds,
   detailId,
+  tripStartDate,
+  tripEndDate,
   onEdit,
   onViewImage,
   onDelete,
@@ -69,8 +72,8 @@ export default function ReceiptWorkspace({
           />
         ) : (
           <TripClosePanel
-            kakaoDone={kakaoDone}
-            uploadDone={uploadDone}
+            kakaoSendCount={kakaoSendCount}
+            uploadSendCount={uploadSendCount}
             driveUploading={driveUploading}
             uploadProgress={uploadProgress}
             lastUploadFailures={lastUploadFailures}
@@ -116,6 +119,9 @@ export default function ReceiptWorkspace({
             receipt={receipt}
             rowIndex={index}
             isSelected={detailId === receipt.id}
+            isNew={pinnedNewIds?.includes(receipt.id)}
+            tripStartDate={tripStartDate}
+            tripEndDate={tripEndDate}
             onEdit={onEdit}
             onViewImage={onViewImage}
             onDelete={onDelete}

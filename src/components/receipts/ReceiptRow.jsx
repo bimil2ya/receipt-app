@@ -10,22 +10,40 @@ const CAT_STYLE = {
   '기타': { bg: '#1e293b', text: '#94a3b8', border: '#334155' },
 };
 
-function ReceiptRow({ receipt, isSelected, onEdit, onViewImage, onDelete, rowIndex = 0 }) {
+function isDateOutOfRange(date, tripStartDate, tripEndDate) {
+  if (!date || !tripStartDate) return false;
+  const d = date.slice(0, 10);
+  const s = tripStartDate.slice(0, 10);
+  const e = (tripEndDate || tripStartDate).slice(0, 10);
+  return d < s || d > e;
+}
+
+function ReceiptRow({ receipt, isSelected, isNew, onEdit, onViewImage, onDelete, rowIndex = 0, tripStartDate, tripEndDate }) {
   const category = receipt.category || '기타';
   const cs = CAT_STYLE[category] || CAT_STYLE['기타'];
   const zebra = rowIndex % 2 === 0 ? 'bg-white/[0.03]' : 'bg-white/[0.12]';
   const approvalNum = String(receipt.approvalNum || '').trim();
   const approvalLabel = approvalNum ? `승인 ${approvalNum.slice(-4)}` : '승인번호 없음';
+  const outOfRange = isDateOutOfRange(receipt.date, tripStartDate, tripEndDate);
 
   return (
     <div
       id={`receipt-row-${receipt.id}`}
-      className={`active:bg-slate-700/30 select-none transition-colors px-4 py-2 ${isSelected ? 'bg-blue-500/10' : zebra}`}
+      className={`active:bg-slate-700/30 select-none transition-colors px-4 py-2 ${
+        isNew ? 'bg-emerald-500/10 border-l-4 border-emerald-400' :
+        isSelected ? 'bg-blue-500/10' : zebra
+      }`}
     >
       <div className="grid grid-cols-[3.5rem_1fr_auto] gap-x-3 gap-y-0.5 min-w-0">
-        {/* 날짜 (MM/DD 형식) */}
-        <span className="text-slate-400 text-sm whitespace-nowrap shrink-0 text-center font-black leading-none pt-0.5">
-          {formatDateSlash(receipt.date)}
+        {/* 날짜 — 출장기간 벗어나면 빨간색 + 연도 2자리 포함 + "기간외" 라벨 */}
+        <span className={`whitespace-nowrap shrink-0 text-center font-black leading-none pt-0.5 ${outOfRange ? 'text-red-400 text-[10px]' : 'text-slate-400 text-sm'}`}>
+          {outOfRange
+            ? receipt.date
+                ? `${String(receipt.date).slice(2, 4)}/${String(receipt.date).slice(5, 7)}/${String(receipt.date).slice(8, 10)}`
+                : ''
+            : formatDateSlash(receipt.date)
+          }
+          {outOfRange && <span className="block text-[9px] font-bold leading-tight mt-0.5">기간외</span>}
         </span>
 
         {/* 사용처 (공간 확장) */}

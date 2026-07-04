@@ -21,8 +21,8 @@ export default function AppContent({
   onCamera,
   onUpload,
   onManual,
-  kakaoDone,
-  uploadDone,
+  kakaoSendCount,
+  uploadSendCount,
   driveUploading,
   uploadProgress,
   lastUploadFailures,
@@ -52,6 +52,7 @@ export default function AppContent({
   sortDir,
   onSort,
   sortedReceipts,
+  pinnedNewIds,
   detailId,
   onEdit,
   onViewImage,
@@ -63,7 +64,7 @@ export default function AppContent({
   summaryTabRef,
   names,
   tripStartDate,
-  closingPayloadSignature,
+  tripEndDate,
   summaryCapturing,
   onShareComplete,
   onCaptureStart,
@@ -95,8 +96,8 @@ export default function AppContent({
             onCamera={onCamera}
             onUpload={onUpload}
             onManual={onManual}
-            kakaoDone={kakaoDone}
-            uploadDone={uploadDone}
+            kakaoSendCount={kakaoSendCount}
+            uploadSendCount={uploadSendCount}
             driveUploading={driveUploading}
             uploadProgress={uploadProgress}
             lastUploadFailures={lastUploadFailures}
@@ -126,7 +127,10 @@ export default function AppContent({
             sortDir={sortDir}
             onSort={onSort}
             sortedReceipts={sortedReceipts}
+            pinnedNewIds={pinnedNewIds}
             detailId={detailId}
+            tripStartDate={tripStartDate}
+            tripEndDate={tripEndDate}
             onEdit={onEdit}
             onViewImage={onViewImage}
             onDelete={onDelete}
@@ -150,7 +154,6 @@ export default function AppContent({
           'fixed left-[-200vw] top-0 w-screen pointer-events-none'
         }>
           <SummaryTab
-            key={closingPayloadSignature}
             ref={summaryTabRef}
             receipts={receipts}
             names={names}

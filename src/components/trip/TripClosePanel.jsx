@@ -1,8 +1,23 @@
 import { CheckCircle2, CloudUpload, FolderOpen, Loader2, Save, Send } from 'lucide-react';
 
+function SendCountBadge({ count }) {
+  if (count === 0) {
+    return (
+      <span className="motion-safe:animate-pulse text-amber-300 text-[11px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 border border-amber-400/70 shadow-[0_0_8px_rgba(251,191,36,0.4)]">
+        미전송
+      </span>
+    );
+  }
+  return (
+    <span className="text-blue-400 text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/40">
+      {count}회 전송
+    </span>
+  );
+}
+
 export default function TripClosePanel({
-  kakaoDone,
-  uploadDone,
+  kakaoSendCount,
+  uploadSendCount,
   driveUploading,
   uploadProgress,
   lastUploadFailures,
@@ -13,11 +28,14 @@ export default function TripClosePanel({
   onSaveBackup,
   onLoadBackup,
 }) {
+  const kakaoDone = kakaoSendCount > 0;
+  const uploadDone = uploadSendCount > 0;
+
   return (
     <div className="pt-1 space-y-1.5">
       {kakaoDone && uploadDone && (
         <div className="w-full bg-emerald-600/20 border border-emerald-500/50 rounded-2xl py-2 text-center">
-          <p className="text-emerald-300 font-black text-sm">출장 마감 완료</p>
+          <p className="text-emerald-300 font-black text-sm">🎉 출장 마감 완료</p>
         </div>
       )}
 
@@ -36,10 +54,7 @@ export default function TripClosePanel({
           <p className={`font-black text-sm leading-tight ${kakaoDone ? 'text-blue-300' : 'text-yellow-300'}`}>담당자에게 보내기</p>
           <p className={`text-[11px] font-bold mt-0.5 ${kakaoDone ? 'text-blue-200/60' : 'text-yellow-200/60'}`}>집계내역 전송</p>
         </div>
-        {kakaoDone
-          ? <span className="text-blue-400 text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/40">완료</span>
-          : <span className="motion-safe:animate-pulse text-amber-300 text-[11px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 border border-amber-400/70 shadow-[0_0_8px_rgba(251,191,36,0.4)]">미완료</span>
-        }
+        <SendCountBadge count={kakaoSendCount} />
       </button>
 
       <div className="flex justify-center text-slate-600 text-lg leading-none">↓</div>
@@ -66,10 +81,7 @@ export default function TripClosePanel({
           </p>
           <p className={`text-[11px] font-bold mt-0.5 ${uploadDone ? 'text-blue-200/60' : kakaoDone ? 'text-yellow-200/60' : 'text-slate-400'}`}>영수증 저장</p>
         </div>
-        {!driveUploading && (uploadDone
-          ? <span className="text-blue-400 text-[11px] font-black px-2 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/40">완료</span>
-          : <span className="motion-safe:animate-pulse text-amber-300 text-[11px] font-black px-2 py-0.5 rounded-full bg-amber-400/25 border border-amber-400/70 shadow-[0_0_8px_rgba(251,191,36,0.4)]">미완료</span>
-        )}
+        {!driveUploading && <SendCountBadge count={uploadSendCount} />}
       </button>
 
       {duplicateReportSlot}
