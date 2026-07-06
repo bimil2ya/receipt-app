@@ -29,6 +29,8 @@ export default function ReceiptWorkspace({
   onSaveBackup,
   onLoadBackup,
   backupFileRef,
+  cameraRef,
+  receiptFileRef,
   onBackupFile,
   onReceiptFiles,
   onCameraFiles,
@@ -87,6 +89,8 @@ export default function ReceiptWorkspace({
         )}
         <ReceiptHiddenInputs
           backupFileRef={backupFileRef}
+          cameraRef={cameraRef}
+          receiptFileRef={receiptFileRef}
           onBackupFile={onBackupFile}
           onReceiptFiles={onReceiptFiles}
           onCameraFiles={onCameraFiles}

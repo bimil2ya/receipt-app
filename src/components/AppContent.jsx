@@ -34,6 +34,8 @@ export default function AppContent({
   onSaveBackup,
   onLoadBackup,
   backupFileRef,
+  cameraRef,
+  receiptFileRef,
   onBackupFile,
   onReceiptFiles,
   onCameraFiles,
@@ -109,6 +111,8 @@ export default function AppContent({
             onSaveBackup={onSaveBackup}
             onLoadBackup={onLoadBackup}
             backupFileRef={backupFileRef}
+            cameraRef={cameraRef}
+            receiptFileRef={receiptFileRef}
             onBackupFile={onBackupFile}
             onReceiptFiles={onReceiptFiles}
             onCameraFiles={onCameraFiles}

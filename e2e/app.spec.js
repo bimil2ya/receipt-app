@@ -35,8 +35,8 @@ async function waitForAppReady(page) {
 test('앱이 정상적으로 로드된다', async ({ page }) => {
   await page.goto('/');
   await waitForAppReady(page);
-  await expect(page.getByText('업로드')).toBeVisible();
-  await expect(page.getByText('촬영')).toBeVisible();
+  await expect(page.getByRole('button', { name: '업로드' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '촬영' })).toBeVisible();
 });
 
 // ---------- 테스트 2: 업로드 → 목록 추가 ----------

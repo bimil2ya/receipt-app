@@ -131,6 +131,8 @@ export default function App() {
   // ── SummaryTab ref — 출장마감 패널에서 카톡 공유를 직접 트리거하기 위해
   const summaryTabRef = useRef(null);
   const backupFileRef = useRef(null);
+  const cameraRef = useRef(null);
+  const receiptFileRef = useRef(null);
 
   // ── 출장 마감 전송 횟수 (출장 단위 localStorage 영속)
   const {
@@ -338,8 +340,8 @@ export default function App() {
         onBudget={handleBudgetOpen}
         onInput={() => setListPanel('input')}
         onManagement={() => setListPanel('management')}
-        onCamera={() => document.getElementById('cam-i').click()}
-        onUpload={() => document.getElementById('file-i').click()}
+        onCamera={() => cameraRef.current?.click()}
+        onUpload={() => receiptFileRef.current?.click()}
         onManual={openManualModal}
         kakaoSendCount={kakaoSendCount}
         uploadSendCount={uploadSendCount}
@@ -354,6 +356,8 @@ export default function App() {
         onSaveBackup={saveToJSON}
         onLoadBackup={() => backupFileRef.current?.click()}
         backupFileRef={backupFileRef}
+        cameraRef={cameraRef}
+        receiptFileRef={receiptFileRef}
         onBackupFile={loadFromFile}
         onReceiptFiles={(files) => handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate })}
         onCameraFiles={(files) => handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate })}
