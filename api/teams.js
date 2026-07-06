@@ -72,7 +72,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const ADMIN_PIN = process.env.ADMIN_PIN || process.env.VITE_ADMIN_PIN;
+    const ADMIN_PIN = process.env.ADMIN_PIN;
     const providedPin = String(req.headers['x-admin-pin'] || '').trim();
     if (!ADMIN_PIN) {
       return res.status(503).json({ success: false, error: '관리자 인증이 설정되지 않았습니다.' });
