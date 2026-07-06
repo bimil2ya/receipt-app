@@ -37,7 +37,7 @@ export default function AppHeader({
             <button
               type="button"
               onClick={() => onStatusPopoverChange(statusPopover === 'save' ? null : 'save')}
-              className="flex items-center gap-0.5 shrink-0 active:scale-95"
+              className="flex items-center gap-0.5 shrink-0 active:scale-95 p-2 -m-2"
               aria-label="저장 상태"
             >
               {saveStatus === 'saving' ? (
@@ -55,7 +55,7 @@ export default function AppHeader({
               <button
                 type="button"
                 onClick={() => onStatusPopoverChange(statusPopover === 'sync' ? null : 'sync')}
-                className="flex items-center gap-0.5 shrink-0 active:scale-95"
+                className="flex items-center gap-0.5 shrink-0 active:scale-95 p-2 -m-2"
                 aria-label="동기화 상태"
               >
                 {syncStatus === 'syncing' ? (

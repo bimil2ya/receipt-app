@@ -113,20 +113,33 @@ export default function ReceiptWorkspace({
           sortDir={sortDir}
           onSort={onSort}
         />
-        {sortedReceipts.map((receipt, index) => (
-          <ReceiptRow
-            key={receipt.id}
-            receipt={receipt}
-            rowIndex={index}
-            isSelected={detailId === receipt.id}
-            isNew={pinnedNewIds?.includes(receipt.id)}
-            tripStartDate={tripStartDate}
-            tripEndDate={tripEndDate}
-            onEdit={onEdit}
-            onViewImage={onViewImage}
-            onDelete={onDelete}
-          />
-        ))}
+        {sortedReceipts.length === 0 ? (
+          <div className="py-12 flex flex-col items-center gap-2 text-center">
+            {totalCount === 0 ? (
+              <>
+                <p className="text-slate-300 font-bold text-sm">아직 영수증이 없습니다</p>
+                <p className="text-slate-500 text-xs">촬영 또는 업로드로 첫 영수증을 추가해 보세요</p>
+              </>
+            ) : (
+              <p className="text-slate-400 font-bold text-sm">검색 결과가 없습니다</p>
+            )}
+          </div>
+        ) : (
+          sortedReceipts.map((receipt, index) => (
+            <ReceiptRow
+              key={receipt.id}
+              receipt={receipt}
+              rowIndex={index}
+              isSelected={detailId === receipt.id}
+              isNew={pinnedNewIds?.includes(receipt.id)}
+              tripStartDate={tripStartDate}
+              tripEndDate={tripEndDate}
+              onEdit={onEdit}
+              onViewImage={onViewImage}
+              onDelete={onDelete}
+            />
+          ))
+        )}
       </div>
     </div>
   );

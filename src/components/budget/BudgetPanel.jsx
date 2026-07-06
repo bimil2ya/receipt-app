@@ -48,7 +48,7 @@ export default function BudgetPanel({
         <button
           type="button"
           onClick={onToggleDetails}
-          className="ml-1 mt-0.5 rounded-full bg-slate-950/80 border border-slate-600 px-2 py-1 shadow-lg"
+          className="ml-1 rounded-full bg-slate-950/80 border border-slate-600 p-3 shadow-lg"
           aria-label={showDetails ? '상세 예산 접기' : '상세 예산 펼치기'}
         >
           <span className="sr-only">{showDetails ? '접기' : '펼치기'}</span>
