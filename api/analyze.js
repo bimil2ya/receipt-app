@@ -1,10 +1,14 @@
-export const config = { runtime: 'edge' };
-
 import { ALLOWED_ORIGINS } from './_cors.js';
+import {
+  buildTripDateContext,
+  hasMissingApprovalNum,
+  normalizeApprovalNum,
+  repairReceiptDates,
+} from './_analyzeUtils.js';
 
-// 모듈 메모리 기반 분당 호출 제한 — Edge 런타임은 워커 인스턴스마다 메모리가 분리되므로
-// 인스턴스 단위로만 적용됨(완전한 글로벌 제한은 외부 store 필요). 대량 자동화 호출의 단일
-// 인스턴스 폭주만 누그러뜨리는 1차 방어선으로 동작.
+// 모듈 메모리 기반 분당 호출 제한 — Fluid Compute는 인스턴스를 재사용하므로
+// 단일 인스턴스 폭주를 누그러뜨리는 1차 방어선으로 동작.
+// 완전한 글로벌 제한이 필요하면 외부 store(KV 등) 사용 필요.
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_PER_WINDOW = 30;
 const rateBuckets = new Map(); // key: origin → { count, resetAt }
@@ -21,71 +25,6 @@ function rateLimitCheck(key) {
   }
   bucket.count += 1;
   return { ok: true };
-}
-
-function normalizeApprovalNum(value) {
-  return String(value ?? '')
-    .replace(/[Oo]/g, '0')
-    .replace(/[Iil|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Zz]/g, '2')
-    .replace(/[^0-9]/g, '');
-}
-
-function hasMissingApprovalNum(receipts) {
-  return Array.isArray(receipts) && receipts.some(receipt => !normalizeApprovalNum(receipt?.approvalNum));
-}
-
-function normalizeIsoDate(value) {
-  const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
-}
-
-function buildTripDateContext({ reportDate, tripStartDate, tripEndDate }) {
-  const report = normalizeIsoDate(reportDate);
-  const start = normalizeIsoDate(tripStartDate) || report;
-  const end = normalizeIsoDate(tripEndDate) || start;
-  if (!start && !end && !report) return '';
-
-  const tripYear = (start || end || report || '').slice(0, 4);
-
-  return `
-[연도 기준 - CRITICAL]
-출장 연도: ${tripYear}년
-
-규칙 (반드시 따를 것):
-1. 영수증에서 날짜를 그대로 읽어라. 어떤 이유로도 날짜를 추정하거나 수정하지 마라.
-2. 읽은 날짜의 연도가 ${tripYear}년이 아니면 연도만 ${tripYear}년으로 교체하라. 월·일은 건드리지 마라.
-3. 날짜를 전혀 읽을 수 없으면 date 필드를 빈 문자열 ""로 반환하라.
-`;
-}
-
-// AI 응답 날짜를 서버에서 2차 검증
-// - 연도가 출장 연도와 다르면 연도만 교정
-// - 날짜가 비어 있으면 출장 시작일로 채움
-// - 월/일이 출장 기간 밖이어도 절대 수정하지 않음 (예전 영수증 나중에 올리는 경우 있음)
-function repairReceiptDates(receipts, { tripStartDate, tripEndDate, reportDate }) {
-  const start = normalizeIsoDate(tripStartDate) || normalizeIsoDate(reportDate);
-  if (!start) return receipts;
-
-  const tripYear = start.slice(0, 4);
-
-  return receipts.map(r => {
-    const raw = String(r.date || '').trim();
-
-    // 날짜가 비어 있으면 출장 시작일로 채움
-    if (!raw) return { ...r, date: start };
-
-    // YYYY-MM-DD 형식이 아니면 건드리지 않음
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return r;
-
-    // 연도가 맞으면 월/일 무관하게 그대로 사용
-    if (raw.slice(0, 4) === tripYear) return r;
-
-    // 연도만 교정 (월/일은 건드리지 않음)
-    return { ...r, date: tripYear + raw.slice(4) };
-  });
 }
 
 export default async function handler(req) {
