@@ -21,10 +21,11 @@ export function getOrCreateDeviceId() {
     const stored = localStorage.getItem('device_num');
     if (stored && stored !== 'system') return stored;
     const id = crypto.randomUUID();
-    localStorage.setItem('device_num', id);
+    try { localStorage.setItem('device_num', id); } catch { /* 저장 불가 환경 — 세션 내에서만 유효 */ }
     return id;
   } catch {
-    return 'system';
+    // localStorage 자체가 막힌 환경에서도 'system'이 아닌 세션 고유 ID를 반환한다.
+    return crypto.randomUUID();
   }
 }
 

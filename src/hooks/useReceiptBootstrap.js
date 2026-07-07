@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { supabase } from '../utils/supabase';
 import { formatFailureDetail } from '../utils/errorCopy';
 import { base64ToBlob, getOrCreateDeviceId } from '../utils/storage';
-import { STORE_IMAGES, STORE_RECEIPTS } from '../utils/receiptDb';
+import { STORE_IMAGES, STORE_RECEIPTS, STORE_SYNC_QUEUE } from '../utils/receiptDb';
 
 export default function useReceiptBootstrap({
   dbOpen,
@@ -24,8 +24,9 @@ export default function useReceiptBootstrap({
           req.onerror = () => res([]);
         });
 
-        // 기존에 userId='system'으로 저장된 영수증을 현재 UUID로 일괄 갱신한다.
+        // 기존에 userId='system'으로 저장된 데이터를 현재 UUID로 일괄 갱신한다.
         const deviceId = getOrCreateDeviceId();
+
         const systemReceipts = allReceipts.filter(r => !r.userId || r.userId === 'system');
         if (systemReceipts.length > 0) {
           await new Promise((resolve, reject) => {
@@ -34,6 +35,32 @@ export default function useReceiptBootstrap({
             systemReceipts.forEach(r => store.put({ ...r, userId: deviceId }));
             migrateTx.oncomplete = resolve;
             migrateTx.onerror = () => reject(migrateTx.error);
+          });
+        }
+
+        // sync_queue의 upsert item 안에도 userId='system'이 남아 있을 수 있다.
+        const allQueueItems = await new Promise(res => {
+          const qtx = db.transaction(STORE_SYNC_QUEUE, 'readonly');
+          const req = qtx.objectStore(STORE_SYNC_QUEUE).getAll();
+          req.onsuccess = () => res(req.result || []);
+          req.onerror = () => res([]);
+        });
+        const queueToMigrate = allQueueItems.filter(
+          op => op.type === 'upsert' && Array.isArray(op.items) &&
+            op.items.some(r => !r.userId || r.userId === 'system')
+        );
+        if (queueToMigrate.length > 0) {
+          await new Promise((resolve, reject) => {
+            const qmTx = db.transaction(STORE_SYNC_QUEUE, 'readwrite');
+            const store = qmTx.objectStore(STORE_SYNC_QUEUE);
+            queueToMigrate.forEach(op => store.put({
+              ...op,
+              items: op.items.map(r =>
+                (!r.userId || r.userId === 'system') ? { ...r, userId: deviceId } : r
+              ),
+            }));
+            qmTx.oncomplete = resolve;
+            qmTx.onerror = () => reject(qmTx.error);
           });
         }
 
