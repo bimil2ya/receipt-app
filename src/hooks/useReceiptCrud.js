@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { supabase } from '../utils/supabase';
 import { formatFailureDetail } from '../utils/errorCopy';
-import { base64ToBlob, readStorageItem } from '../utils/storage';
+import { base64ToBlob, getOrCreateDeviceId } from '../utils/storage';
 import {
   STORE_CARDS,
   STORE_HISTORY,
@@ -27,7 +27,7 @@ export default function useReceiptCrud({
     const db = await dbOpen();
     const items = Array.isArray(data) ? data : [data];
     const now = new Date().toISOString();
-    const currentUserId = readStorageItem('device_num', 'system');
+    const currentUserId = getOrCreateDeviceId();
     onSaveStatusChange('saving');
 
     const existingMap = await new Promise((resolve, reject) => {
@@ -248,7 +248,7 @@ export default function useReceiptCrud({
         // 원격(Supabase) 데이터도 삭제 — 그러지 않으면 다음 부트스트랩에서 다시 내려와
         // '새 출장 시작'의 멘탈 모델(완전 초기화)과 어긋남
         if (supabase) {
-          const deviceId = readStorageItem('device_num', 'system');
+          const deviceId = getOrCreateDeviceId();
           try {
             const { error } = await supabase.from('receipts').delete().eq('userId', deviceId);
             if (error) throw error;

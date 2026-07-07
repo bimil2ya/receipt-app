@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { supabase } from '../utils/supabase';
 import { formatFailureDetail } from '../utils/errorCopy';
-import { base64ToBlob, readStorageItem } from '../utils/storage';
+import { base64ToBlob, getOrCreateDeviceId } from '../utils/storage';
 import { STORE_IMAGES, STORE_RECEIPTS } from '../utils/receiptDb';
 
 export default function useReceiptBootstrap({
@@ -27,7 +27,7 @@ export default function useReceiptBootstrap({
         if (supabase) {
           onSyncStatusChange?.('syncing');
           try {
-            const deviceId = readStorageItem('device_num', 'system');
+            const deviceId = getOrCreateDeviceId();
             const { data, error } = await supabase.from('receipts').select('*').eq('userId', deviceId);
             if (!error && data && data.length > 0) {
               const localById = new Map(allReceipts.map(r => [r.id, r]));

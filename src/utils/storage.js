@@ -14,6 +14,20 @@ export function writeStorageItem(key, value) {
   }
 }
 
+// 기기마다 고유한 Supabase userId를 보장한다.
+// 값이 없거나 'system'(과거 fallback)이면 UUID를 새로 발급해 저장한다.
+export function getOrCreateDeviceId() {
+  try {
+    const stored = localStorage.getItem('device_num');
+    if (stored && stored !== 'system') return stored;
+    const id = crypto.randomUUID();
+    localStorage.setItem('device_num', id);
+    return id;
+  } catch {
+    return 'system';
+  }
+}
+
 export function base64ToBlob(dataUrl) {
   const [header, b64] = dataUrl.split(',');
   const mime = header.match(/:(.*?);/)[1];
