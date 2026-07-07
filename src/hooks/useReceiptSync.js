@@ -38,6 +38,49 @@ export function shouldDeferOp(op, now = Date.now()) {
   return !!(op.nextAttemptAt && op.nextAttemptAt > now);
 }
 
+// 큐 처리 순수 함수 — Supabase/IndexedDB 콜백을 주입받아 독립적으로 테스트 가능
+export async function processQueue(queue, { supabase, deleteQueueItem, updateQueueItem, recordSyncEvent, now = Date.now() }) {
+  let processed = 0, failed = 0, deferred = 0, dropped = 0, lastError = null;
+
+  for (const op of queue) {
+    if (!op) continue;
+    const attempts = op.attempts || 0;
+
+    if (shouldDropOp(op)) {
+      await deleteQueueItem(op.queueId).catch(() => {});
+      dropped += 1;
+      recordSyncEvent({ kind: 'sync', status: 'error', title: '보류 작업 포기', detail: `재시도 ${attempts}회 초과 (${op.type})` });
+      continue;
+    }
+
+    if (shouldDeferOp(op, now)) { deferred += 1; continue; }
+
+    try {
+      if (op.type === 'upsert') {
+        const { error } = await supabase.from('receipts').upsert(op.items || []);
+        if (error) throw error;
+      } else if (op.type === 'delete') {
+        const { error } = await supabase.from('receipts').delete().eq('id', op.id);
+        if (error) throw error;
+      }
+      await deleteQueueItem(op.queueId);
+      processed += 1;
+    } catch (err) {
+      lastError = err;
+      failed += 1;
+      await updateQueueItem({
+        ...op,
+        attempts: attempts + 1,
+        lastAttemptAt: now,
+        nextAttemptAt: now + computeBackoff(attempts),
+        lastError: formatFailureDetail(err),
+      }).catch(() => {});
+    }
+  }
+
+  return { processed, failed, deferred, dropped, lastError };
+}
+
 export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [syncEvents, setSyncEvents] = useState(() => readJsonStorage(SYNC_EVENTS_KEY, []));
@@ -163,60 +206,13 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
     syncingRef.current = true;
     onSyncStatusChange?.('syncing');
 
-    const now = Date.now();
-
-    let processed = 0;
-    let failed = 0;
-    let deferred = 0;
-    let dropped = 0;
-    let lastError = null;
-
     try {
-      for (const op of queue) {
-        if (!op) continue;
-        const attempts = op.attempts || 0;
-
-        if (shouldDropOp(op)) {
-          await deleteQueueItem(op.queueId).catch(() => {});
-          dropped += 1;
-          recordSyncEvent({
-            kind: 'sync',
-            status: 'error',
-            title: '보류 작업 포기',
-            detail: `재시도 ${attempts}회 초과 (${op.type})`, // attempts >= SYNC_MAX_ATTEMPTS
-          });
-          continue;
-        }
-
-        if (shouldDeferOp(op, now)) {
-          deferred += 1;
-          continue;
-        }
-
-        try {
-          if (op.type === 'upsert') {
-            const { error } = await supabase.from('receipts').upsert(op.items || []);
-            if (error) throw error;
-          } else if (op.type === 'delete') {
-            const { error } = await supabase.from('receipts').delete().eq('id', op.id);
-            if (error) throw error;
-          }
-          await deleteQueueItem(op.queueId);
-          processed += 1;
-        } catch (err) {
-          lastError = err;
-          failed += 1;
-          const nextAttempts = attempts + 1;
-          const backoff = computeBackoff(attempts);
-          await updateQueueItem({
-            ...op,
-            attempts: nextAttempts,
-            lastAttemptAt: now,
-            nextAttemptAt: now + backoff,
-            lastError: formatFailureDetail(err),
-          }).catch(() => {});
-        }
-      }
+      const { processed, failed, deferred, dropped, lastError } = await processQueue(queue, {
+        supabase,
+        deleteQueueItem,
+        updateQueueItem,
+        recordSyncEvent,
+      });
 
       const remaining = failed + deferred + (queue.length - processed - failed - deferred - dropped);
       setPendingSyncCount(Math.max(0, remaining));

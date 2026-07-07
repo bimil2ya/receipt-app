@@ -1,8 +1,15 @@
 import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
-import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
+import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
 import { ALLOWED_ORIGINS } from './_cors.js'
+import {
+  buildDatePersonMap,
+  buildDetailRows,
+  buildPivotRows,
+  groupPersonFolders,
+  parseXlsxRow,
+} from './_aggregateUtils.js'
 
 const MONEY_FORMAT = '#,##0'
 
@@ -110,15 +117,7 @@ async function createReplacingAggregateSheet(drive, folderId, finalName, buffer)
   return created.data.id
 }
 
-export function groupPersonFolders(personFolders) {
-  const grouped = new Map()
-  for (const folder of personFolders || []) {
-    const name = normalizeDriveName(folder.name)
-    if (!grouped.has(name)) grouped.set(name, { name, folders: [] })
-    grouped.get(name).folders.push(folder)
-  }
-  return [...grouped.values()]
-}
+export { groupPersonFolders }
 
 /**
  * 새 폴더 구조 탐색:
@@ -176,18 +175,7 @@ export async function runAggregate(drive) {
             const rows = XLSX.utils.sheet_to_json(ws)
 
             for (const r of rows) {
-              allRows.push({
-                date:      r['날짜']  || '',
-                useTime:   r['사용시간'] || '',
-                storeName: r['사용처'] || '',
-                category:  r['용도']  || '',
-                amount:    Number(r['금액']) || 0,
-                approvalNum: r['승인번호'] || '',
-                bizNum:    r['사업자번호'] || '',
-                cardNumber: r['카드번호'] || '',
-                note:      r['비고']  || '',
-                person:    personName,
-              })
+              allRows.push(parseXlsxRow(r, personName))
             }
           } catch (e) {
             console.warn(`파일 읽기 실패: ${file.name}`, e.message)
@@ -202,61 +190,9 @@ export async function runAggregate(drive) {
   }
   const duplicateReport = buildApprovalDuplicateReport(allRows)
 
-  // ── 날짜별·사람별 집계
-  const datePersonMap = {}
-  for (const r of allRows) {
-    if (!r.date) continue
-    if (!datePersonMap[r.date]) datePersonMap[r.date] = {}
-    if (!datePersonMap[r.date][r.person]) datePersonMap[r.date][r.person] = { count: 0, amount: 0 }
-    datePersonMap[r.date][r.person].count  += 1
-    datePersonMap[r.date][r.person].amount += r.amount
-  }
-
-  const sortedDates = Object.keys(datePersonMap).sort()
-  const memberNames = personOrder  // 폴더에서 발견된 순서 (가나다순으로 자동 정렬됨)
-
-  // Sheet1: 날짜별 × 사람별 피벗표
-  const pivotRows = sortedDates.map(date => {
-    const row = { '날짜': date }
-    let dayTotal = 0
-    for (const name of memberNames) {
-      const d = datePersonMap[date][name]
-      row[`${name}(건)`] = d ? d.count  : 0
-      row[`${name}(원)`] = d ? d.amount : 0
-      dayTotal += d ? d.amount : 0
-    }
-    row['합계(원)'] = dayTotal
-    return row
-  })
-
-  // 합계 행
-  const totalRow = { '날짜': '합계' }
-  for (const name of memberNames) {
-    totalRow[`${name}(건)`] = sortedDates.reduce((s, d) => s + (datePersonMap[d][name]?.count  || 0), 0)
-    totalRow[`${name}(원)`] = sortedDates.reduce((s, d) => s + (datePersonMap[d][name]?.amount || 0), 0)
-  }
-  totalRow['합계(원)'] = allRows.reduce((s, r) => s + r.amount, 0)
-  pivotRows.push(totalRow)
-
-  // Sheet2: 전체 내역 (날짜→이름 순 정렬)
-  const detailRows = [...allRows]
-    .sort((a, b) => {
-      if (a.date < b.date) return -1
-      if (a.date > b.date) return  1
-      return memberNames.indexOf(a.person) - memberNames.indexOf(b.person)
-    })
-    .map(r => ({
-      '날짜':    r.date,
-      '사용시간': r.useTime,
-      '이름':    r.person,
-      '사용처':  r.storeName,
-      '용도':    r.category,
-      '금액(원)': r.amount,
-      '승인번호': r.approvalNum,
-      '사업자번호': r.bizNum,
-      '카드번호': r.cardNumber,
-      '비고':    r.note,
-    }))
+  const datePersonMap = buildDatePersonMap(allRows)
+  const pivotRows = buildPivotRows(datePersonMap, personOrder, allRows.reduce((s, r) => s + r.amount, 0))
+  const detailRows = buildDetailRows(allRows, personOrder)
 
   const wb = buildWorkbook(pivotRows, detailRows)
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
@@ -317,18 +253,7 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
           )
           const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
           const ws = wb.Sheets[wb.SheetNames[0]]
-          return XLSX.utils.sheet_to_json(ws).map(r => ({
-            date:      r['날짜']  || '',
-            useTime:   r['사용시간'] || '',
-            storeName: r['사용처'] || '',
-            category:  r['용도']  || '',
-            amount:    Number(r['금액']) || 0,
-            approvalNum: r['승인번호'] || '',
-            bizNum:    r['사업자번호'] || '',
-            cardNumber: r['카드번호'] || '',
-            note:      r['비고']  || '',
-            person:    personName,
-          }))
+          return XLSX.utils.sheet_to_json(ws).map(r => parseXlsxRow(r, personName))
         } catch (e) {
           console.warn(`월집계: 파일 읽기 실패 ${file.name}`, e.message)
           return []
@@ -341,56 +266,9 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   if (allRows.length === 0) return { count: 0 }
   const duplicateReport = buildApprovalDuplicateReport(allRows)
 
-  // Sheet1: 날짜×사람 피벗
-  const datePersonMap2 = {}
-  for (const r of allRows) {
-    if (!r.date) continue
-    if (!datePersonMap2[r.date]) datePersonMap2[r.date] = {}
-    if (!datePersonMap2[r.date][r.person]) datePersonMap2[r.date][r.person] = { count: 0, amount: 0 }
-    datePersonMap2[r.date][r.person].count  += 1
-    datePersonMap2[r.date][r.person].amount += r.amount
-  }
-  const sortedDates2 = Object.keys(datePersonMap2).sort()
-
-  const pivotRows2 = sortedDates2.map(date => {
-    const row = { '날짜': date }
-    let dayTotal = 0
-    for (const name of personOrder) {
-      const d = datePersonMap2[date][name]
-      row[`${name}(건)`] = d ? d.count  : 0
-      row[`${name}(원)`] = d ? d.amount : 0
-      dayTotal += d ? d.amount : 0
-    }
-    row['합계(원)'] = dayTotal
-    return row
-  })
-  const totalRow2 = { '날짜': '합계' }
-  for (const name of personOrder) {
-    totalRow2[`${name}(건)`] = sortedDates2.reduce((s, d) => s + (datePersonMap2[d][name]?.count  || 0), 0)
-    totalRow2[`${name}(원)`] = sortedDates2.reduce((s, d) => s + (datePersonMap2[d][name]?.amount || 0), 0)
-  }
-  totalRow2['합계(원)'] = allRows.reduce((s, r) => s + r.amount, 0)
-  pivotRows2.push(totalRow2)
-
-  // Sheet2: 전체내역
-  const detailRows2 = [...allRows]
-    .sort((a, b) => {
-      if (a.date < b.date) return -1
-      if (a.date > b.date) return  1
-      return personOrder.indexOf(a.person) - personOrder.indexOf(b.person)
-    })
-    .map(r => ({
-      '날짜':     r.date,
-      '사용시간':  r.useTime,
-      '이름':     r.person,
-      '사용처':   r.storeName,
-      '용도':     r.category,
-      '금액(원)': r.amount,
-      '승인번호':  r.approvalNum,
-      '사업자번호': r.bizNum,
-      '카드번호':  r.cardNumber,
-      '비고':     r.note,
-    }))
+  const datePersonMap2 = buildDatePersonMap(allRows)
+  const pivotRows2 = buildPivotRows(datePersonMap2, personOrder, allRows.reduce((s, r) => s + r.amount, 0))
+  const detailRows2 = buildDetailRows(allRows, personOrder)
 
   const wb2 = buildWorkbook(pivotRows2, detailRows2)
   const buf2 = XLSX.write(wb2, { type: 'buffer', bookType: 'xlsx' })
