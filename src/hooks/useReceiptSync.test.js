@@ -98,14 +98,35 @@ describe('processQueue', () => {
     expect(deps.updateQueueItem).not.toHaveBeenCalled();
   });
 
-  it('delete 성공 시 deleteQueueItem을 호출한다', async () => {
-    const deps = makeDeps({ supabase: makeSupabase({ deleteError: null }) });
-    const op = { queueId: 'q2', type: 'delete', id: 'r2', attempts: 0 };
+  it('delete 성공 시 deleteQueueItem을 호출하고 userId 조건을 포함한다', async () => {
+    const eq = vi.fn();
+    const query = { eq, then: (res) => Promise.resolve({ error: null }).then(res) };
+    eq.mockReturnValue(query);
+    const supabase = { from: () => ({ delete: () => query }) };
+    const deps = makeDeps({ supabase });
+    const op = { queueId: 'q2', type: 'delete', id: 'r2', userId: 'u1', attempts: 0 };
 
     const result = await processQueue([op], deps);
 
     expect(result.processed).toBe(1);
     expect(deps.deleteQueueItem).toHaveBeenCalledWith('q2');
+    expect(eq).toHaveBeenCalledWith('id', 'r2');
+    expect(eq).toHaveBeenCalledWith('userId', 'u1');
+  });
+
+  it('delete op에 userId가 없으면 id 조건만으로 실행한다 (구버전 호환)', async () => {
+    const eq = vi.fn();
+    const query = { eq, then: (res) => Promise.resolve({ error: null }).then(res) };
+    eq.mockReturnValue(query);
+    const supabase = { from: () => ({ delete: () => query }) };
+    const deps = makeDeps({ supabase });
+    const op = { queueId: 'q2b', type: 'delete', id: 'r2b', attempts: 0 };
+
+    const result = await processQueue([op], deps);
+
+    expect(result.processed).toBe(1);
+    expect(eq).toHaveBeenCalledWith('id', 'r2b');
+    expect(eq).not.toHaveBeenCalledWith('userId', expect.anything());
   });
 
   it('Supabase 오류 시 updateQueueItem에 backoff가 적용된 항목을 저장한다', async () => {

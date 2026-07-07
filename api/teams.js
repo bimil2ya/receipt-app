@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { ALLOWED_ORIGINS, safeCompare } from './_cors.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';
 
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
     if (!ADMIN_PIN) {
       return res.status(503).json({ success: false, error: '관리자 인증이 설정되지 않았습니다.' });
     }
-    if (providedPin !== ADMIN_PIN) {
+    if (!safeCompare(providedPin, ADMIN_PIN)) {
       return res.status(401).json({ success: false, error: '관리자 인증 실패' });
     }
 

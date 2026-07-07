@@ -60,7 +60,9 @@ export async function processQueue(queue, { supabase, deleteQueueItem, updateQue
         const { error } = await supabase.from('receipts').upsert(op.items || []);
         if (error) throw error;
       } else if (op.type === 'delete') {
-        const { error } = await supabase.from('receipts').delete().eq('id', op.id);
+        let q = supabase.from('receipts').delete().eq('id', op.id);
+        if (op.userId) q = q.eq('userId', op.userId);
+        const { error } = await q;
         if (error) throw error;
       }
       await deleteQueueItem(op.queueId);

@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import crypto from 'crypto';
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { ALLOWED_ORIGINS, safeCompare } from './_cors.js';
 import * as XLSX from 'xlsx';
 import {
   ARCHIVE_FOLDER_NAME,
@@ -207,7 +207,7 @@ export default async function handler(req, res) {
   const authHeader = req.headers['authorization'] || '';
   if (authHeader) {
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!UPLOAD_TOKEN || provided !== UPLOAD_TOKEN) {
+    if (!UPLOAD_TOKEN || !safeCompare(provided, UPLOAD_TOKEN)) {
       return res.status(401).json({ success: false, error: '인증 실패', detail: '유효하지 않은 토큰입니다.' });
     }
   }

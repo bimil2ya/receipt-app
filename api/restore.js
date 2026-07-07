@@ -5,7 +5,7 @@ import {
   getOrCreateFolderByNormalizedName,
   MAIN_FOLDER_ID,
 } from './driveUtils.js';
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { ALLOWED_ORIGINS, safeCompare } from './_cors.js';
 
 // 출처 단위 호출 제한 — 10분에 60회 (list 1회 + download N회 감안)
 const RESTORE_RATE_WINDOW_MS = 10 * 60_000;
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
   const authHeader = req.headers['authorization'] || '';
   if (authHeader) {
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!UPLOAD_TOKEN || provided !== UPLOAD_TOKEN) {
+    if (!UPLOAD_TOKEN || !safeCompare(provided, UPLOAD_TOKEN)) {
       return res.status(401).json({ success: false, error: '인증 실패' });
     }
   }

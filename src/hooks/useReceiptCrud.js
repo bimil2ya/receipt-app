@@ -187,9 +187,10 @@ export default function useReceiptCrud({
         onSaveStatusChange('success');
 
         if (supabase) {
+          const deleteUserId = getOrCreateDeviceId();
           onSyncStatusChange('syncing');
           try {
-            const { error } = await supabase.from('receipts').delete().eq('id', id);
+            const { error } = await supabase.from('receipts').delete().eq('id', id).eq('userId', deleteUserId);
             if (error) throw error;
             onSyncStatusChange('success');
             recordSyncEvent({
@@ -208,7 +209,7 @@ export default function useReceiptCrud({
               detail: formatFailureDetail(err),
             });
             try {
-              await appendSyncOp({ type: 'delete', id });
+              await appendSyncOp({ type: 'delete', id, userId: deleteUserId });
               retryPendingSync();
             } catch (queueErr) {
               if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);

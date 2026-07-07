@@ -2,7 +2,7 @@ import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
 import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
-import { ALLOWED_ORIGINS } from './_cors.js'
+import { ALLOWED_ORIGINS, safeCompare } from './_cors.js'
 import {
   buildDatePersonMap,
   buildDetailRows,
@@ -312,7 +312,7 @@ export default async function handler(req, res) {
   if (UPLOAD_TOKEN) {
     const authHeader = req.headers['authorization'] || ''
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-    if (provided !== UPLOAD_TOKEN) {
+    if (!safeCompare(provided, UPLOAD_TOKEN)) {
       return res.status(401).json({ success: false, error: '인증 실패', detail: '유효하지 않은 토큰입니다.' })
     }
   }
