@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTripDateContext,
   hasMissingApprovalNum,
   normalizeApprovalNum,
   normalizeIsoDate,
@@ -108,5 +109,22 @@ describe('hasMissingApprovalNum', () => {
   it('배열이 아니면 false를 반환한다', () => {
     expect(hasMissingApprovalNum(null)).toBe(false);
     expect(hasMissingApprovalNum('string')).toBe(false);
+  });
+});
+
+describe('buildTripDateContext', () => {
+  it('출장 연도가 프롬프트에 포함된다', () => {
+    const ctx = buildTripDateContext({ tripStartDate: '2026-07-01', tripEndDate: '2026-07-05', reportDate: '' });
+    expect(ctx).toContain('2026년');
+  });
+
+  it('tripStartDate가 없으면 reportDate로 연도를 결정한다', () => {
+    const ctx = buildTripDateContext({ tripStartDate: '', tripEndDate: '', reportDate: '2025-12-01' });
+    expect(ctx).toContain('2025년');
+  });
+
+  it('날짜 정보가 전혀 없으면 빈 문자열을 반환한다', () => {
+    const ctx = buildTripDateContext({ tripStartDate: '', tripEndDate: '', reportDate: '' });
+    expect(ctx).toBe('');
   });
 });
