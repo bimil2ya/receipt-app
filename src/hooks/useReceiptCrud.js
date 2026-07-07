@@ -56,7 +56,7 @@ export default function useReceiptCrud({
       const { imageUrl, ...itemWithoutUrl } = item;
       if (imageUrl && item.imageId && !imageMap.has(item.imageId)) {
         try { imageMap.set(item.imageId, base64ToBlob(imageUrl)); }
-        catch (e) { console.warn('Blob 변환 실패:', e); }
+        catch (e) { if (import.meta.env.DEV) console.warn('Blob 변환 실패:', e); }
       }
 
       const resolvedUserId = item.userId && item.userId !== 'system' ? item.userId : currentUserId;
@@ -118,7 +118,7 @@ export default function useReceiptCrud({
               detail: `${preparedItems.length}건`,
             });
           } catch (err) {
-            console.error('Supabase Upsert Error:', err);
+            if (import.meta.env.DEV) console.error('Supabase Upsert Error:', err);
             onSyncStatusChange('error');
             recordSyncEvent({
               kind: 'save',
@@ -130,7 +130,7 @@ export default function useReceiptCrud({
               await appendSyncOp({ type: 'upsert', items: preparedItems });
               retryPendingSync();
             } catch (queueErr) {
-              console.error('Sync queue append failed:', queueErr);
+              if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
               recordSyncEvent({
                 kind: 'save',
                 status: 'error',
@@ -199,7 +199,7 @@ export default function useReceiptCrud({
               detail: id,
             });
           } catch (err) {
-            console.error('Supabase Delete Error:', err);
+            if (import.meta.env.DEV) console.error('Supabase Delete Error:', err);
             onSyncStatusChange('error');
             recordSyncEvent({
               kind: 'delete',
@@ -211,7 +211,7 @@ export default function useReceiptCrud({
               await appendSyncOp({ type: 'delete', id });
               retryPendingSync();
             } catch (queueErr) {
-              console.error('Sync queue append failed:', queueErr);
+              if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
               recordSyncEvent({
                 kind: 'delete',
                 status: 'error',
