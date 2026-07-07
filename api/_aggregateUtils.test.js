@@ -122,6 +122,17 @@ describe('buildPivotRows', () => {
     const total = rows[rows.length - 1]
     expect(total['합계(원)']).toBe(10000)
   })
+
+  it('날짜 없는 행은 map에서 제외되지만 grandTotal로 전달하면 합계에 포함된다', () => {
+    const allRows = [
+      { date: '2024-01-15', person: '홍길동', amount: 1000 },
+      { date: '', person: '홍길동', amount: 500 },
+    ]
+    const map2 = buildDatePersonMap(allRows)
+    const grandTotal = allRows.reduce((s, r) => s + r.amount, 0)
+    const pivot = buildPivotRows(map2, ['홍길동'], grandTotal)
+    expect(pivot.at(-1)['합계(원)']).toBe(1500)
+  })
 })
 
 describe('buildDetailRows', () => {
