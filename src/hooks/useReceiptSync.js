@@ -22,6 +22,22 @@ import {
   STORE_SYNC_QUEUE,
 } from '../utils/receiptDb';
 
+export const SYNC_MAX_ATTEMPTS = 5;
+export const SYNC_BASE_DELAY_MS = 5_000;
+export const SYNC_MAX_DELAY_MS = 5 * 60 * 1000;
+
+export function computeBackoff(attempts, baseDelay = SYNC_BASE_DELAY_MS, maxDelay = SYNC_MAX_DELAY_MS) {
+  return Math.min(maxDelay, baseDelay * 2 ** attempts);
+}
+
+export function shouldDropOp(op, maxAttempts = SYNC_MAX_ATTEMPTS) {
+  return (op.attempts || 0) >= maxAttempts;
+}
+
+export function shouldDeferOp(op, now = Date.now()) {
+  return !!(op.nextAttemptAt && op.nextAttemptAt > now);
+}
+
 export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [syncEvents, setSyncEvents] = useState(() => readJsonStorage(SYNC_EVENTS_KEY, []));
@@ -147,9 +163,6 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
     syncingRef.current = true;
     onSyncStatusChange?.('syncing');
 
-    const MAX_ATTEMPTS = 5;
-    const BASE_DELAY_MS = 5_000;
-    const MAX_DELAY_MS = 5 * 60 * 1000;
     const now = Date.now();
 
     let processed = 0;
@@ -163,19 +176,19 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
         if (!op) continue;
         const attempts = op.attempts || 0;
 
-        if (attempts >= MAX_ATTEMPTS) {
+        if (shouldDropOp(op)) {
           await deleteQueueItem(op.queueId).catch(() => {});
           dropped += 1;
           recordSyncEvent({
             kind: 'sync',
             status: 'error',
             title: '보류 작업 포기',
-            detail: `재시도 ${attempts}회 초과 (${op.type})`,
+            detail: `재시도 ${attempts}회 초과 (${op.type})`, // attempts >= SYNC_MAX_ATTEMPTS
           });
           continue;
         }
 
-        if (op.nextAttemptAt && op.nextAttemptAt > now) {
+        if (shouldDeferOp(op, now)) {
           deferred += 1;
           continue;
         }
@@ -194,7 +207,7 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
           lastError = err;
           failed += 1;
           const nextAttempts = attempts + 1;
-          const backoff = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempts);
+          const backoff = computeBackoff(attempts);
           await updateQueueItem({
             ...op,
             attempts: nextAttempts,
