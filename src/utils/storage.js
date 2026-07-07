@@ -16,17 +16,30 @@ export function writeStorageItem(key, value) {
 
 // 기기마다 고유한 Supabase userId를 보장한다.
 // 값이 없거나 'system'(과거 fallback)이면 UUID를 새로 발급해 저장한다.
+// 모듈 캐시를 두어 localStorage 저장 불가 환경에서도 세션 내 동일 ID를 보장한다.
+let _deviceIdCache = null;
+
 export function getOrCreateDeviceId() {
+  if (_deviceIdCache) return _deviceIdCache;
   try {
     const stored = localStorage.getItem('device_num');
-    if (stored && stored !== 'system') return stored;
+    if (stored && stored !== 'system') {
+      _deviceIdCache = stored;
+      return _deviceIdCache;
+    }
     const id = crypto.randomUUID();
-    try { localStorage.setItem('device_num', id); } catch { /* 저장 불가 환경 — 세션 내에서만 유효 */ }
-    return id;
+    try { localStorage.setItem('device_num', id); } catch { /* 저장 불가 환경 */ }
+    _deviceIdCache = id;
+    return _deviceIdCache;
   } catch {
     // localStorage 자체가 막힌 환경에서도 'system'이 아닌 세션 고유 ID를 반환한다.
-    return crypto.randomUUID();
+    _deviceIdCache = crypto.randomUUID();
+    return _deviceIdCache;
   }
+}
+
+export function _resetDeviceIdCacheForTest() {
+  _deviceIdCache = null;
 }
 
 export function base64ToBlob(dataUrl) {
