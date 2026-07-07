@@ -1,3 +1,5 @@
+export const config = { runtime: 'edge' };
+
 import { ALLOWED_ORIGINS } from './_cors.js';
 
 // 비즈노 API가 (주), & 같은 한글/특수문자를 XML 인코딩해 반환하는 경우 디코딩

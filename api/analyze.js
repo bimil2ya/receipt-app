@@ -1,3 +1,5 @@
+export const config = { runtime: 'edge' };
+
 import { ALLOWED_ORIGINS } from './_cors.js';
 import {
   buildTripDateContext,
