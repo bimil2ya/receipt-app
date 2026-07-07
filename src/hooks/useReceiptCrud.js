@@ -59,7 +59,8 @@ export default function useReceiptCrud({
         catch (e) { console.warn('Blob 변환 실패:', e); }
       }
 
-      const newItem = { ...itemWithoutUrl, updatedAt: now, status: item.status || 'draft', userId: item.userId || currentUserId };
+      const resolvedUserId = item.userId && item.userId !== 'system' ? item.userId : currentUserId;
+      const newItem = { ...itemWithoutUrl, updatedAt: now, status: item.status || 'draft', userId: resolvedUserId };
       preparedItems.push(newItem);
 
       const existing = existingMap.get(item.id);

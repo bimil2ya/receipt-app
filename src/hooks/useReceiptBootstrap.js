@@ -24,10 +24,22 @@ export default function useReceiptBootstrap({
           req.onerror = () => res([]);
         });
 
+        // 기존에 userId='system'으로 저장된 영수증을 현재 UUID로 일괄 갱신한다.
+        const deviceId = getOrCreateDeviceId();
+        const systemReceipts = allReceipts.filter(r => !r.userId || r.userId === 'system');
+        if (systemReceipts.length > 0) {
+          await new Promise((resolve, reject) => {
+            const migrateTx = db.transaction(STORE_RECEIPTS, 'readwrite');
+            const store = migrateTx.objectStore(STORE_RECEIPTS);
+            systemReceipts.forEach(r => store.put({ ...r, userId: deviceId }));
+            migrateTx.oncomplete = resolve;
+            migrateTx.onerror = () => reject(migrateTx.error);
+          });
+        }
+
         if (supabase) {
           onSyncStatusChange?.('syncing');
           try {
-            const deviceId = getOrCreateDeviceId();
             const { data, error } = await supabase.from('receipts').select('*').eq('userId', deviceId);
             if (!error && data && data.length > 0) {
               const localById = new Map(allReceipts.map(r => [r.id, r]));
