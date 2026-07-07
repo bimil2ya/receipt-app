@@ -16,6 +16,14 @@ import {
 import { sendKakaoNotification, sendKakaoNotifications } from './notify/kakao.js';
 import { runMonthAggregate } from './aggregate.js';
 import { buildApprovalDuplicateReport } from './approvalReport.js';
+import {
+  buildKakaoChunks,
+  formatWon,
+  hasControlChars,
+  KAKAO_TEXT_LIMIT,
+  safeText,
+  shorten,
+} from './_uploadUtils.js';
 
 // 출처 단위 호출 제한 — 10분에 200회 (이미지 N장 업로드 시 1+N 요청 발생하므로 여유 있게 설정)
 const UPLOAD_RATE_WINDOW_MS = 10 * 60_000;
@@ -36,28 +44,6 @@ function uploadRateLimitCheck(key) {
   return { ok: true };
 }
 
-const KAKAO_TEXT_LIMIT = 180;
-
-function formatWon(value) {
-  return `${Number(value || 0).toLocaleString('ko-KR')}원`;
-}
-
-function safeText(value, fallback = '') {
-  return String(value ?? fallback).trim();
-}
-
-function shorten(value, max) {
-  const text = safeText(value);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-function hasControlChars(value) {
-  for (const ch of String(value ?? '')) {
-    if (ch.charCodeAt(0) < 32) return true;
-  }
-  return false;
-}
-
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -73,25 +59,6 @@ function readReceiptRowsFromXlsx(buffer) {
     cardNumber: safeText(row['카드번호']),
     note: safeText(row['비고']),
   })).filter(row => row.date || row.storeName || row.amount);
-}
-
-function buildKakaoChunks(headerLines, detailLines, maxLength = KAKAO_TEXT_LIMIT) {
-  const chunks = [];
-  let current = headerLines.join('\n');
-
-  for (const line of detailLines) {
-    const next = `${current}\n${line}`;
-    if (next.length <= maxLength) {
-      current = next;
-      continue;
-    }
-
-    chunks.push(current);
-    current = line.length > maxLength ? shorten(line, maxLength) : line;
-  }
-
-  if (current) chunks.push(current);
-  return chunks;
 }
 
 function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, imageCount }) {
