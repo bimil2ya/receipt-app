@@ -2,7 +2,8 @@ import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
 import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
-import { ALLOWED_ORIGINS, safeCompare } from './_cors.js'
+import { ALLOWED_ORIGINS } from './_cors.js'
+import { safeCompare } from './_auth.js'
 import {
   buildDatePersonMap,
   buildDetailRows,

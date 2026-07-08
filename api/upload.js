@@ -1,6 +1,7 @@
 import { Readable } from 'stream';
 import crypto from 'crypto';
-import { ALLOWED_ORIGINS, safeCompare } from './_cors.js';
+import { ALLOWED_ORIGINS } from './_cors.js';
+import { safeCompare } from './_auth.js';
 import * as XLSX from 'xlsx';
 import {
   ARCHIVE_FOLDER_NAME,

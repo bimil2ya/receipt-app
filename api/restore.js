@@ -5,7 +5,8 @@ import {
   getOrCreateFolderByNormalizedName,
   MAIN_FOLDER_ID,
 } from './driveUtils.js';
-import { ALLOWED_ORIGINS, safeCompare } from './_cors.js';
+import { ALLOWED_ORIGINS } from './_cors.js';
+import { safeCompare } from './_auth.js';
 
 // 출처 단위 호출 제한 — 10분에 60회 (list 1회 + download N회 감안)
 const RESTORE_RATE_WINDOW_MS = 10 * 60_000;
