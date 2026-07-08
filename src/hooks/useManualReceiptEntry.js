@@ -18,7 +18,11 @@ export default function useManualReceiptEntry({ saveReceipts, setPinnedNewIds, s
   const manualStoreRef = useRef(null);
 
   const handleManualAdd = async () => {
-    if (!manualReceipt.storeName) return;
+    if (!manualReceipt.storeName.trim()) {
+      showToast('사용처를 입력해 주세요');
+      manualStoreRef.current?.focus();
+      return;
+    }
     const newId = crypto.randomUUID();
     setPinnedNewIds(prev => [...prev, newId]);
     await saveReceipts({
