@@ -1,3 +1,6 @@
+// 승인번호 중복 검사 — 서버(Drive XLSX 집계 rows) 전용. 입력 필드: amount, person.
+// 프론트 IndexedDB 전용은 src/utils/approvalReport.js 참고.
+// 핵심 알고리즘(normalizeApprovalNum, 그룹핑 로직)을 양쪽에서 동일하게 유지할 것.
 function safeText(value, fallback = '') {
   return String(value ?? fallback).trim();
 }

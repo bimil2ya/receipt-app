@@ -1,3 +1,6 @@
+// 승인번호 중복 검사 — 프론트(IndexedDB receipts) 전용.
+// 서버 측 Drive XLSX 집계용은 api/approvalReport.js 참고.
+// 핵심 알고리즘(normalizeApprovalNum, 그룹핑 로직)을 양쪽에서 동일하게 유지할 것.
 import { decodeHtmlEntities } from './formatter';
 
 function safeText(value, fallback = '') {
