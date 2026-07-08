@@ -62,9 +62,8 @@ export async function processQueue(queue, { supabase, deleteQueueItem, updateQue
         if (error) throw error;
       } else if (op.type === 'delete') {
         const uid = op.userId || deviceUserId;
-        let q = supabase.from('receipts').delete().eq('id', op.id);
-        if (uid) q = q.eq('userId', uid);
-        const { error } = await q;
+        if (!uid) throw new Error('delete op: userId missing');
+        const { error } = await supabase.from('receipts').delete().eq('id', op.id).eq('userId', uid);
         if (error) throw error;
       }
       await deleteQueueItem(op.queueId);

@@ -129,6 +129,16 @@ describe('processQueue', () => {
     expect(eq).toHaveBeenCalledWith('userId', 'device-fallback');
   });
 
+  it('delete op에 userId도 deviceUserId도 없으면 에러를 던진다', async () => {
+    const deps = makeDeps({ deviceUserId: undefined });
+    const op = { queueId: 'q2c', type: 'delete', id: 'r2c', attempts: 0 };
+
+    const result = await processQueue([op], deps);
+
+    expect(result.failed).toBe(1);
+    expect(result.lastError?.message).toBe('delete op: userId missing');
+  });
+
   it('Supabase 오류 시 updateQueueItem에 backoff가 적용된 항목을 저장한다', async () => {
     const dbError = new Error('DB error');
     const deps = makeDeps({ supabase: makeSupabase({ upsertError: dbError }) });
