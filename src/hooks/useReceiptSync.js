@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../utils/supabase';
+import { getOrCreateDeviceId } from '../utils/storage';
 import { formatFailureDetail } from '../utils/errorCopy';
 import { buildDailyRows, sortByNewest, toDayKey } from '../utils/syncStats';
 import {
@@ -39,7 +40,7 @@ export function shouldDeferOp(op, now = Date.now()) {
 }
 
 // 큐 처리 순수 함수 — Supabase/IndexedDB 콜백을 주입받아 독립적으로 테스트 가능
-export async function processQueue(queue, { supabase, deleteQueueItem, updateQueueItem, recordSyncEvent, now = Date.now() }) {
+export async function processQueue(queue, { supabase, deleteQueueItem, updateQueueItem, recordSyncEvent, now = Date.now(), deviceUserId }) {
   let processed = 0, failed = 0, deferred = 0, dropped = 0, lastError = null;
 
   for (const op of queue) {
@@ -60,8 +61,9 @@ export async function processQueue(queue, { supabase, deleteQueueItem, updateQue
         const { error } = await supabase.from('receipts').upsert(op.items || []);
         if (error) throw error;
       } else if (op.type === 'delete') {
+        const uid = op.userId || deviceUserId;
         let q = supabase.from('receipts').delete().eq('id', op.id);
-        if (op.userId) q = q.eq('userId', op.userId);
+        if (uid) q = q.eq('userId', uid);
         const { error } = await q;
         if (error) throw error;
       }
@@ -214,6 +216,7 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
         deleteQueueItem,
         updateQueueItem,
         recordSyncEvent,
+        deviceUserId: getOrCreateDeviceId(),
       });
 
       const remaining = failed + deferred + (queue.length - processed - failed - deferred - dropped);

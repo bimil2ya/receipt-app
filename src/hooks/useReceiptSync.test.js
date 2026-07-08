@@ -114,19 +114,19 @@ describe('processQueue', () => {
     expect(eq).toHaveBeenCalledWith('userId', 'u1');
   });
 
-  it('delete op에 userId가 없으면 id 조건만으로 실행한다 (구버전 호환)', async () => {
+  it('delete op에 userId가 없으면 deviceUserId로 fallback한다 (구버전 호환)', async () => {
     const eq = vi.fn();
     const query = { eq, then: (res) => Promise.resolve({ error: null }).then(res) };
     eq.mockReturnValue(query);
     const supabase = { from: () => ({ delete: () => query }) };
-    const deps = makeDeps({ supabase });
+    const deps = makeDeps({ supabase, deviceUserId: 'device-fallback' });
     const op = { queueId: 'q2b', type: 'delete', id: 'r2b', attempts: 0 };
 
     const result = await processQueue([op], deps);
 
     expect(result.processed).toBe(1);
     expect(eq).toHaveBeenCalledWith('id', 'r2b');
-    expect(eq).not.toHaveBeenCalledWith('userId', expect.anything());
+    expect(eq).toHaveBeenCalledWith('userId', 'device-fallback');
   });
 
   it('Supabase 오류 시 updateQueueItem에 backoff가 적용된 항목을 저장한다', async () => {
