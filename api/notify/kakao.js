@@ -1,9 +1,11 @@
 const FALLBACK_APP_URL = 'https://receipt-app-rho.vercel.app';
 
 export function getAppBaseUrl() {
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL;
+  if (process.env.VERCEL_ENV === 'production') return FALLBACK_APP_URL;
   const vercelUrl = process.env.VERCEL_URL || '';
   if (vercelUrl) return `https://${vercelUrl}`;
-  return process.env.APP_BASE_URL || FALLBACK_APP_URL;
+  return FALLBACK_APP_URL;
 }
 
 /**

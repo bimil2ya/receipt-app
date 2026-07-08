@@ -116,6 +116,9 @@ export default async function handler(req) {
     // --- 2. 분석 로직 ---
     if (!base64) return new Response(JSON.stringify({ success: false, error: '데이터 없음' }), { status: 400, headers: resHeaders });
 
+    const ALLOWED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const resolvedMediaType = ALLOWED_MEDIA_TYPES.includes(mediaType) ? mediaType : 'image/jpeg';
+
     // 우선순위가 높은 모델부터 계정 가용 여부 확인
     const candidates = [
       'claude-sonnet-4-6',
@@ -214,7 +217,7 @@ ${tripDateContext}
           body: JSON.stringify({
             model: modelId,
             max_tokens: 2048,
-            messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }, { type: 'text', text: prompt }] }]
+            messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: resolvedMediaType, data: base64 } }, { type: 'text', text: prompt }] }]
           })
         }, 40000);
 
@@ -274,7 +277,7 @@ ${tripDateContext}
             body: JSON.stringify({
               model: finalModelId || modelsToTry[0],
               max_tokens: 1024,
-              messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: base64 } }, { type: 'text', text: approvalRepairPrompt }] }]
+              messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: resolvedMediaType, data: base64 } }, { type: 'text', text: approvalRepairPrompt }] }]
             })
           }, 30000);
           const data = await response.json();

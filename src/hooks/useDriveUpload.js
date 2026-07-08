@@ -6,6 +6,12 @@ export function safeText(value, fallback = '') {
   return String(value ?? fallback).trim();
 }
 
+function fetchWithTimeout(url, options, timeoutMs = 60_000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 async function blobToDataUrl(blob) {
   return new Promise(resolve => {
     const reader = new FileReader();
@@ -139,11 +145,11 @@ export default function useDriveUpload({
 
       const authHeaders = { 'Content-Type': 'application/json' };
 
-      const xlsxRes = await fetch('/api/upload', {
+      const xlsxRes = await fetchWithTimeout('/api/upload', {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary, ...uploadContext }),
-      });
+      }, 60_000);
       if (!xlsxRes.ok) {
         const error = await xlsxRes.json().catch(() => ({}));
         throw new Error(formatFailureMessage('명세 업로드 실패', error.error || `상태 ${xlsxRes.status}`));
@@ -157,11 +163,11 @@ export default function useDriveUpload({
         let imageResponse;
         let imageData;
         try {
-          imageResponse = await fetch('/api/upload', {
+          imageResponse = await fetchWithTimeout('/api/upload', {
             method: 'POST',
             headers: authHeaders,
             body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), images: [image], isImageOnly: true, ...uploadContext }),
-          });
+          }, 120_000);
           imageData = await imageResponse.json().catch(() => ({}));
         } catch (networkError) {
           imageResponse = { ok: false, status: 0 };
@@ -221,11 +227,11 @@ export default function useDriveUpload({
       let ok = false;
       try {
         if (failure.kind === 'image') {
-          const res = await fetch('/api/upload', {
+          const res = await fetchWithTimeout('/api/upload', {
             method: 'POST',
             headers: authHeaders,
             body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), images: [failure.img], isImageOnly: true, ...uploadContext }),
-          });
+          }, 120_000);
           ok = res.ok;
         }
       } catch {
