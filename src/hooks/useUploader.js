@@ -2,15 +2,7 @@ import { useState, useCallback } from 'react';
 import { compressToBase64 } from '../utils/compressor';
 import { getToday, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
 
-function normalizeApprovalNum(value) {
-  return String(value || '')
-    .replace(/[Oo]/g, '0')
-    .replace(/[Iil|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Zz]/g, '2')
-    .replace(/[^0-9]/g, '');
-}
+import { normalizeApprovalNum } from '../../shared/approvalReportCore.js';
 
 function pad2(value) {
   return String(value).padStart(2, '0');

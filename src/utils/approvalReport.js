@@ -1,21 +1,7 @@
-// 승인번호 중복 검사 — 프론트(IndexedDB receipts) 전용.
-// 서버 측 Drive XLSX 집계용은 api/approvalReport.js 참고.
-// 핵심 알고리즘(normalizeApprovalNum, 그룹핑 로직)을 양쪽에서 동일하게 유지할 것.
+// 프론트(IndexedDB receipts) 전용 래퍼. 알고리즘은 shared/approvalReportCore.js 에서 관리.
 import { decodeHtmlEntities } from './formatter';
-
-function safeText(value, fallback = '') {
-  return String(value ?? fallback).trim();
-}
-
-export function normalizeApprovalNum(value) {
-  return safeText(value)
-    .replace(/[Oo]/g, '0')
-    .replace(/[Iil|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Zz]/g, '2')
-    .replace(/[^0-9]/g, '');
-}
+export { normalizeApprovalNum } from '../../shared/approvalReportCore.js';
+import { findDuplicateApprovalGroups } from '../../shared/approvalReportCore.js';
 
 function summarizeReceipt(receipt) {
   return {
@@ -30,60 +16,35 @@ function summarizeReceipt(receipt) {
 }
 
 export function buildApprovalReportFromReceipts(receipts, sampleLimit = 5) {
-  const approvalGroups = new Map();
-  let missingApprovalCount = 0;
-
-  for (const receipt of receipts || []) {
-    const approvalKey = normalizeApprovalNum(receipt.approvalNum);
-    if (!approvalKey) {
-      missingApprovalCount += 1;
-      continue;
-    }
-    if (!approvalGroups.has(approvalKey)) approvalGroups.set(approvalKey, []);
-    approvalGroups.get(approvalKey).push(receipt);
-  }
-
-  const confirmedGroups = [];
-  const reviewGroups = [];
-  for (const [approvalKey, groupReceipts] of approvalGroups.entries()) {
-    if (groupReceipts.length < 2) continue;
-    const exactGroups = new Map();
-    for (const receipt of groupReceipts) {
-      const exactKey = `${receipt.date || ''}|${receipt.totalAmount || 0}`;
-      if (!exactGroups.has(exactKey)) exactGroups.set(exactKey, []);
-      exactGroups.get(exactKey).push(receipt);
-    }
-
-    let hasConfirmed = false;
-    for (const exactReceipts of exactGroups.values()) {
-      if (exactReceipts.length < 2) continue;
-      hasConfirmed = true;
-      confirmedGroups.push({
-        approvalKey,
-        date: exactReceipts[0].date || '',
-        amount: exactReceipts[0].totalAmount || 0,
-        count: exactReceipts.length,
-        receiptIds: exactReceipts.map(r => r.id).filter(Boolean),
-        receipts: exactReceipts.slice(0, sampleLimit).map(summarizeReceipt),
-      });
-    }
-    if (!hasConfirmed) {
-      reviewGroups.push({
-        approvalKey,
-        count: groupReceipts.length,
-        reason: 'same_approval_different_date_or_amount',
-        receiptIds: groupReceipts.map(r => r.id).filter(Boolean),
-        receipts: groupReceipts.slice(0, sampleLimit).map(summarizeReceipt),
-      });
-    }
-  }
+  const { missingApprovalCount, confirmedGroups, reviewGroups } = findDuplicateApprovalGroups(
+    receipts,
+    {
+      getApprovalNum: r => r.approvalNum,
+      getAmount: r => r.totalAmount || 0,
+      getDate: r => r.date || '',
+    },
+    sampleLimit,
+  );
 
   return {
     missingApprovalCount,
     confirmedGroupCount: confirmedGroups.length,
-    confirmedReceiptCount: confirmedGroups.reduce((sum, group) => sum + group.count, 0),
+    confirmedReceiptCount: confirmedGroups.reduce((sum, g) => sum + g.count, 0),
     reviewGroupCount: reviewGroups.length,
-    confirmedGroups,
-    reviewGroups,
+    confirmedGroups: confirmedGroups.map(g => ({
+      approvalKey: g.approvalKey,
+      date: g.date,
+      amount: g.amount,
+      count: g.count,
+      receiptIds: g.items.map(r => r.id).filter(Boolean),
+      receipts: g.items.map(summarizeReceipt),
+    })),
+    reviewGroups: reviewGroups.map(g => ({
+      approvalKey: g.approvalKey,
+      count: g.count,
+      reason: g.reason,
+      receiptIds: g.items.map(r => r.id).filter(Boolean),
+      receipts: g.items.map(summarizeReceipt),
+    })),
   };
 }

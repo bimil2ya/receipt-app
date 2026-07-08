@@ -1,12 +1,5 @@
-export function normalizeApprovalNum(value) {
-  return String(value ?? '')
-    .replace(/[Oo]/g, '0')
-    .replace(/[Iil|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Zz]/g, '2')
-    .replace(/[^0-9]/g, '');
-}
+import { normalizeApprovalNum } from '../shared/approvalReportCore.js';
+export { normalizeApprovalNum };
 
 export function hasMissingApprovalNum(receipts) {
   return Array.isArray(receipts) && receipts.some(receipt => !normalizeApprovalNum(receipt?.approvalNum));

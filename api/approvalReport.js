@@ -1,19 +1,6 @@
-// 승인번호 중복 검사 — 서버(Drive XLSX 집계 rows) 전용. 입력 필드: amount, person.
-// 프론트 IndexedDB 전용은 src/utils/approvalReport.js 참고.
-// 핵심 알고리즘(normalizeApprovalNum, 그룹핑 로직)을 양쪽에서 동일하게 유지할 것.
-function safeText(value, fallback = '') {
-  return String(value ?? fallback).trim();
-}
-
-export function normalizeApprovalNum(value) {
-  return safeText(value)
-    .replace(/[Oo]/g, '0')
-    .replace(/[Iil|]/g, '1')
-    .replace(/[Ss]/g, '5')
-    .replace(/[Bb]/g, '8')
-    .replace(/[Zz]/g, '2')
-    .replace(/[^0-9]/g, '');
-}
+// 서버(Drive XLSX 집계 rows) 전용 래퍼. 알고리즘은 shared/approvalReportCore.js 에서 관리.
+export { normalizeApprovalNum } from '../shared/approvalReportCore.js';
+import { findDuplicateApprovalGroups } from '../shared/approvalReportCore.js';
 
 function summarizeReceiptForDuplicate(row) {
   return {
@@ -28,65 +15,37 @@ function summarizeReceiptForDuplicate(row) {
 }
 
 export function buildApprovalDuplicateReport(rows, sampleLimit = 5) {
-  const approvalGroups = new Map();
-  let missingApprovalCount = 0;
+  const { missingApprovalCount, confirmedGroups, reviewGroups } = findDuplicateApprovalGroups(
+    rows,
+    {
+      getApprovalNum: r => r.approvalNum,
+      getAmount: r => r.amount || 0,
+      getDate: r => r.date || '',
+    },
+    sampleLimit,
+  );
 
-  for (const row of rows || []) {
-    const approvalKey = normalizeApprovalNum(row.approvalNum);
-    if (!approvalKey) {
-      missingApprovalCount += 1;
-      continue;
-    }
-    if (!approvalGroups.has(approvalKey)) approvalGroups.set(approvalKey, []);
-    approvalGroups.get(approvalKey).push(row);
-  }
-
-  const confirmedGroups = [];
-  const reviewGroups = [];
-
-  for (const [approvalKey, groupRows] of approvalGroups.entries()) {
-    if (groupRows.length < 2) continue;
-
-    const exactGroups = new Map();
-    for (const row of groupRows) {
-      const exactKey = `${row.date || ''}|${row.amount || 0}`;
-      if (!exactGroups.has(exactKey)) exactGroups.set(exactKey, []);
-      exactGroups.get(exactKey).push(row);
-    }
-
-    let hasConfirmed = false;
-    for (const exactRows of exactGroups.values()) {
-      if (exactRows.length < 2) continue;
-      hasConfirmed = true;
-      confirmedGroups.push({
-        approvalKey,
-        person: exactRows[0].person || '',
-        persons: [...new Set(exactRows.map(row => row.person || '').filter(Boolean))],
-        date: exactRows[0].date || '',
-        amount: exactRows[0].amount || 0,
-        count: exactRows.length,
-        receipts: exactRows.slice(0, sampleLimit).map(summarizeReceiptForDuplicate),
-      });
-    }
-
-    if (!hasConfirmed) {
-      reviewGroups.push({
-        approvalKey,
-        count: groupRows.length,
-        reason: 'same_approval_different_date_or_amount',
-        receipts: groupRows.slice(0, sampleLimit).map(summarizeReceiptForDuplicate),
-      });
-    }
-  }
-
-  const confirmedReceiptCount = confirmedGroups.reduce((sum, group) => sum + group.count, 0);
+  const confirmedReceiptCount = confirmedGroups.reduce((sum, g) => sum + g.count, 0);
 
   return {
     missingApprovalCount,
     confirmedGroupCount: confirmedGroups.length,
     confirmedReceiptCount,
     reviewGroupCount: reviewGroups.length,
-    confirmedGroups: confirmedGroups.slice(0, sampleLimit),
-    reviewGroups: reviewGroups.slice(0, sampleLimit),
+    confirmedGroups: confirmedGroups.slice(0, sampleLimit).map(g => ({
+      approvalKey: g.approvalKey,
+      person: g.items[0]?.person || '',
+      persons: [...new Set(g.items.map(r => r.person || '').filter(Boolean))],
+      date: g.date,
+      amount: g.amount,
+      count: g.count,
+      receipts: g.items.map(summarizeReceiptForDuplicate),
+    })),
+    reviewGroups: reviewGroups.slice(0, sampleLimit).map(g => ({
+      approvalKey: g.approvalKey,
+      count: g.count,
+      reason: g.reason,
+      receipts: g.items.map(summarizeReceiptForDuplicate),
+    })),
   };
 }
