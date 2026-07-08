@@ -1,5 +1,6 @@
 import { createDrive, MAIN_FOLDER_ID } from './driveUtils.js';
 import { getKakaoAccessToken } from './notify/kakao.js';
+import { safeCompare } from './_auth.js';
 
 function envPresent(name) {
   return Boolean((process.env[name] || '').trim());
@@ -58,10 +59,23 @@ async function checkKakao() {
   }
 }
 
+function quickSummary() {
+  const ocr = envSection([], ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY']);
+  ocr.ok = ocr.optional.some(item => item.present);
+
+  return {
+    drive:     { ok: ['GDRIVE_CLIENT_ID', 'GDRIVE_CLIENT_SECRET', 'GDRIVE_REFRESH_TOKEN', 'GDRIVE_MAIN_FOLDER_ID'].every(envPresent) },
+    ocr:       { ok: ocr.ok },
+    kakao:     { ok: ['KAKAO_REST_API_KEY', 'KAKAO_MANAGER_REFRESH_TOKEN'].every(envPresent) },
+    upload:    { ok: envPresent('UPLOAD_API_TOKEN') },
+    adminAuth: { ok: envPresent('ADMIN_PIN') },
+  };
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Token');
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -69,7 +83,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  // 외부 호출 두 건을 병렬로, 한쪽 hang이 다른 쪽을 막지 않도록
+  // 관리자 인증 — X-Admin-Token 헤더 우선, ?admin= 쿼리는 하위 호환용
+  const adminToken = process.env.ADMIN_TOKEN;
+  const provided = (req.headers['x-admin-token'] || req.query?.admin || '').toString();
+  const isAdmin = Boolean(adminToken && provided && safeCompare(provided, adminToken));
+
+  // 비관리자: 외부 API 호출 없이 env 존재 여부만 반환
+  if (!isAdmin) {
+    return res.status(200).json({
+      success: true,
+      checkedAt: new Date().toISOString(),
+      services: quickSummary(),
+    });
+  }
+
+  // 관리자: Drive/Kakao 실제 연결 점검 수행
   const [driveSettled, kakaoSettled] = await Promise.allSettled([
     checkDrive(),
     checkKakao(),
@@ -86,22 +114,9 @@ export default async function handler(req, res) {
   const upload = envSection([], ['UPLOAD_API_TOKEN']);
   const adminAuth = envSection(['ADMIN_PIN'], []);
 
-  // 관리자 모드 (?admin=TOKEN)에서만 상세 정보 노출 — 일반 응답은 ok만
-  const adminQuery = (req.query && req.query.admin) || '';
-  const adminToken = process.env.ADMIN_TOKEN;
-  const isAdmin = adminToken && adminQuery === adminToken;
-
-  const summarize = (svc) => isAdmin ? svc : { ok: Boolean(svc?.ok) };
-
   return res.status(200).json({
     success: true,
     checkedAt: new Date().toISOString(),
-    services: {
-      drive: summarize(drive),
-      ocr: summarize(ocr),
-      kakao: summarize(kakao),
-      upload: summarize(upload),
-      adminAuth: summarize(adminAuth),
-    },
+    services: { drive, ocr, kakao, upload, adminAuth },
   });
 }

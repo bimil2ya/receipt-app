@@ -8,11 +8,13 @@
  * 발급받은 refresh_token을 Vercel 환경변수
  * KAKAO_MANAGER_REFRESH_TOKEN 에 저장하세요.
  */
+import { safeCompare } from './_auth.js';
+
 export default async function handler(req, res) {
   // 셋업 전용 라우트 보호 — ADMIN_TOKEN env 필요. OAuth state로 round-trip
   const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
   const providedToken = (req.query.admin || req.query.state || '').toString();
-  if (!ADMIN_TOKEN || providedToken !== ADMIN_TOKEN) {
+  if (!ADMIN_TOKEN || !safeCompare(providedToken, ADMIN_TOKEN)) {
     return res.status(404).send('Not Found');
   }
 

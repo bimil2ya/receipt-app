@@ -14,13 +14,15 @@
  * 발급받은 refresh_token을 Vercel 환경변수
  *   GDRIVE_REFRESH_TOKEN 에 저장하세요.
  */
+import { safeCompare } from './_auth.js';
+
 export default async function handler(req, res) {
   // 셋업 전용 라우트 보호 — ADMIN_TOKEN env가 설정돼야 동작
   // 평소엔 404로 위장해 외부 스캐너에 노출 최소화
   // OAuth state 파라미터로 토큰을 round-trip 시켜 callback에서도 검증
   const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
   const providedToken = (req.query.admin || req.query.state || '').toString();
-  if (!ADMIN_TOKEN || providedToken !== ADMIN_TOKEN) {
+  if (!ADMIN_TOKEN || !safeCompare(providedToken, ADMIN_TOKEN)) {
     return res.status(404).send('Not Found');
   }
 
