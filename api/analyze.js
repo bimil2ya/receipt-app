@@ -2,6 +2,7 @@ export const config = { runtime: 'edge' };
 
 import { ALLOWED_ORIGINS, getCorsHeaders, handleCorsPreFlight } from './_cors.js';
 import { analyzeRateLimiter } from './_rateLimiter.js';
+import { responseError, Errors } from './_errorHandler.js';
 import {
   buildTripDateContext,
   hasMissingApprovalNum,

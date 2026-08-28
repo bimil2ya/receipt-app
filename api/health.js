@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' };
 
 import { getCorsHeaders, handleCorsPreFlight } from './_cors.js';
+import { responseError, Errors } from './_errorHandler.js';
 
 export default async function handler(req) {
   const corsPreFlight = handleCorsPreFlight(req);
@@ -8,7 +9,7 @@ export default async function handler(req) {
 
   const resHeaders = { ...getCorsHeaders(req), 'Content-Type': 'application/json' };
 
-  if (req.method !== 'GET') return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: resHeaders });
+  if (req.method !== 'GET') return responseError(Errors.methodNotAllowed(), resHeaders);
 
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
@@ -22,6 +23,6 @@ export default async function handler(req) {
       message: hasApiKey ? '✅ 배포 정상' : '⚠️ API 키 설정 필요'
     }), { status: 200, headers: resHeaders });
   } catch (e) {
-    return new Response(JSON.stringify({ status: 'error', message: e.message }), { status: 500, headers: resHeaders });
+    return responseError(Errors.internalError(e.message), resHeaders);
   }
 }
