@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import crypto from 'crypto';
 import { ALLOWED_ORIGINS } from './_cors.js';
 import { safeCompare } from './_auth.js';
+import { uploadRateLimitCheck } from './_rateLimiter.js';
 import * as XLSX from 'xlsx';
 import {
   ARCHIVE_FOLDER_NAME,
@@ -27,23 +28,8 @@ import {
 } from './_uploadUtils.js';
 
 // 출처 단위 호출 제한 — 10분에 200회 (이미지 N장 업로드 시 1+N 요청 발생하므로 여유 있게 설정)
-const UPLOAD_RATE_WINDOW_MS = 10 * 60_000;
+// 분산 Vercel 환경에서 안전하게 작동하려면 _rateLimiter.js의 KV 기반 제한을 사용해야 함
 const UPLOAD_RATE_MAX = 200;
-const uploadRateBuckets = new Map();
-
-function uploadRateLimitCheck(key) {
-  const now = Date.now();
-  const bucket = uploadRateBuckets.get(key);
-  if (!bucket || bucket.resetAt < now) {
-    uploadRateBuckets.set(key, { count: 1, resetAt: now + UPLOAD_RATE_WINDOW_MS });
-    return { ok: true };
-  }
-  if (bucket.count >= UPLOAD_RATE_MAX) {
-    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
-  }
-  bucket.count += 1;
-  return { ok: true };
-}
 
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -191,9 +177,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── 호출 빈도 제한
+  // ── 호출 빈도 제한 (Vercel KV 기반 분산 제한)
   const rateKey = origin || 'unknown';
-  const rate = uploadRateLimitCheck(rateKey);
+  const rate = await uploadRateLimitCheck(rateKey);
   if (!rate.ok) {
     return res.status(429).json({
       success: false,

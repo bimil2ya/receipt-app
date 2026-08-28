@@ -12,12 +12,27 @@ export const STORE_SYNC_DAILY = 'sync_daily';
 export const DB_VERSION = 8;
 
 let dbCache = null;
+const MAX_CACHE_SIZE = 50; // 최대 50개 이미지만 메모리에 유지
 const imageUrlCache = new Map();
+const imageCacheOrder = []; // LRU 추적용
+
+function evictOldestFromCache() {
+  if (imageCacheOrder.length === 0) return;
+  const oldestId = imageCacheOrder.shift();
+  if (imageUrlCache.has(oldestId)) {
+    const url = imageUrlCache.get(oldestId);
+    URL.revokeObjectURL(url);
+    imageUrlCache.delete(oldestId);
+  }
+}
 
 export function revokeReceiptImageUrl(imageId) {
   if (!imageId || !imageUrlCache.has(imageId)) return;
-  URL.revokeObjectURL(imageUrlCache.get(imageId));
+  const url = imageUrlCache.get(imageId);
+  URL.revokeObjectURL(url);
   imageUrlCache.delete(imageId);
+  const idx = imageCacheOrder.indexOf(imageId);
+  if (idx > -1) imageCacheOrder.splice(idx, 1);
 }
 
 export function clearReceiptImageUrlCache() {
@@ -25,6 +40,7 @@ export function clearReceiptImageUrlCache() {
     URL.revokeObjectURL(url);
   }
   imageUrlCache.clear();
+  imageCacheOrder.length = 0;
 }
 
 export async function openReceiptDb() {
@@ -62,7 +78,16 @@ export async function openReceiptDb() {
 
 export async function getReceiptImageUrl(imageId) {
   if (!imageId) return null;
-  if (imageUrlCache.has(imageId)) return imageUrlCache.get(imageId);
+
+  // 캐시 히트: LRU 순서 업데이트
+  if (imageUrlCache.has(imageId)) {
+    const idx = imageCacheOrder.indexOf(imageId);
+    if (idx > -1) imageCacheOrder.splice(idx, 1);
+    imageCacheOrder.push(imageId);
+    return imageUrlCache.get(imageId);
+  }
+
+  // 캐시 미스: IndexedDB에서 로드
   const db = await openReceiptDb();
   const record = await new Promise(res => {
     const tx = db.transaction(STORE_IMAGES, 'readonly');
@@ -70,8 +95,16 @@ export async function getReceiptImageUrl(imageId) {
     req.onsuccess = () => res(req.result);
     req.onerror = () => res(null);
   });
+
   if (!record?.blob) return null;
+
+  // 캐시 크기 제한: LRU 방식으로 가장 오래된 항목 제거
+  if (imageUrlCache.size >= MAX_CACHE_SIZE) {
+    evictOldestFromCache();
+  }
+
   const url = URL.createObjectURL(record.blob);
   imageUrlCache.set(imageId, url);
+  imageCacheOrder.push(imageId);
   return url;
 }

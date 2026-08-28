@@ -1,33 +1,13 @@
-export const config = { runtime: 'edge' };
+export const config = { runtime: 'nodejs' }; // KV 지원을 위해 Edge → Node.js 변경
 
 import { ALLOWED_ORIGINS } from './_cors.js';
+import { analyzeRateLimitCheck } from './_rateLimiter.js';
 import {
   buildTripDateContext,
   hasMissingApprovalNum,
   normalizeApprovalNum,
   repairReceiptDates,
 } from './_analyzeUtils.js';
-
-// 모듈 메모리 기반 분당 호출 제한 — Fluid Compute는 인스턴스를 재사용하므로
-// 단일 인스턴스 폭주를 누그러뜨리는 1차 방어선으로 동작.
-// 완전한 글로벌 제한이 필요하면 외부 store(KV 등) 사용 필요.
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_PER_WINDOW = 30;
-const rateBuckets = new Map(); // key: origin → { count, resetAt }
-
-function rateLimitCheck(key) {
-  const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || bucket.resetAt < now) {
-    rateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return { ok: true };
-  }
-  if (bucket.count >= RATE_MAX_PER_WINDOW) {
-    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
-  }
-  bucket.count += 1;
-  return { ok: true };
-}
 
 export default async function handler(req) {
   // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
@@ -52,14 +32,14 @@ export default async function handler(req) {
     }
   }
 
-  // 분당 호출 제한 (출처 단위)
+  // 분당 호출 제한 (Vercel KV 기반 분산 제한)
   const rateKey = origin || 'unknown';
-  const rate = rateLimitCheck(rateKey);
+  const rate = await analyzeRateLimitCheck(rateKey);
   if (!rate.ok) {
     return new Response(JSON.stringify({
       success: false,
       error: '호출 빈도 제한',
-      detail: `분당 ${RATE_MAX_PER_WINDOW}회 초과. ${rate.retryAfterSec}초 후 재시도.`,
+      detail: `분당 30회 초과. ${rate.retryAfterSec}초 후 재시도.`,
     }), { status: 429, headers: { ...resHeaders, 'Content-Type': 'application/json', 'Retry-After': String(rate.retryAfterSec) } });
   }
 
