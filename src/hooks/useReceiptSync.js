@@ -140,53 +140,69 @@ export default function useReceiptSync({ dbOpen, loading, onSyncStatusChange }) 
     syncEventWriteRef.current = syncEventWriteRef.current.then(async () => {
       try {
         const db = await dbOpen();
-        const tx = db.transaction([STORE_SYNC_EVENTS, STORE_SYNC_DAILY], 'readwrite');
-        const eventStore = tx.objectStore(STORE_SYNC_EVENTS);
-        const dailyStore = tx.objectStore(STORE_SYNC_DAILY);
-        eventStore.put(item);
 
-        const dailyKey = toDayKey(item.at);
-        const dailyReq = dailyStore.get(dailyKey);
-        dailyReq.onsuccess = () => {
-          const current = dailyReq.result || {
-            date: dailyKey,
-            total: 0,
-            success: 0,
-            error: 0,
-            save: 0,
-            sync: 0,
-            deleteCount: 0,
-            updatedAt: 0,
+        // Promise로 transaction을 래핑: onsuccess/onerror 콜백이 완료될 때까지 대기
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction([STORE_SYNC_EVENTS, STORE_SYNC_DAILY], 'readwrite');
+          const eventStore = tx.objectStore(STORE_SYNC_EVENTS);
+          const dailyStore = tx.objectStore(STORE_SYNC_DAILY);
+
+          // 1. event를 먼저 저장
+          eventStore.put(item);
+
+          // 2. daily 통계를 읽고 업데이트 (같은 transaction 내에서)
+          const dailyKey = toDayKey(item.at);
+          const dailyReq = dailyStore.get(dailyKey);
+
+          dailyReq.onsuccess = () => {
+            const current = dailyReq.result || {
+              date: dailyKey,
+              total: 0,
+              success: 0,
+              error: 0,
+              save: 0,
+              sync: 0,
+              deleteCount: 0,
+              updatedAt: 0,
+            };
+
+            // 같은 transaction 내에서 put 호출
+            dailyStore.put({
+              ...current,
+              date: dailyKey,
+              total: (current.total || 0) + 1,
+              success: (current.success || 0) + (item.status === 'success' ? 1 : 0),
+              error: (current.error || 0) + (item.status === 'error' ? 1 : 0),
+              save: (current.save || 0) + (item.kind === 'save' ? 1 : 0),
+              sync: (current.sync || 0) + (item.kind === 'sync' ? 1 : 0),
+              deleteCount: (current.deleteCount || 0) + (item.kind === 'delete' ? 1 : 0),
+              updatedAt: item.at,
+            });
           };
-          dailyStore.put({
-            ...current,
-            date: dailyKey,
-            total: (current.total || 0) + 1,
-            success: (current.success || 0) + (item.status === 'success' ? 1 : 0),
-            error: (current.error || 0) + (item.status === 'error' ? 1 : 0),
-            save: (current.save || 0) + (item.kind === 'save' ? 1 : 0),
-            sync: (current.sync || 0) + (item.kind === 'sync' ? 1 : 0),
-            deleteCount: (current.deleteCount || 0) + (item.kind === 'delete' ? 1 : 0),
-            updatedAt: item.at,
-          });
-        };
 
-        tx.oncomplete = async () => {
-          const db = await dbOpen();
-          await persistSyncRetentionDb(db, STORE_SYNC_EVENTS, STORE_SYNC_DAILY);
-          const [events, daily] = await Promise.all([loadSyncEvents(db), loadSyncDaily(db)]);
-          setSyncEvents(events);
-          setSyncDaily(daily);
-        };
-        tx.onerror = () => {
-          const fallback = sortByNewest([item, ...readJsonStorage(SYNC_EVENTS_KEY, [])], 'at').slice(0, 30);
-          writeJsonStorage(SYNC_EVENTS_KEY, fallback);
-          setSyncEvents(fallback);
-          const fallbackDaily = buildDailyRows(fallback);
-          writeJsonStorage(SYNC_DAILY_KEY, fallbackDaily);
-          setSyncDaily(fallbackDaily.slice(0, 60));
-        };
-      } catch {
+          dailyReq.onerror = () => reject(dailyReq.error);
+
+          // Transaction 완료: 새로운 DB 핸들에서 조회
+          tx.oncomplete = async () => {
+            try {
+              const db2 = await dbOpen();
+              await persistSyncRetentionDb(db2, STORE_SYNC_EVENTS, STORE_SYNC_DAILY);
+              const [events, daily] = await Promise.all([
+                loadSyncEvents(db2),
+                loadSyncDaily(db2)
+              ]);
+              setSyncEvents(events);
+              setSyncDaily(daily);
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+
+          tx.onerror = () => reject(tx.error);
+        });
+      } catch (error) {
+        // Fallback: IndexedDB 실패 시 localStorage 사용
         const fallback = sortByNewest([item, ...readJsonStorage(SYNC_EVENTS_KEY, [])], 'at').slice(0, 30);
         writeJsonStorage(SYNC_EVENTS_KEY, fallback);
         setSyncEvents(fallback);

@@ -94,6 +94,7 @@ export default function useReceiptCrud({
       }
 
       writeTx.oncomplete = async () => {
+        // 1단계: IndexedDB 커밋 성공, UI 업데이트
         onReceiptsLoaded(prev => {
           const next = [...prev];
           preparedItems.forEach(item => {
@@ -103,45 +104,71 @@ export default function useReceiptCrud({
           });
           return next;
         });
-        onSaveStatusChange('success');
 
-        if (supabase) {
-          onSyncStatusChange('syncing');
+        // 2단계: Supabase 동기화 시도 (별도 단계)
+        if (!supabase) {
+          onSaveStatusChange('success');
+          resolve();
+          return;
+        }
+
+        // Supabase 동기화를 별도로 처리
+        onSyncStatusChange('syncing');
+        try {
+          const { error, data: upsertedData } = await supabase
+            .from('receipts')
+            .upsert(preparedItems)
+            .select();
+
+          if (error) throw error;
+
+          // 부분 실패 감지: 요청한 개수와 응답 개수 비교
+          if (!upsertedData || upsertedData.length !== preparedItems.length) {
+            throw new Error(`부분 실패: ${upsertedData?.length || 0}/${preparedItems.length}건 동기화`);
+          }
+
+          onSaveStatusChange('success');
+          onSyncStatusChange('success');
+          recordSyncEvent({
+            kind: 'save',
+            status: 'success',
+            title: '저장 동기화 완료',
+            detail: `${preparedItems.length}건`,
+          });
+          resolve();
+        } catch (err) {
+          // Supabase 실패: 모든 항목을 sync queue에 추가
+          if (import.meta.env.DEV) console.error('Supabase Upsert Error:', err);
+          onSaveStatusChange('error');
+          onSyncStatusChange('error');
+          recordSyncEvent({
+            kind: 'save',
+            status: 'error',
+            title: '저장 동기화 실패',
+            detail: formatFailureDetail(err),
+          });
+
           try {
-            const { error } = await supabase.from('receipts').upsert(preparedItems);
-            if (error) throw error;
-            onSyncStatusChange('success');
+            await appendSyncOp({ type: 'upsert', items: preparedItems });
+            await retryPendingSync();
+            // sync queue에 추가 성공
             recordSyncEvent({
               kind: 'save',
-              status: 'success',
-              title: '저장 동기화 완료',
-              detail: `${preparedItems.length}건`,
+              status: 'info',
+              title: '보류 큐에 추가됨',
+              detail: `${preparedItems.length}건이 재시도 대기 중`,
             });
-          } catch (err) {
-            if (import.meta.env.DEV) console.error('Supabase Upsert Error:', err);
-            onSyncStatusChange('error');
+          } catch (queueErr) {
+            if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
             recordSyncEvent({
               kind: 'save',
               status: 'error',
-              title: '저장 동기화 실패',
-              detail: formatFailureDetail(err),
+              title: '보류 큐 적재 실패',
+              detail: formatFailureDetail(queueErr),
             });
-            try {
-              await appendSyncOp({ type: 'upsert', items: preparedItems });
-              retryPendingSync();
-            } catch (queueErr) {
-              if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
-              recordSyncEvent({
-                kind: 'save',
-                status: 'error',
-                title: '보류 큐 적재 실패',
-                detail: formatFailureDetail(queueErr),
-              });
-            }
           }
+          resolve();
         }
-
-        resolve();
       };
       writeTx.onerror = () => {
         onSaveStatusChange('error');
@@ -154,37 +181,55 @@ export default function useReceiptCrud({
     const db = await dbOpen();
     onSaveStatusChange('saving');
 
-    const [target, allRecs] = await Promise.all([
-      new Promise(res => {
-        const tx = db.transaction(STORE_RECEIPTS, 'readonly');
-        const req = tx.objectStore(STORE_RECEIPTS).get(id);
-        req.onsuccess = () => res(req.result);
-        req.onerror = () => res(null);
-      }),
-      new Promise(res => {
-        const tx = db.transaction(STORE_RECEIPTS, 'readonly');
-        const req = tx.objectStore(STORE_RECEIPTS).getAll();
-        req.onsuccess = () => res(req.result || []);
-        req.onerror = () => res([]);
-      }),
-    ]);
-
-    const shouldDeleteImage =
-      target?.imageId &&
-      allRecs.filter(r => r.id !== id && r.imageId === target.imageId).length === 0;
-
-    const storeNames = shouldDeleteImage ? [STORE_RECEIPTS, STORE_IMAGES] : [STORE_RECEIPTS];
-    const tx = db.transaction(storeNames, 'readwrite');
-    tx.objectStore(STORE_RECEIPTS).delete(id);
-    if (shouldDeleteImage) {
-      tx.objectStore(STORE_IMAGES).delete(target.imageId);
-      revokeReceiptImageUrl(target.imageId);
-    }
-
     return new Promise((resolve, reject) => {
+      // 단일 readwrite transaction으로 모든 작업 수행 (Race Condition 방지)
+      const tx = db.transaction([STORE_RECEIPTS, STORE_IMAGES], 'readwrite');
+      const receiptStore = tx.objectStore(STORE_RECEIPTS);
+      const imageStore = tx.objectStore(STORE_IMAGES);
+
+      // 1. 대상 receipt 읽기
+      const targetReq = receiptStore.get(id);
+      let target = null;
+      let shouldDeleteImage = false;
+
+      targetReq.onsuccess = () => {
+        target = targetReq.result;
+
+        if (target?.imageId) {
+          // 2. 같은 imageId 참조하는 다른 receipt 확인 (index 사용)
+          const indexReq = receiptStore.index('imageId');
+          const range = IDBKeyRange.only(target.imageId);
+          const countReq = indexReq.count(range);
+
+          countReq.onsuccess = () => {
+            // transaction 내에서 원자적으로 판단: target 자신만 참조 중이면 이미지 삭제
+            shouldDeleteImage = countReq.result === 1;
+
+            // 3. receipt 삭제
+            receiptStore.delete(id);
+
+            // 4. 이미지 삭제 (필요한 경우)
+            if (shouldDeleteImage) {
+              imageStore.delete(target.imageId);
+            }
+          };
+
+          countReq.onerror = () => reject(new Error('이미지 참조 확인 실패'));
+        } else {
+          // imageId 없으면 그냥 receipt만 삭제
+          receiptStore.delete(id);
+        }
+      };
+
+      targetReq.onerror = () => reject(new Error('대상 receipt 조회 실패'));
+
       tx.oncomplete = async () => {
         onReceiptsLoaded(prev => prev.filter(r => r.id !== id));
         onSaveStatusChange('success');
+
+        if (target?.imageId && shouldDeleteImage) {
+          revokeReceiptImageUrl(target.imageId);
+        }
 
         if (supabase) {
           const deleteUserId = getOrCreateDeviceId();
