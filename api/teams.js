@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
 import { safeCompare } from './_auth.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';
@@ -15,13 +15,6 @@ const FALLBACK_TEAMS = [
   { id: 7, names: '신상대, 함윤성' },
 ];
 
-function setCors(res, origin) {
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  res.setHeader('Access-Control-Allow-Origin', allowed);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Admin-Pin');
-}
 
 function bufferFromStream(stream) {
   return new Promise((resolve, reject) => {
@@ -52,10 +45,12 @@ async function findTeamsFile(drive) {
 }
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin || '';
-  setCors(res, origin);
-
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  // CORS 헤더 설정 (OPTIONS 요청 자동 처리)
+  const corsResult = applyCorsHeaders(req, res, {
+    methods: 'GET, POST, OPTIONS',
+    extraHeaders: 'X-Admin-Pin',
+  });
+  if (corsResult === true) return; // OPTIONS 처리됨
 
   if (req.method === 'GET') {
     try {

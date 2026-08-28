@@ -5,7 +5,7 @@ import {
   getOrCreateFolderByNormalizedName,
   MAIN_FOLDER_ID,
 } from './driveUtils.js';
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
 import { safeCompare } from './_auth.js';
 
 // 출처 단위 호출 제한 — 10분에 60회 (list 1회 + download N회 감안)
@@ -28,14 +28,6 @@ function restoreRateLimitCheck(key) {
 }
 
 const IMAGE_MIME_PATTERN = /^image\/(jpeg|png|webp)$/i;
-
-function setCors(res, origin) {
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-}
 
 function bufferFromStream(stream) {
   return new Promise((resolve, reject) => {
@@ -87,19 +79,14 @@ async function collectImageFilesRecursive(drive, folderId, seenFileIds = new Set
  * 인증: 브라우저 호출은 출처 검증, 서버 간 호출은 선택적 UPLOAD_API_TOKEN
  */
 export default async function handler(req, res) {
+  // CORS 헤더 설정 (OPTIONS 요청 자동 처리)
+  const corsResult = applyCorsHeaders(req, res);
+  if (corsResult === true) return; // OPTIONS 처리됨
+
   const origin = req.headers.origin || '';
-  setCors(res, origin);
+  if (!checkOriginAllowed(req, res)) return; // 출처 검증 (프로덕션만)
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
-
-  if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
-    const referer = req.headers.referer || '';
-    const refererOk = ALLOWED_ORIGINS.some(o => referer.startsWith(o + '/') || referer === o);
-    if (!refererOk) {
-      return res.status(403).json({ success: false, error: '허용되지 않은 출처' });
-    }
-  }
 
   // ── 호출 빈도 제한
   const rateKey = origin || 'unknown';

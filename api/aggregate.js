@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
 import { ALLOWED_ORIGINS } from './_cors.js'
+import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js'
 import { safeCompare } from './_auth.js'
 import {
   buildDatePersonMap,
@@ -282,23 +283,12 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
 }
 
 export default async function handler(req, res) {
-  // 출처 화이트리스트 + CORS 동적 매칭 (upload.js와 동일 패턴)
-  const origin = req.headers.origin || ''
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
-  res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
-  res.setHeader('Vary', 'Origin')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-  if (req.method === 'OPTIONS') return res.status(200).end()
+  // CORS 헤더 설정 (OPTIONS 요청 자동 처리)
+  const corsResult = applyCorsHeaders(req, res, { methods: 'GET, POST, OPTIONS' })
+  if (corsResult === true) return // OPTIONS 처리됨
 
-  // 프로덕션에서 허용되지 않은 출처는 403
-  if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
-    const referer = req.headers.referer || ''
-    const refererOk = ALLOWED_ORIGINS.some(o => referer.startsWith(o + '/') || referer === o)
-    if (!refererOk) {
-      return res.status(403).json({ success: false, error: '허용되지 않은 출처', detail: `origin: ${origin || '(없음)'}` })
-    }
-  }
+  const origin = req.headers.origin || ''
+  if (!checkOriginAllowed(req, res)) return // 출처 검증 (프로덕션만)
 
   // ── 인증 토큰 검증 (upload.js와 동일하게 필수)
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN
