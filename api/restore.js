@@ -6,26 +6,9 @@ import {
   MAIN_FOLDER_ID,
 } from './driveUtils.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
+import { restoreRateLimiter } from './_rateLimiter.js';
 import { safeCompare } from './_auth.js';
 
-// 출처 단위 호출 제한 — 10분에 60회 (list 1회 + download N회 감안)
-const RESTORE_RATE_WINDOW_MS = 10 * 60_000;
-const RESTORE_RATE_MAX = 60;
-const restoreRateBuckets = new Map();
-
-function restoreRateLimitCheck(key) {
-  const now = Date.now();
-  const bucket = restoreRateBuckets.get(key);
-  if (!bucket || bucket.resetAt < now) {
-    restoreRateBuckets.set(key, { count: 1, resetAt: now + RESTORE_RATE_WINDOW_MS });
-    return { ok: true };
-  }
-  if (bucket.count >= RESTORE_RATE_MAX) {
-    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
-  }
-  bucket.count += 1;
-  return { ok: true };
-}
 
 const IMAGE_MIME_PATTERN = /^image\/(jpeg|png|webp)$/i;
 
@@ -90,12 +73,12 @@ export default async function handler(req, res) {
 
   // ── 호출 빈도 제한
   const rateKey = origin || 'unknown';
-  const rate = restoreRateLimitCheck(rateKey);
+  const rate = restoreRateLimiter(rateKey);
   if (!rate.ok) {
     return res.status(429).json({
       success: false,
       error: '호출 빈도 제한',
-      detail: `10분에 ${RESTORE_RATE_MAX}회 초과. ${rate.retryAfterSec}초 후 재시도.`,
+      detail: `10분에 60회 초과. ${rate.retryAfterSec}초 후 재시도.`,
     });
   }
 

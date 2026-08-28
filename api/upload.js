@@ -2,6 +2,7 @@ import { Readable } from 'stream';
 import crypto from 'crypto';
 import { ALLOWED_ORIGINS } from './_cors.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
+import { uploadRateLimiter } from './_rateLimiter.js';
 import { safeCompare } from './_auth.js';
 import * as XLSX from 'xlsx';
 import {
@@ -27,24 +28,6 @@ import {
   shorten,
 } from './_uploadUtils.js';
 
-// 출처 단위 호출 제한 — 10분에 200회 (이미지 N장 업로드 시 1+N 요청 발생하므로 여유 있게 설정)
-const UPLOAD_RATE_WINDOW_MS = 10 * 60_000;
-const UPLOAD_RATE_MAX = 200;
-const uploadRateBuckets = new Map();
-
-function uploadRateLimitCheck(key) {
-  const now = Date.now();
-  const bucket = uploadRateBuckets.get(key);
-  if (!bucket || bucket.resetAt < now) {
-    uploadRateBuckets.set(key, { count: 1, resetAt: now + UPLOAD_RATE_WINDOW_MS });
-    return { ok: true };
-  }
-  if (bucket.count >= UPLOAD_RATE_MAX) {
-    return { ok: false, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
-  }
-  bucket.count += 1;
-  return { ok: true };
-}
 
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -184,12 +167,12 @@ export default async function handler(req, res) {
 
   // ── 호출 빈도 제한
   const rateKey = origin || 'unknown';
-  const rate = uploadRateLimitCheck(rateKey);
+  const rate = uploadRateLimiter(rateKey);
   if (!rate.ok) {
     return res.status(429).json({
       success: false,
       error: '호출 빈도 제한',
-      detail: `10분에 ${UPLOAD_RATE_MAX}회 초과. ${rate.retryAfterSec}초 후 재시도.`,
+      detail: `10분에 200회 초과. ${rate.retryAfterSec}초 후 재시도.`,
     });
   }
 
