@@ -1,6 +1,6 @@
 export const config = { runtime: 'edge' };
 
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { ALLOWED_ORIGINS, getCorsHeaders, handleCorsPreFlight } from './_cors.js';
 
 // 비즈노 API가 (주), & 같은 한글/특수문자를 XML 인코딩해 반환하는 경우 디코딩
 function decodeHtmlEntities(str) {
@@ -17,15 +17,11 @@ function decodeHtmlEntities(str) {
 }
 
 export default async function handler(req) {
-  // 출처 화이트리스트 — 비즈노 API 무단 소모 방지 (upload/aggregate와 동일 패턴)
+  const corsPreFlight = handleCorsPreFlight(req);
+  if (corsPreFlight) return corsPreFlight;
+
+  const resHeaders = getCorsHeaders(req);
   const origin = req.headers.get?.('origin') || req.headers.origin || '';
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  const resHeaders = {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
 
   if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
     const referer = req.headers.get?.('referer') || req.headers.referer || '';
@@ -35,8 +31,7 @@ export default async function handler(req) {
     }
   }
 
-  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: resHeaders });
-  if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: resHeaders });
+  if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
 
   try {
     const { bizNum, apiKey } = await req.json();

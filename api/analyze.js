@@ -1,6 +1,6 @@
 export const config = { runtime: 'edge' };
 
-import { ALLOWED_ORIGINS } from './_cors.js';
+import { ALLOWED_ORIGINS, getCorsHeaders, handleCorsPreFlight } from './_cors.js';
 import {
   buildTripDateContext,
   hasMissingApprovalNum,
@@ -30,18 +30,13 @@ function rateLimitCheck(key) {
 }
 
 export default async function handler(req) {
-  // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
-  const origin = req.headers.get('origin') || '';
-  const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  const resHeaders = {
-    'Access-Control-Allow-Origin': allowedOrigin,
-    'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+  const corsPreFlight = handleCorsPreFlight(req);
+  if (corsPreFlight) return corsPreFlight;
 
-  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: resHeaders });
-  if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: resHeaders });
+  const resHeaders = getCorsHeaders(req);
+  const origin = req.headers.get('origin') || '';
+
+  if (req.method !== 'POST') return new Response(JSON.stringify({ success: false, error: 'Method not allowed' }), { status: 405, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
 
   // 프로덕션에서 허용되지 않은 출처는 403
   if (process.env.VERCEL_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {

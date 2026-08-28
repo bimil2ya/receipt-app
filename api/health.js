@@ -1,12 +1,13 @@
 export const config = { runtime: 'edge' };
 
-export default async function handler(req) {
-  const resHeaders = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-  };
+import { getCorsHeaders, handleCorsPreFlight } from './_cors.js';
 
-  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: resHeaders });
+export default async function handler(req) {
+  const corsPreFlight = handleCorsPreFlight(req);
+  if (corsPreFlight) return corsPreFlight;
+
+  const resHeaders = { ...getCorsHeaders(req), 'Content-Type': 'application/json' };
+
   if (req.method !== 'GET') return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: resHeaders });
 
   try {
