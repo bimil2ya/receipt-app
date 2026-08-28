@@ -5,6 +5,7 @@ import { buildApprovalDuplicateReport } from './approvalReport.js'
 import { ALLOWED_ORIGINS } from './_cors.js'
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js'
 import { safeCompare } from './_auth.js'
+import { jsonError, Errors } from './_errorHandler.js'
 import {
   buildDatePersonMap,
   buildDetailRows,
@@ -294,17 +295,13 @@ export default async function handler(req, res) {
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN
   const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV)
   if (!UPLOAD_TOKEN && isVercelHosted) {
-    return res.status(503).json({
-      success: false,
-      error: '집계 인증이 설정되지 않았습니다.',
-      detail: 'UPLOAD_API_TOKEN 환경변수가 필요합니다.',
-    })
+    return jsonError(res, Errors.internalError('집계 인증이 설정되지 않았습니다.'))
   }
   if (UPLOAD_TOKEN) {
     const authHeader = req.headers['authorization'] || ''
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
     if (!safeCompare(provided, UPLOAD_TOKEN)) {
-      return res.status(401).json({ success: false, error: '인증 실패', detail: '유효하지 않은 토큰입니다.' })
+      return jsonError(res, Errors.unauthorized('유효하지 않은 토큰입니다.'))
     }
   }
 
@@ -314,6 +311,6 @@ export default async function handler(req, res) {
     return res.status(200).json(result)
   } catch (err) {
     console.error('Aggregate error:', err)
-    return res.status(500).json({ success: false, error: err.message })
+    return jsonError(res, Errors.internalError(err.message))
   }
 }

@@ -8,6 +8,7 @@ import {
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
 import { restoreRateLimiter } from './_rateLimiter.js';
 import { safeCompare } from './_auth.js';
+import { jsonError, Errors } from './_errorHandler.js';
 
 
 const IMAGE_MIME_PATTERN = /^image\/(jpeg|png|webp)$/i;
@@ -69,17 +70,13 @@ export default async function handler(req, res) {
   const origin = req.headers.origin || '';
   if (!checkOriginAllowed(req, res)) return; // 출처 검증 (프로덕션만)
 
-  if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
+  if (req.method !== 'POST') return jsonError(res, Errors.methodNotAllowed());
 
   // ── 호출 빈도 제한
   const rateKey = origin || 'unknown';
   const rate = restoreRateLimiter(rateKey);
   if (!rate.ok) {
-    return res.status(429).json({
-      success: false,
-      error: '호출 빈도 제한',
-      detail: `10분에 60회 초과. ${rate.retryAfterSec}초 후 재시도.`,
-    });
+    return jsonError(res, Errors.rateLimit(`10분에 60회 초과. ${rate.retryAfterSec}초 후 재시도.`));
   }
 
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN;
@@ -87,7 +84,7 @@ export default async function handler(req, res) {
   if (authHeader) {
     const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     if (!UPLOAD_TOKEN || !safeCompare(provided, UPLOAD_TOKEN)) {
-      return res.status(401).json({ success: false, error: '인증 실패' });
+      return jsonError(res, Errors.unauthorized());
     }
   }
 
@@ -95,24 +92,24 @@ export default async function handler(req, res) {
     const { action, surveyorName, yearMonth, fileId } = req.body || {};
 
     if (action !== 'list' && action !== 'download') {
-      return res.status(400).json({ success: false, error: 'action은 list 또는 download여야 합니다.' });
+      return jsonError(res, Errors.badRequest('action은 list 또는 download여야 합니다.'));
     }
 
     const drive = createDrive();
 
     if (action === 'list') {
       if (!surveyorName || typeof surveyorName !== 'string') {
-        return res.status(400).json({ success: false, error: 'surveyorName이 없습니다.' });
+        return jsonError(res, Errors.badRequest('surveyorName이 없습니다.'));
       }
       if (surveyorName.length > 80) {
-        return res.status(400).json({ success: false, error: 'surveyorName이 너무 깁니다.' });
+        return jsonError(res, Errors.badRequest('surveyorName이 너무 깁니다.'));
       }
       // Drive 폴더명에서 실제로 금지된 문자만 차단 (공백·쉼표는 한국 이름에 허용)
       if (/[\\/:*?"<>|]/.test(surveyorName)) {
-        return res.status(400).json({ success: false, error: 'surveyorName에 사용할 수 없는 문자가 포함됨.' });
+        return jsonError(res, Errors.badRequest('surveyorName에 사용할 수 없는 문자가 포함됨.'));
       }
       if (!yearMonth || typeof yearMonth !== 'string' || !/^\d{4}년 \d{2}월$/.test(yearMonth)) {
-        return res.status(400).json({ success: false, error: 'yearMonth 형식 오류 (예: "2026년 06월").' });
+        return jsonError(res, Errors.badRequest('yearMonth 형식 오류 (예: "2026년 06월").'));
       }
 
       // 폴더 경로: MAIN / yearMonth / surveyorName
@@ -130,21 +127,21 @@ export default async function handler(req, res) {
 
     // action === 'download'
     if (!fileId || typeof fileId !== 'string' || fileId.length > 200) {
-      return res.status(400).json({ success: false, error: 'fileId가 없거나 형식 오류.' });
+      return jsonError(res, Errors.badRequest('fileId가 없거나 형식 오류.'));
     }
     // fileId는 Drive의 알파벳·숫자·하이픈·언더스코어 조합
     if (!/^[A-Za-z0-9_-]+$/.test(fileId)) {
-      return res.status(400).json({ success: false, error: 'fileId 형식 오류.' });
+      return jsonError(res, Errors.badRequest('fileId 형식 오류.'));
     }
 
     // 메타데이터 조회 — mimeType과 name 확보
     const metaRes = await drive.files.get({ fileId, fields: 'id,name,mimeType,size' });
     const meta = metaRes.data;
     if (!IMAGE_MIME_PATTERN.test(meta.mimeType || '')) {
-      return res.status(400).json({ success: false, error: '이미지 파일만 다운로드할 수 있습니다.' });
+      return jsonError(res, Errors.badRequest('이미지 파일만 다운로드할 수 있습니다.'));
     }
     if (Number(meta.size || 0) > 10 * 1024 * 1024) {
-      return res.status(413).json({ success: false, error: '파일이 너무 큽니다 (최대 10MB).' });
+      return jsonError(res, { statusCode: 413, error: 'PAYLOAD_TOO_LARGE', message: '파일이 너무 큽니다 (최대 10MB).' });
     }
 
     const stream = await drive.files.get(
@@ -163,8 +160,8 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Restore error:', error);
     if (/invalid_grant|token.*expired|revoked|unauthorized/i.test(error.message || '')) {
-      return res.status(401).json({ success: false, error: 'Google Drive 인증이 만료되었습니다. 관리자에게 Drive 재연결을 요청하세요.' });
+      return jsonError(res, Errors.unauthorized('Google Drive 인증이 만료되었습니다. 관리자에게 Drive 재연결을 요청하세요.'));
     }
-    return res.status(500).json({ success: false, error: error.message || '복원 실패' });
+    return jsonError(res, Errors.internalError(error.message || '복원 실패'));
   }
 }

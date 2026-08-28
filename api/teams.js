@@ -1,6 +1,7 @@
 import { Readable } from 'stream';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
+import { jsonError, Errors } from './_errorHandler.js';
 import { safeCompare } from './_auth.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';
@@ -71,10 +72,10 @@ export default async function handler(req, res) {
     const ADMIN_PIN = process.env.ADMIN_PIN;
     const providedPin = String(req.headers['x-admin-pin'] || '').trim();
     if (!ADMIN_PIN) {
-      return res.status(503).json({ success: false, error: '관리자 인증이 설정되지 않았습니다.' });
+      return jsonError(res, createError(503, 'AUTH_NOT_CONFIGURED', '관리자 인증이 설정되지 않았습니다.'));
     }
     if (!safeCompare(providedPin, ADMIN_PIN)) {
-      return res.status(401).json({ success: false, error: '관리자 인증 실패' });
+      return jsonError(res, Errors.unauthorized('관리자 인증 실패'));
     }
 
     const { action, teams } = req.body || {};
@@ -83,11 +84,11 @@ export default async function handler(req, res) {
     }
 
     if (!Array.isArray(teams) || teams.length === 0) {
-      return res.status(400).json({ success: false, error: '팀 목록이 없습니다.' });
+      return jsonError(res, Errors.badRequest('팀 목록이 없습니다.'));
     }
     for (const t of teams) {
       if (!t.names || typeof t.names !== 'string') {
-        return res.status(400).json({ success: false, error: '팀 형식 오류' });
+        return jsonError(res, Errors.badRequest('팀 형식 오류'));
       }
     }
 
@@ -116,9 +117,9 @@ export default async function handler(req, res) {
       return res.json({ success: true });
     } catch (e) {
       console.error('Teams save error:', e);
-      return res.status(500).json({ success: false, error: e.message });
+      return jsonError(res, Errors.internalError(e.message));
     }
   }
 
-  return res.status(405).json({ success: false, error: 'Method Not Allowed' });
+  return jsonError(res, Errors.methodNotAllowed());
 }
