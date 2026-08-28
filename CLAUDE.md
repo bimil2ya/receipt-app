@@ -54,11 +54,37 @@ return (
 - 서버 전용 환경변수: `ADMIN_PIN`, `UPLOAD_API_TOKEN`, `ANTHROPIC_API_KEY` 등 접두사 없이 사용.
 - 프론트엔드 공개 값만: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 등.
 
-### 5. 배포 절차
+### 5. 배포 절차 (안전한 배포 시스템)
+
+**반드시 이 순서를 따른다:**
 
 ```bash
-npm run build   # 에러 없는지 확인
-vercel --prod   # 프로덕션 배포
+# 1단계: 로컬 검증
+npm run build    # 빌드 에러 확인
+npm run lint     # 코드 문법 검사
+
+# 2단계: 환경변수 검증 + Vercel 배포
+npm run deploy:prod
 ```
 
-빌드 에러가 있으면 배포하지 않는다.
+**배포 완료 후 확인:**
+
+```bash
+# Health check로 배포 성공 여부 확인
+curl https://receipt-app-rho.vercel.app/api/health
+```
+
+응답 예시:
+```json
+{
+  "status": "ok",
+  "environment": "production",
+  "hasApiKey": true,
+  "message": "✅ 배포 정상"
+}
+```
+
+**주의:**
+- `npm run deploy:prod`는 자동으로 환경변수를 검증한 후 배포한다
+- `--force` 플래그를 사용하므로 Vercel의 캐시를 무시하고 강제 배포된다
+- 빌드 에러가 있으면 배포하지 않는다
