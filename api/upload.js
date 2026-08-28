@@ -35,6 +35,16 @@ function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+  const isValidRow = (row) => {
+    const hasDate = Boolean(row.date);
+    const hasStoreName = Boolean(row.storeName);
+    const hasAmount = row.amount !== undefined && row.amount !== null && row.amount !== '';
+
+    // 최소한 (날짜 + 상호) 또는 (상호 + 금액) 필요
+    return (hasDate && hasStoreName) || (hasStoreName && hasAmount);
+  };
+
   return rows.map((row) => ({
     date: safeText(row['날짜']),
     useTime: safeText(row['사용시간']),
@@ -45,7 +55,7 @@ function readReceiptRowsFromXlsx(buffer) {
     bizNum: safeText(row['사업자번호']),
     cardNumber: safeText(row['카드번호']),
     note: safeText(row['비고']),
-  })).filter(row => row.date || row.storeName || row.amount);
+  })).filter(isValidRow);
 }
 
 function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, imageCount }) {
@@ -252,14 +262,37 @@ export default async function handler(req, res) {
 
     // ── person 폴더에 남은 기존 자료는 보관함으로 이동
     // 현재 주 폴더와 보관함 폴더는 유지하고, 나머지 레거시 파일/폴더만 아카이브한다.
-    const legacyRes = await drive.files.list({
-      q: `'${personId}' in parents and trashed = false`,
-      fields: 'files(id,name,mimeType)',
-      pageSize: 200,
-    });
-    for (const item of legacyRes.data.files || []) {
-      if (item.id === weekId || item.id === archiveId) continue;
-      await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
+    // 페이징과 추적으로 race condition 방지: 새 파일이 추가되어도 아카이브하지 않음
+    const processedIds = new Set();
+    let hasMore = true;
+    let pageToken = undefined;
+
+    while (hasMore) {
+      const legacyRes = await drive.files.list({
+        q: `'${personId}' in parents and trashed = false`,
+        fields: 'files(id,name,mimeType)',
+        pageSize: 50, // 한 번에 50개씩 처리
+        pageToken: pageToken,
+      });
+
+      const files = legacyRes.data.files || [];
+      hasMore = !!legacyRes.data.nextPageToken;
+      pageToken = legacyRes.data.nextPageToken;
+
+      for (const item of files) {
+        // 이미 처리했으면 스킵
+        if (processedIds.has(item.id)) continue;
+        if (item.id === weekId || item.id === archiveId) {
+          processedIds.add(item.id);
+          continue;
+        }
+
+        await moveFileToParent(drive, item.id, personId, archiveId)
+          .then(() => processedIds.add(item.id))
+          .catch(err => {
+            if (import.meta.env.DEV) console.warn(`Failed to move ${item.id}:`, err);
+          });
+      }
     }
 
     if (!isImageOnly) {
@@ -323,9 +356,20 @@ export default async function handler(req, res) {
       let kakaoSent = false;
       let kakaoError = null;
       try {
-        const kstNow = new Date(Date.now() + 9 * 3600 * 1000);
-        const mmdd   = `${String(kstNow.getUTCMonth() + 1).padStart(2, '0')}-${String(kstNow.getUTCDate()).padStart(2, '0')}`;
-        const hhmm   = `${String(kstNow.getUTCHours()).padStart(2, '0')}:${String(kstNow.getUTCMinutes()).padStart(2, '0')}`;
+        // Intl.DateTimeFormat으로 정확한 KST 시간 구하기 (double timezone conversion 제거)
+        const kstFormatter = new Intl.DateTimeFormat('en-US', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+        const parts = kstFormatter.formatToParts(new Date());
+        const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+        const mmdd = `${partMap.month}-${partMap.day}`;
+        const hhmm = `${partMap.hour}:${partMap.minute}`;
 
         if (xlsxResult.status !== 'skipped') {
           const kakaoMessages = buildReceiptKakaoMessages({

@@ -9,6 +9,37 @@ import {
   repairReceiptDates,
 } from './_analyzeUtils.js';
 
+/**
+ * 영수증 응답 검증
+ */
+function validateReceipt(receipt) {
+  if (typeof receipt !== 'object' || receipt === null) {
+    throw new Error('Receipt must be an object');
+  }
+
+  const required = ['date', 'storeName', 'totalAmount'];
+  for (const field of required) {
+    if (!(field in receipt)) {
+      throw new Error(`Missing required field: ${field}`);
+    }
+  }
+
+  // 타입 검증
+  if (typeof receipt.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(receipt.date)) {
+    throw new Error(`Invalid date format: ${receipt.date}`);
+  }
+
+  if (typeof receipt.storeName !== 'string' || receipt.storeName.trim() === '') {
+    throw new Error('storeName must be a non-empty string');
+  }
+
+  if (typeof receipt.totalAmount !== 'number' || receipt.totalAmount < 0) {
+    throw new Error(`Invalid totalAmount: ${receipt.totalAmount}`);
+  }
+
+  return receipt;
+}
+
 export default async function handler(req) {
   // 출처 화이트리스트 — upload/aggregate/lookup-biz와 동일 패턴
   const origin = req.headers.get('origin') || '';
@@ -228,19 +259,39 @@ ${tripDateContext}
     }
 
     if (finalData) {
-      let receipts = Array.isArray(finalData.receipts)
-        ? finalData.receipts.map(receipt => ({
-            ...receipt,
-            approvalNum: normalizeApprovalNum(receipt.approvalNum),
-          }))
-        : finalData.receipts;
+      try {
+        // 응답 검증: receipts가 배열이어야 함
+        if (!Array.isArray(finalData.receipts)) {
+          throw new Error('receipts must be an array');
+        }
 
-      // 서버 2차 날짜 교정 — AI가 연도를 잘못 돌려줘도 출장 연도로 강제 보정
-      if (Array.isArray(receipts)) {
+        // 각 영수증 검증
+        let receipts = finalData.receipts
+          .map(receipt => {
+            try {
+              return validateReceipt(receipt);
+            } catch (validErr) {
+              console.warn(`Receipt validation failed: ${validErr.message}`, receipt);
+              return null; // 검증 실패한 항목 제외
+            }
+          })
+          .filter(r => r !== null); // null 제거
+
+        if (receipts.length === 0) {
+          throw new Error('No valid receipts found after validation');
+        }
+
+        // 승인번호 정규화
+        receipts = receipts.map(receipt => ({
+          ...receipt,
+          approvalNum: normalizeApprovalNum(receipt.approvalNum),
+        }));
+
+        // 서버 2차 날짜 교정 — AI가 연도를 잘못 돌려줘도 출장 연도로 강제 보정
         receipts = repairReceiptDates(receipts, { tripStartDate, tripEndDate, reportDate });
-      }
 
-      if (Array.isArray(receipts) && receipts.length > 0 && hasMissingApprovalNum(receipts)) {
+        // 승인번호 보충 시도
+        if (receipts.length > 0 && hasMissingApprovalNum(receipts)) {
         try {
           const approvalRepairPrompt = `
 너는 영수증에서 승인번호만 다시 읽는 보조 추출기다.
@@ -280,9 +331,17 @@ ${tripDateContext}
         } catch (repairErr) {
           console.warn('approval repair failed:', repairErr);
         }
-      }
+        }
 
-      return new Response(JSON.stringify({ success: true, ...finalData, receipts }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+        // 응답 성공
+        return new Response(JSON.stringify({ success: true, ...finalData, receipts }), { status: 200, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+      } catch (validErr) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: '응답 검증 실패',
+          detail: validErr.message,
+        }), { status: 400, headers: { ...resHeaders, 'Content-Type': 'application/json' } });
+      }
     }
 
     return new Response(JSON.stringify({

@@ -279,39 +279,59 @@ export default function useReceiptCrud({
   const resetDeviceData = useCallback(async () => {
     const db = await dbOpen();
     onSaveStatusChange('saving');
-    const tx = db.transaction([STORE_RECEIPTS, STORE_IMAGES, STORE_HISTORY, STORE_CARDS, STORE_SYNC_QUEUE], 'readwrite');
-    tx.objectStore(STORE_RECEIPTS).clear();
-    tx.objectStore(STORE_IMAGES).clear();
-    tx.objectStore(STORE_HISTORY).clear();
-    tx.objectStore(STORE_CARDS).clear();
-    tx.objectStore(STORE_SYNC_QUEUE).clear();
-    return new Promise((resolve, reject) => {
-      tx.oncomplete = async () => {
-        await resetSyncQueue().catch(() => {});
-        clearReceiptImageUrlCache();
-        onReceiptsLoaded([]);
-        onCardsLoaded([]);
 
-        // 원격(Supabase) 데이터도 삭제 — 그러지 않으면 다음 부트스트랩에서 다시 내려와
-        // '새 출장 시작'의 멘탈 모델(완전 초기화)과 어긋남
-        if (supabase) {
-          const deviceId = getOrCreateDeviceId();
-          try {
-            const { error } = await supabase.from('receipts').delete().eq('userId', deviceId);
-            if (error) throw error;
-          } catch (err) {
-            if (import.meta.env.DEV) console.error('Supabase reset delete failed:', err);
-            onSaveStatusChange('error');
-            reject(err);
-            return;
-          }
+    try {
+      // 1단계: Supabase 먼저 삭제 (더 중요, 원격에 남으면 문제)
+      if (supabase) {
+        const deviceId = getOrCreateDeviceId();
+        try {
+          const { error } = await supabase
+            .from('receipts')
+            .delete()
+            .eq('userId', deviceId);
+
+          if (error) throw error;
+        } catch (err) {
+          // Supabase 실패: 사용자에게 알림, 로컬 삭제는 하지 않음
+          if (import.meta.env.DEV) console.error('Supabase reset delete failed:', err);
+          onSaveStatusChange('error');
+          throw new Error(`원격 데이터 삭제 실패: ${err.message}. 다시 시도하세요.`);
         }
+      }
 
-        onSaveStatusChange('success');
-        resolve();
-      };
-      tx.onerror = () => { onSaveStatusChange('error'); reject(tx.error); };
-    });
+      // 2단계: Supabase 성공 후 로컬 IndexedDB 삭제
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          [STORE_RECEIPTS, STORE_IMAGES, STORE_HISTORY, STORE_CARDS, STORE_SYNC_QUEUE],
+          'readwrite'
+        );
+
+        tx.objectStore(STORE_RECEIPTS).clear();
+        tx.objectStore(STORE_IMAGES).clear();
+        tx.objectStore(STORE_HISTORY).clear();
+        tx.objectStore(STORE_CARDS).clear();
+        tx.objectStore(STORE_SYNC_QUEUE).clear();
+
+        tx.oncomplete = async () => {
+          await resetSyncQueue().catch(() => {});
+          clearReceiptImageUrlCache();
+          onReceiptsLoaded([]);
+          onCardsLoaded([]);
+          onSaveStatusChange('success');
+          resolve();
+        };
+
+        tx.onerror = () => {
+          if (import.meta.env.DEV) console.error('IndexedDB reset failed:', tx.error);
+          onSaveStatusChange('error');
+          reject(new Error(`로컬 데이터 삭제 실패: ${tx.error?.message}`));
+        };
+      });
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Reset device data failed:', err);
+      onSaveStatusChange('error');
+      throw err;
+    }
   }, [dbOpen, onCardsLoaded, onReceiptsLoaded, onSaveStatusChange, resetSyncQueue]);
 
   const saveCard = useCallback(async (card) => {

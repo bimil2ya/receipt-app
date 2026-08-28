@@ -72,56 +72,86 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
 
     // 단일 파일 분석 + 비즈노 조회까지 끝낸 결과를 반환
     const analyzeFile = async (file) => {
+      const TIMEOUT_MS = 60_000; // 60초
       try {
         const { b64, mimeType } = await compressToBase64(file);
-        const res = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            base64: b64,
-            mediaType: mimeType,
-            reportDate: dateOptions.reportDate || dateOptions.tripStartDate || getToday(),
-            tripStartDate: dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
-            tripEndDate: dateOptions.tripEndDate || dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
-          })
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || err.error || `서버 오류 (${res.status})`);
-        }
-        const result = await res.json();
-        if (result.isReceipt === false) return { fileName: file.name, notReceipt: true };
 
-        // 영수증 항목별 비즈노 조회 — 한 파일 안의 영수증은 병렬
-        const enriched = await Promise.all((result.receipts || []).map(async (r) => {
-          const initialBizNum = r.bizNum ? r.bizNum.toString().replace(/[^0-9]/g, '') : '';
-          if (initialBizNum.length >= 8) {
-            try {
-              const lookupRes = await fetch('/api/lookup-biz', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ bizNum: initialBizNum })
-              });
-              if (lookupRes.ok) {
-                const lookupData = await lookupRes.json();
-                if (lookupData.company) {
-                  r.storeName = lookupData.company;
-                  if (lookupData.busiResNum) r.bizNum = lookupData.busiResNum;
+        // Analyze API 호출 (60초 timeout)
+        const analyzeController = new AbortController();
+        const analyzeTimeoutId = setTimeout(() => analyzeController.abort(), TIMEOUT_MS);
+
+        try {
+          const res = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              base64: b64,
+              mediaType: mimeType,
+              reportDate: dateOptions.reportDate || dateOptions.tripStartDate || getToday(),
+              tripStartDate: dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
+              tripEndDate: dateOptions.tripEndDate || dateOptions.tripStartDate || dateOptions.reportDate || getToday(),
+            }),
+            signal: analyzeController.signal,
+          });
+
+          clearTimeout(analyzeTimeoutId);
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || err.error || `서버 오류 (${res.status})`);
+          }
+
+          const result = await res.json();
+          if (result.isReceipt === false) return { fileName: file.name, notReceipt: true };
+
+          // 영수증 항목별 비즈노 조회 — 한 파일 안의 영수증은 병렬 (각 요청 30초 timeout)
+          const enriched = await Promise.all((result.receipts || []).map(async (r) => {
+            const initialBizNum = r.bizNum ? r.bizNum.toString().replace(/[^0-9]/g, '') : '';
+            if (initialBizNum.length >= 8) {
+              try {
+                const lookupController = new AbortController();
+                const lookupTimeoutId = setTimeout(() => lookupController.abort(), 30_000);
+
+                const lookupRes = await fetch('/api/lookup-biz', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bizNum: initialBizNum }),
+                  signal: lookupController.signal,
+                });
+
+                clearTimeout(lookupTimeoutId);
+
+                if (lookupRes.ok) {
+                  const lookupData = await lookupRes.json();
+                  if (lookupData.company) {
+                    r.storeName = lookupData.company;
+                    if (lookupData.busiResNum) r.bizNum = lookupData.busiResNum;
+                  }
+                }
+              } catch (e) {
+                if (e.name === 'AbortError') {
+                  if (import.meta.env.DEV) console.warn('Bizno lookup timeout:', initialBizNum);
+                } else if (import.meta.env.DEV) {
+                  console.error('Bizno lookup failed:', e);
                 }
               }
-            } catch (e) {
-              if (import.meta.env.DEV) console.error('Bizno lookup failed:', e);
             }
-          }
-          return r;
-        }));
+            return r;
+          }));
 
-        return {
-          fileName: file.name,
-          imageId: crypto.randomUUID(),
-          imageBase64: `data:${mimeType};base64,${b64}`,
-          receipts: enriched,
-        };
+          return {
+            fileName: file.name,
+            imageId: crypto.randomUUID(),
+            imageBase64: `data:${mimeType};base64,${b64}`,
+            receipts: enriched,
+          };
+        } catch (e) {
+          clearTimeout(analyzeTimeoutId);
+          if (e.name === 'AbortError') {
+            throw new Error('분석 요청 시간 초과 (60초). 네트워크를 확인하세요.');
+          }
+          throw e;
+        }
       } catch (e) {
         if (import.meta.env.DEV) console.error('Process error:', e);
         return { fileName: file.name, error: e.message };
@@ -130,6 +160,8 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
 
     // 동시성 3 배치로 처리 — 분석 API의 무거운 호출은 병렬, 결과 누적/dedup은 순차
     const CONCURRENCY = isAndroid ? 1 : 3;
+    const processedApprovals = new Set(); // 이 배치에서 처리된 승인번호들
+
     for (let i = 0; i < files.length; i += CONCURRENCY) {
       const batch = files.slice(i, i + CONCURRENCY);
       const results = await Promise.all(batch.map(analyzeFile));
@@ -149,12 +181,18 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         for (const r of fileResult.receipts) {
           // 중복 판단은 승인번호가 양쪽에 있고 정규화 값이 완전히 같을 때만 자동 처리한다.
           // 날짜/시간/금액/상호명만 같은 경우는 실제 다른 결제일 수 있으므로 자동 중복으로 보지 않는다.
+          const approvalB = normalizeApprovalNum(r.approvalNum);
+
+          // 기존 + 현재 배치에서 처리된 것 모두 확인
           const isDuplicate = [...existingReceipts, ...added].some(ex => {
             const approvalA = normalizeApprovalNum(ex.approvalNum);
-            const approvalB = normalizeApprovalNum(r.approvalNum);
             return Boolean(approvalA && approvalB && approvalA === approvalB);
-          });
+          }) || (approvalB && processedApprovals.has(approvalB)); // 같은 배치 내 중복도 감지
+
           if (isDuplicate) { duplicateCount += 1; continue; }
+
+          // 이 배치에서 처리한 승인번호 기록
+          if (approvalB) processedApprovals.add(approvalB);
 
           let bestCardNum = r.cardNumber || '';
           [...existingReceipts, ...added].forEach(ex => {
