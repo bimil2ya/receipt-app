@@ -22,9 +22,8 @@ export default async function handler(req, res) {
   const REST_API_KEY  = process.env.KAKAO_REST_API_KEY;
   const CLIENT_SECRET = process.env.KAKAO_CLIENT_SECRET || '';
   const REQUIRED_SCOPE = 'talk_message';
-  const proto = (req.headers['x-forwarded-proto'] || 'https').toString();
-  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString();
-  const REDIRECT_URI = host ? `${proto}://${host}/api/kakao-token` : 'https://receipt-app-rho.vercel.app/api/kakao-token';
+  // [보안] 신뢰할 수 없는 헤더 대신 환경변수 사용 (redirect_uri 화이트리스트 검증)
+  const REDIRECT_URI = process.env.KAKAO_REDIRECT_URI || 'https://receipt-app-rho.vercel.app/api/kakao-token';
 
   if (!REST_API_KEY) {
     return res.status(500).send('KAKAO_REST_API_KEY 환경변수가 없습니다.');

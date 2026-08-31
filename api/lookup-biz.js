@@ -59,11 +59,18 @@ export default async function handler(req) {
       return responseError(Errors.unauthorized('BIZNO API 키가 설정되지 않았습니다.'), resHeaders);
     }
 
-    // gb=1 (JSON 포맷), q=검색어. 
+    // gb=1 (JSON 포맷), q=검색어.
     // [중요] type 파라미터에 'json'을 넣으면 검색 유형 오류가 발생하므로 제거합니다.
-    const url = `https://bizno.net/api/fapi?key=${BIZNO_KEY}&gb=1&q=${cleanBizNum}`;
-
-    const response = await fetch(url);
+    // [보안] API 키를 POST body로 전송하여 로그 노출 방지
+    const response = await fetch('https://bizno.net/api/fapi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        key: BIZNO_KEY,
+        gb: '1',
+        q: cleanBizNum
+      })
+    });
     const text = await response.text();
     
     let data;

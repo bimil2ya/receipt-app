@@ -291,18 +291,15 @@ export default async function handler(req, res) {
   const origin = req.headers.origin || ''
   if (!checkOriginAllowed(req, res)) return // 출처 검증 (프로덕션만)
 
-  // ── 인증 토큰 검증 (upload.js와 동일하게 필수)
+  // ── 인증 토큰 검증 (모든 환경에서 필수)
   const UPLOAD_TOKEN = process.env.UPLOAD_API_TOKEN
-  const isVercelHosted = Boolean(process.env.VERCEL || process.env.VERCEL_ENV)
-  if (!UPLOAD_TOKEN && isVercelHosted) {
-    return jsonError(res, Errors.internalError('집계 인증이 설정되지 않았습니다.'))
+  if (!UPLOAD_TOKEN) {
+    return jsonError(res, Errors.internalError('UPLOAD_API_TOKEN이 설정되지 않았습니다.'))
   }
-  if (UPLOAD_TOKEN) {
-    const authHeader = req.headers['authorization'] || ''
-    const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-    if (!safeCompare(provided, UPLOAD_TOKEN)) {
-      return jsonError(res, Errors.unauthorized('유효하지 않은 토큰입니다.'))
-    }
+  const authHeader = req.headers['authorization'] || ''
+  const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  if (!safeCompare(provided, UPLOAD_TOKEN)) {
+    return jsonError(res, Errors.unauthorized('유효하지 않은 토큰입니다.'))
   }
 
   try {

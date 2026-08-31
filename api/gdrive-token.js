@@ -29,9 +29,8 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const CLIENT_ID     = process.env.GDRIVE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GDRIVE_CLIENT_SECRET;
-  const proto = (req.headers['x-forwarded-proto'] || 'https').toString();
-  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString();
-  const REDIRECT_URI = host ? `${proto}://${host}/api/gdrive-token` : 'https://receipt-app-rho.vercel.app/api/gdrive-token';
+  // [보안] 신뢰할 수 없는 헤더 대신 환경변수 사용 (redirect_uri 화이트리스트 검증)
+  const REDIRECT_URI = process.env.GDRIVE_REDIRECT_URI || 'https://receipt-app-rho.vercel.app/api/gdrive-token';
 
   if (!CLIENT_ID || !CLIENT_SECRET) {
     return res.status(500).send('GDRIVE_CLIENT_ID 또는 GDRIVE_CLIENT_SECRET 환경변수가 없습니다.');

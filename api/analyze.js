@@ -71,10 +71,12 @@ export default async function handler(req) {
     
     const mData = await modelsRes.json();
     if (!modelsRes.ok) {
+      // [보안] 서버 로그에만 기록, 클라이언트에는 일반 메시지 반환
+      console.error('Claude API error:', mData.error?.message || mData);
       return new Response(JSON.stringify({
         success: false,
         error: '연결 실패',
-        detail: mData.error?.message || 'API 키 권한을 확인해 주세요.'
+        detail: 'OCR 서비스 일시 오류. 잠시 후 다시 시도하세요.'
       }), { status: modelsRes.status, headers: resHeaders });
     }
 
