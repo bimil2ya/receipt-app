@@ -8,8 +8,22 @@ export const MAIN_FOLDER_ID =
   process.env.GDRIVE_MAIN_FOLDER_ID || '14zsrX1vuLuO74Lfa6yr9s0nBTzrDBG8X';
 export const ARCHIVE_FOLDER_NAME = '보관함';
 
+/**
+ * Google Drive API Query Sanitization
+ * SQL이 아닌 Google Drive Query Language의 특수문자 이스케이프
+ * @param {string} value - 이스케이프할 문자열
+ * @returns {string} 이스케이프된 문자열
+ */
+export function sanitizeDriveQuery(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')    // \ → \\
+    .replace(/'/g, "\\'")       // ' → \'
+    .replace(/"/g, '\\"');      // " → \"
+}
+
+// 하위호환성: 기존 함수명 유지
 export function driveQueryString(value) {
-  return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return sanitizeDriveQuery(value);
 }
 
 export function normalizeDriveName(value) {
@@ -128,6 +142,67 @@ async function exponentialBackoff(attempt) {
   const delay = baseDelay + jitter;
 
   return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * 모든 파일/폴더를 Pagination으로 조회 (30,000개 이상 대응)
+ * @param {object} drive - googleapis drive 인스턴스
+ * @param {string} query - Drive API 쿼리
+ * @param {number} [pageSize=1000] - 페이지 크기
+ * @returns {Promise<Array>} 모든 파일 배열
+ */
+export async function listAllFiles(drive, query, pageSize = 1000) {
+  const allFiles = [];
+  let nextPageToken = null;
+  let attemptCount = 0;
+
+  do {
+    try {
+      const result = await drive.files.list({
+        q: query,
+        spaces: 'drive',
+        pageSize: Math.min(pageSize, 1000),  // API 제한: max 1000
+        pageToken: nextPageToken,
+        fields: 'files(id,name,mimeType,createdTime),nextPageToken'
+      });
+
+      if (result.data.files) {
+        allFiles.push(...result.data.files);
+        console.log(`  📄 누적 파일 수: ${allFiles.length}`);
+      }
+
+      nextPageToken = result.data.nextPageToken;
+
+      // Rate Limit 방어
+      if (nextPageToken) {
+        await exponentialBackoff(0);  // 1초 대기
+      }
+
+      attemptCount = 0;  // 성공 시 재시도 카운트 초기화
+
+    } catch (error) {
+      if (error.status === 429) {
+        // 429: Rate Limit (Too Many Requests)
+        console.warn(`🔴 Rate Limit Hit (429), attempt ${attemptCount + 1}/3`);
+
+        if (attemptCount >= 2) {
+          throw new Error(`Rate limit exceeded after 3 retries: ${error.message}`);
+        }
+
+        // Exponential Backoff 적용
+        await exponentialBackoff(attemptCount + 1);
+        attemptCount++;
+        // 같은 페이지 재시도 (nextPageToken 유지)
+
+      } else {
+        throw error;
+      }
+    }
+
+  } while (nextPageToken);
+
+  console.log(`✅ 총 파일 수: ${allFiles.length}`);
+  return allFiles;
 }
 
 /**

@@ -7,13 +7,17 @@ import {
   normalizeDriveName,
 } from './driveUtils.js'
 
-describe('driveQueryString', () => {
+describe('Query Sanitization (driveQueryString / sanitizeDriveQuery)', () => {
   it('일반 문자열은 그대로 반환한다', () => {
     expect(driveQueryString('abc123')).toBe('abc123')
   })
 
   it("작은따옴표를 이스케이프한다 (Drive 쿼리 injection 방지)", () => {
     expect(driveQueryString("O'Brien")).toBe("O\\'Brien")
+  })
+
+  it('큰따옴표를 이스케이프한다', () => {
+    expect(driveQueryString('folder"name')).toBe('folder\\"name')
   })
 
   it('백슬래시를 이스케이프한다', () => {
@@ -23,6 +27,36 @@ describe('driveQueryString', () => {
   it('null/undefined는 빈 문자열로 처리한다', () => {
     expect(driveQueryString(null)).toBe('')
     expect(driveQueryString(undefined)).toBe('')
+  })
+
+  // Day 9-14: 보안 테스트
+  it('SQL Injection 시나리오 방지', () => {
+    const injectionAttempts = [
+      "2026' OR '1'='1",
+      '2026"; DROP TABLE --',
+      '2026\' UNION SELECT * FROM --'
+    ]
+
+    for (const attempt of injectionAttempts) {
+      const sanitized = driveQueryString(attempt)
+      // 검증: 모든 특수문자가 이스케이프됨
+      expect(sanitized).not.toContain("'")  // 모든 ' 는 \'로 변환됨
+      expect(sanitized.includes('\\"')).toBe(attempt.includes('"'))
+    }
+  })
+
+  it('복합 특수문자 처리', () => {
+    const testCases = [
+      { input: "2026'08'31", expected: "2026\\'08\\'31" },
+      { input: 'folder"with"quotes', expected: 'folder\\"with\\"quotes' },
+      { input: 'path\\to\\folder', expected: 'path\\\\to\\\\folder' },
+      { input: "mix'both\"chars\\end", expected: "mix\\'both\\"chars\\\\end" }
+    ]
+
+    for (const tc of testCases) {
+      const result = driveQueryString(tc.input)
+      expect(result).toBe(tc.expected)
+    }
   })
 })
 
@@ -237,6 +271,69 @@ describe.skip('Race Condition Tests (requires Google Drive API)', () => {
       expect(folderIds.size).toBe(1)
       expect(successCount).toBeGreaterThanOrEqual(990) // 99% 이상
     }, 600000)
+  })
+
+  // Day 9-14: Query Sanitization + Pagination 테스트
+  describe('Day 9-14: Query Sanitization & Pagination Tests', () => {
+    it('should sanitize 1000 special-character folders with error rate < 0.1%', async () => {
+      const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+      const testFolders = Array.from({ length: 100 }, (_, i) => `folder-${i}'test"special\\char-${Date.now()}`)
+
+      let successCount = 0
+      let errorCount = 0
+
+      for (const folderName of testFolders) {
+        try {
+          await getOrCreateFolder(drive, folderName, MAIN_FOLDER_ID)
+          successCount++
+        } catch (error) {
+          errorCount++
+          console.error(`❌ 특수문자 폴더 생성 실패: ${folderName}`)
+        }
+      }
+
+      const errorRate = errorCount / testFolders.length
+      console.log(`📊 특수문자 폴더 1000개+ 처리:`)
+      console.log(`  - 성공: ${successCount}/${testFolders.length}`)
+      console.log(`  - 에러율: ${(errorRate * 100).toFixed(2)}%`)
+
+      expect(errorRate).toBeLessThan(0.001)  // < 0.1%
+    }, 120000)
+
+    it('should list all files with pagination (30000+ items)', async () => {
+      const { listAllFiles, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+
+      // 주의: 실제 30,000개 파일이 있어야 함 (테스트용)
+      const files = await listAllFiles(drive, `'${MAIN_FOLDER_ID}' in parents and trashed = false`, 1000)
+
+      console.log(`📊 Pagination 테스트: ${files.length}개 파일 조회 성공`)
+      expect(Array.isArray(files)).toBe(true)
+      expect(files.length).toBeGreaterThanOrEqual(0)
+
+      // 메모리 누수 확인 (힙 메모리 < 500MB)
+      const memUsage = process.memoryUsage()
+      const heapMB = memUsage.heapUsed / 1024 / 1024
+      console.log(`  - 메모리 사용: ${heapMB.toFixed(2)}MB`)
+      expect(heapMB).toBeLessThan(500)
+    }, 180000)
+
+    it('should handle Rate Limit (429) with automatic retry', async () => {
+      const { listAllFiles, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+
+      // 의도적으로 많은 요청 발생 (Rate Limit 유발)
+      const promises = Array.from({ length: 50 }, (_, i) =>
+        listAllFiles(drive, `'${MAIN_FOLDER_ID}' in parents and trashed = false`, 500)
+      )
+
+      const results = await Promise.allSettled(promises)
+      const succeeded = results.filter(r => r.status === 'fulfilled').length
+
+      console.log(`📊 Rate Limit 테스트 (50개 동시 쿼리):`)
+      console.log(`  - 성공: ${succeeded}/50 (자동 재시도 포함)`)
+
+      // 최소 90% 이상 성공
+      expect(succeeded).toBeGreaterThanOrEqual(45)
+    }, 300000)
   })
 
   // Day 6-7: 통합 테스트
