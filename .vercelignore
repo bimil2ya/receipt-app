@@ -1,5 +1,5 @@
-api/
-*.test.js
+api/**/*.test.js
+api/_*.js
 test/
 node_modules/
 .git/
