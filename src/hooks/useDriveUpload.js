@@ -161,7 +161,6 @@ export default function useDriveUpload({
       } catch (err) {
         console.warn('명세 업로드 중 오류:', err.message);
       }
-      const xlsxData = await xlsxRes.json().catch(() => ({}));
       currentStep += 1;
       setUploadProgress(Math.floor((currentStep / totalSteps) * 100));
 
