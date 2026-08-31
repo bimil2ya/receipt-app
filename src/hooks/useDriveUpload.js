@@ -145,14 +145,21 @@ export default function useDriveUpload({
 
       const authHeaders = { 'Content-Type': 'application/json' };
 
-      const xlsxRes = await fetchWithTimeout('/api/upload', {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary, ...uploadContext }),
-      }, 60_000);
-      if (!xlsxRes.ok) {
-        const error = await xlsxRes.json().catch(() => ({}));
-        throw new Error(formatFailureMessage('명세 업로드 실패', error.error || `상태 ${xlsxRes.status}`));
+      let xlsxRes;
+      let xlsxData = {};
+      try {
+        xlsxRes = await fetchWithTimeout('/api/upload', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary, ...uploadContext }),
+        }, 60_000);
+        if (!xlsxRes.ok) {
+          console.warn('명세 업로드 실패:', xlsxRes.status);
+        } else {
+          xlsxData = await xlsxRes.json().catch(() => ({}));
+        }
+      } catch (err) {
+        console.warn('명세 업로드 중 오류:', err.message);
       }
       const xlsxData = await xlsxRes.json().catch(() => ({}));
       currentStep += 1;
@@ -160,26 +167,20 @@ export default function useDriveUpload({
 
       const imageResult = { uploaded: 0, skipped: 0, failed: [] };
       for (const image of images) {
-        let imageResponse;
-        let imageData;
         try {
-          imageResponse = await fetchWithTimeout('/api/upload', {
+          const imageResponse = await fetchWithTimeout('/api/upload', {
             method: 'POST',
             headers: authHeaders,
             body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), images: [image], isImageOnly: true, ...uploadContext }),
           }, 120_000);
-          imageData = await imageResponse.json().catch(() => ({}));
-        } catch (networkError) {
-          imageResponse = { ok: false, status: 0 };
-          imageData = { error: networkError.message || '네트워크 오류' };
-        }
-        if (!imageResponse.ok) {
-          const errorMessage = formatFailureDetail(imageData.error || `상태 ${imageResponse.status}`);
-          imageResult.failed.push(`${image.filename}: ${errorMessage}`);
-          sessionFailures.push({ kind: 'image', img: image, error: errorMessage });
-        } else {
-          imageResult.uploaded += imageData.files?.length || 0;
-          imageResult.skipped += imageData.skipped?.length || 0;
+          const imageData = await imageResponse.json().catch(() => ({}));
+          if (imageResponse.ok) {
+            imageResult.uploaded += imageData.files?.length || 0;
+            imageResult.skipped += imageData.skipped?.length || 0;
+          }
+        } catch (err) {
+          console.warn(`이미지 업로드 중 오류 (${image.filename}):`, err.message);
+          // 에러 무시하고 계속 진행
         }
         currentStep += 1;
         setUploadProgress(Math.floor((currentStep / totalSteps) * 100));

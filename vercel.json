@@ -1,5 +1,7 @@
 {
   "build": {
     "env": { "NODE_VERSION": "20" }
-  }
+  },
+  "files": ["dist/**/*", "public/**/*"],
+  "buildCommand": "npm run build"
 }

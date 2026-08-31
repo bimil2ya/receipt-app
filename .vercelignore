@@ -1,0 +1,8 @@
+api/
+*.test.js
+test/
+node_modules/
+.git/
+.env.local
+.claude/
+.impeccable/
