@@ -101,3 +101,68 @@ describe('getYearMonth', () => {
     expect(result).toMatch(/^\d{4}년 \d{2}월$/)
   })
 })
+
+// Day 1-8: Race Condition 테스트 (동시 폴더 생성 안전성)
+// 주의: 실제 Google Drive API 사용하므로 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN 필수
+describe.skip('Race Condition Tests (requires Google Drive API)', () => {
+  let drive
+
+  beforeAll(async () => {
+    try {
+      const { createDrive } = await import('./driveUtils.js')
+      drive = createDrive()
+      console.log('✅ Google Drive 인증 완료')
+    } catch (error) {
+      console.error('❌ Google Drive 인증 실패:', error.message)
+      throw error
+    }
+  })
+
+  it('should create new folder if not exists', async () => {
+    const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+    const testFolderName = `race-test-${Date.now()}`
+
+    const folderId = await getOrCreateFolder(drive, testFolderName, MAIN_FOLDER_ID)
+
+    expect(folderId).toBeDefined()
+    expect(typeof folderId).toBe('string')
+  })
+
+  it('should return existing folder without creating duplicate', async () => {
+    const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+    const testFolderName = `race-test-existing-${Date.now()}`
+
+    const firstId = await getOrCreateFolder(drive, testFolderName, MAIN_FOLDER_ID)
+    const secondId = await getOrCreateFolder(drive, testFolderName, MAIN_FOLDER_ID)
+
+    expect(firstId).toBe(secondId)
+  })
+
+  it('should handle 100 concurrent requests and create only 1 folder', async () => {
+    const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+    const testFolderName = `race-concurrent-${Date.now()}`
+
+    const promises = Array.from({ length: 100 }, () =>
+      getOrCreateFolder(drive, testFolderName, MAIN_FOLDER_ID)
+    )
+
+    const results = await Promise.allSettled(promises)
+    const folderIds = new Set(results.filter(r => r.status === 'fulfilled').map(r => r.value))
+    const errorCount = results.filter(r => r.status === 'rejected').length
+
+    console.log(`📊 동시 100개 요청: 성공=${results.filter(r => r.status === 'fulfilled').length}, 실패=${errorCount}, 폴더=${folderIds.size}`)
+
+    expect(folderIds.size).toBe(1)
+    expect(errorCount).toBe(0)
+  }, 60000)
+
+  it('should handle special characters safely', async () => {
+    const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+    const specialCases = [`folder-2026'08'31-${Date.now()}`, `folder-test"special-${Date.now()}`, `folder-back\\slash-${Date.now()}`]
+
+    for (const folderName of specialCases) {
+      const folderId = await getOrCreateFolder(drive, folderName, MAIN_FOLDER_ID)
+      expect(folderId).toBeDefined()
+    }
+  })
+})

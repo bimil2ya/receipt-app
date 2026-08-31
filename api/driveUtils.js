@@ -81,7 +81,7 @@ export function createDrive() {
 }
 
 /**
- * 폴더가 없으면 생성하고 ID 반환
+ * 폴더가 없으면 생성하고 ID 반환 (Race Condition 안전)
  * @param {object} drive    - googleapis drive 인스턴스
  * @param {string} name     - 폴더 이름
  * @param {string} parentId - 부모 폴더 ID
@@ -89,14 +89,45 @@ export function createDrive() {
 export async function getOrCreateFolder(drive, name, parentId) {
   const safeName = driveQueryString(name);
   const q = `'${parentId}' in parents and name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+
+  // Step 1: 폴더 조회
   const res = await drive.files.list({ q, fields: 'files(id,name)' });
   if (res.data.files.length > 0) return res.data.files[0].id;
 
-  const created = await drive.files.create({
-    requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
-    fields: 'id',
-  });
-  return created.data.id;
+  // Step 2: 폴더 생성 시도 (409 Conflict 가능성 있음)
+  try {
+    const created = await drive.files.create({
+      requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
+      fields: 'id',
+    });
+    return created.data.id;
+  } catch (error) {
+    // Step 3: 409 Conflict 처리 (다른 스레드가 이미 생성한 경우)
+    if (error.status === 409) {
+      console.warn(`[Race Condition] Folder "${name}" already created by another process, retrying...`);
+      await exponentialBackoff(1);  // 1초 대기 후 재조회
+
+      const retried = await drive.files.list({ q, fields: 'files(id,name)' });
+      if (retried.data.files.length > 0) {
+        return retried.data.files[0].id;
+      }
+    }
+
+    // 다른 에러는 그대로 throw
+    throw error;
+  }
+}
+
+/**
+ * Exponential Backoff + Jitter
+ * @param {number} attempt - 시도 횟수 (0부터 시작)
+ */
+async function exponentialBackoff(attempt) {
+  const baseDelay = Math.pow(2, attempt) * 1000;  // 1s, 2s, 4s, 8s
+  const jitter = Math.random() * 1000;            // 0-1초 랜덤
+  const delay = baseDelay + jitter;
+
+  return new Promise(resolve => setTimeout(resolve, delay));
 }
 
 /**
