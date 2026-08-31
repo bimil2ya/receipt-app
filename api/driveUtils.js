@@ -3,6 +3,7 @@
  * upload.js / aggregate.js 양쪽에서 사용
  */
 import { google } from 'googleapis';
+import { folderCache } from './cache.js';
 
 export const MAIN_FOLDER_ID =
   process.env.GDRIVE_MAIN_FOLDER_ID || '14zsrX1vuLuO74Lfa6yr9s0nBTzrDBG8X';
@@ -95,35 +96,53 @@ export function createDrive() {
 }
 
 /**
- * 폴더가 없으면 생성하고 ID 반환 (Race Condition 안전)
+ * 폴더가 없으면 생성하고 ID 반환 (Race Condition 안전 + 캐싱)
  * @param {object} drive    - googleapis drive 인스턴스
  * @param {string} name     - 폴더 이름
  * @param {string} parentId - 부모 폴더 ID
  */
 export async function getOrCreateFolder(drive, name, parentId) {
+  const cacheKey = `${parentId}:${name}`;
+
+  // Step 1: 캐시 확인
+  const cached = folderCache.get(cacheKey);
+  if (cached) {
+    console.log(`✅ 캐시 히트: ${name}`);
+    return cached;
+  }
+
+  // Step 2: 캐시 미스 → Google Drive 조회/생성
   const safeName = driveQueryString(name);
   const q = `'${parentId}' in parents and name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
-  // Step 1: 폴더 조회
+  // Step 2a: 폴더 조회
   const res = await drive.files.list({ q, fields: 'files(id,name)' });
-  if (res.data.files.length > 0) return res.data.files[0].id;
+  if (res.data.files.length > 0) {
+    const folderId = res.data.files[0].id;
+    folderCache.set(cacheKey, folderId);
+    return folderId;
+  }
 
-  // Step 2: 폴더 생성 시도 (409 Conflict 가능성 있음)
+  // Step 2b: 폴더 생성 시도 (409 Conflict 가능성 있음)
   try {
     const created = await drive.files.create({
       requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
       fields: 'id',
     });
-    return created.data.id;
+    const folderId = created.data.id;
+    folderCache.set(cacheKey, folderId);
+    return folderId;
   } catch (error) {
-    // Step 3: 409 Conflict 처리 (다른 스레드가 이미 생성한 경우)
+    // Step 2c: 409 Conflict 처리 (다른 스레드가 이미 생성한 경우)
     if (error.status === 409) {
       console.warn(`[Race Condition] Folder "${name}" already created by another process, retrying...`);
       await exponentialBackoff(1);  // 1초 대기 후 재조회
 
       const retried = await drive.files.list({ q, fields: 'files(id,name)' });
       if (retried.data.files.length > 0) {
-        return retried.data.files[0].id;
+        const folderId = retried.data.files[0].id;
+        folderCache.set(cacheKey, folderId);
+        return folderId;
       }
     }
 

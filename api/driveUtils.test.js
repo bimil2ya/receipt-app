@@ -367,4 +367,88 @@ describe.skip('Race Condition Tests (requires Google Drive API)', () => {
       console.log(`✅ 10개 동시 폴더 생성 성공 (중복 없음)`)
     })
   })
+
+  // Day 18-19: 폴더 캐싱 테스트
+  describe('Day 18-19: Folder Caching Tests', () => {
+    it('should use cache on repeated folder access', async () => {
+      const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+      const { folderCache } = await import('./cache.js')
+
+      // 캐시 초기화
+      folderCache.clear()
+
+      const testFolderName = `cache-test-${Date.now()}`
+      const parentId = MAIN_FOLDER_ID
+
+      // 첫 번째 호출: API 호출 → 캐시 저장
+      const id1 = await getOrCreateFolder(drive, testFolderName, parentId)
+      const stats1 = folderCache.getStats()
+
+      // 두 번째 호출: 캐시 히트 (API 호출 없음)
+      const id2 = await getOrCreateFolder(drive, testFolderName, parentId)
+      const stats2 = folderCache.getStats()
+
+      console.log(`📊 캐싱 효율성:`)
+      console.log(`  - ID 일치: ${id1 === id2}`)
+      console.log(`  - 첫 호출 후 히트: ${stats1.hits}`)
+      console.log(`  - 두 호출 후 히트: ${stats2.hits} (증가해야 함)`)
+
+      expect(id1).toBe(id2)
+      expect(stats2.hits).toBeGreaterThan(stats1.hits)
+    })
+
+    it('should achieve >60% cache hit rate with repeated folder access', async () => {
+      const { getOrCreateFolder, MAIN_FOLDER_ID } = await import('./driveUtils.js')
+      const { folderCache } = await import('./cache.js')
+
+      // 캐시 초기화
+      folderCache.clear()
+
+      const timestamp = Date.now()
+      const parentId = MAIN_FOLDER_ID
+
+      // 5개 폴더 생성
+      const folderNames = ['dates', 'receipts', 'images', 'archive', 'temp']
+      for (const name of folderNames) {
+        await getOrCreateFolder(drive, `${name}-${timestamp}`, parentId)
+      }
+
+      // 50번 반복 접근 (캐시 히트 유도)
+      for (let i = 0; i < 10; i++) {
+        for (const name of folderNames) {
+          await getOrCreateFolder(drive, `${name}-${timestamp}`, parentId)
+        }
+      }
+
+      const stats = folderCache.getStats()
+      const hitRate = parseFloat(stats.hitRate)
+
+      console.log(`📊 캐시 효율성 분석:`)
+      console.log(`  - 히트: ${stats.hits}`)
+      console.log(`  - 미스: ${stats.misses}`)
+      console.log(`  - 히트율: ${stats.hitRate}`)
+      console.log(`  - API 호출 절감: ${stats.hits}개`)
+
+      expect(hitRate).toBeGreaterThanOrEqual(60)
+    }, 180000)
+
+    it('should clear expired cache entries', async () => {
+      const { FolderCache } = await import('./cache.js')
+
+      const cache = new FolderCache(100) // 100ms TTL
+      cache.set('test-1', 'id-1')
+      cache.set('test-2', 'id-2')
+
+      expect(cache.getStats().size).toBe(2)
+
+      // TTL 만료 대기
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      const cleaned = cache.cleanup()
+      console.log(`🧹 만료된 항목: ${cleaned}개 제거`)
+
+      expect(cleaned).toBe(2)
+      expect(cache.getStats().size).toBe(0)
+    })
+  })
 })
