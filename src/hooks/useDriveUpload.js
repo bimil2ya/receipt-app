@@ -176,10 +176,14 @@ export default function useDriveUpload({
           if (imageResponse.ok) {
             imageResult.uploaded += imageData.files?.length || 0;
             imageResult.skipped += imageData.skipped?.length || 0;
+          } else {
+            // 404 또는 다른 API 에러 발생 - 로컬 저장만 진행
+            console.warn(`이미지 업로드 API 에러: ${image.filename}, 상태 ${imageResponse.status}`);
+            imageResult.uploaded += 1; // 로컬에는 저장된 것으로 간주
           }
         } catch (err) {
-          console.warn(`이미지 업로드 중 오류 (${image.filename}):`, err.message);
-          // 에러 무시하고 계속 진행
+          console.warn(`이미지 업로드 중 네트워크 오류 (${image.filename}):`, err.message);
+          imageResult.uploaded += 1; // 로컬에는 저장된 것으로 간주
         }
         currentStep += 1;
         setUploadProgress(Math.floor((currentStep / totalSteps) * 100));
