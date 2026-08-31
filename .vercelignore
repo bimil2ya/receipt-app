@@ -1,10 +1,8 @@
 api/analytics-dashboard.js
-api/cache.js
 api/image-uploader.js
 api/kakao-token.js
 api/lookup-biz.js
 api/offline-sync.js
-api/restore.js
 api/voice-notification.js
 api/vision.js
 *.test.js
