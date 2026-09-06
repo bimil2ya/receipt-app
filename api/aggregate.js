@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
-import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID } from './driveUtils.js'
+import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
 import { ALLOWED_ORIGINS } from './_cors.js'
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js'
@@ -80,7 +80,11 @@ async function collectXlsxFilesRecursive(drive, folderId, personName, seenFileId
   const files = []
   for (const entry of entries) {
     if (entry.mimeType === 'application/vnd.google-apps.folder') {
-      if (normalizeDriveName(entry.name) === ARCHIVE_FOLDER_NAME) continue
+      const folderName = normalizeDriveName(entry.name)
+      // 보관함 / 낱장 사진 폴더(_원본) / PDF 조립 임시 폴더(_정산서조립_*)는 xlsx가 없으므로 재귀 생략.
+      if (folderName === ARCHIVE_FOLDER_NAME) continue
+      if (folderName === '_원본') continue
+      if (folderName.startsWith('_정산서조립_')) continue
       const nested = await collectXlsxFilesRecursive(drive, entry.id, personName, seenFileIds)
       files.push(...nested)
       continue
@@ -281,6 +285,99 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   const fileId = await createReplacingAggregateSheet(drive, monthFolderId, aggName, buf2)
 
   return { success: true, count: allRows.length, file: aggName, fileId, duplicateReport }
+}
+
+/**
+ * 스냅샷 백업 방식의 집계 (Phase 1-3 추가)
+ * 1. 기존 집계 파일 → 스냅샷으로 복사 (_snapshot_YYYY-MM-DD_HHmmss)
+ * 2. 새 집계 파일 생성 (임시 이름)
+ * 3. 검증 성공 → 최종 이름 변경
+ * 4. 실패 시 스냅샷에서 수동 복구 가능
+ *
+ * @param {object} drive - googleapis drive 인스턴스
+ * @param {string} archiveFolderId - 보관 폴더 ID
+ * @param {string} finalName - 최종 파일명 (예: 월별집계_2026-08)
+ * @param {Buffer} buffer - XLSX 파일 내용
+ * @returns {Promise<string>} 생성된 파일 ID
+ */
+export async function aggregateMonthWithSnapshot(drive, archiveFolderId, finalName, buffer) {
+  const timestamp = Date.now();
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 19).replace(/[-:]/g, '');
+  const snapshotName = `_snapshot_${finalName}_${dateStr}`;
+
+  try {
+    // Step 1: 기존 집계 파일이 있으면 스냅샷으로 백업
+    const existingFiles = await listExistingAggregateFiles(drive, archiveFolderId, finalName);
+    if (existingFiles.length > 0) {
+      const existingId = existingFiles[0].id;
+      await drive.files.copy({
+        fileId: existingId,
+        requestBody: { name: snapshotName, parents: [archiveFolderId] }
+      });
+      console.log(`📦 스냅샷 백업 생성: ${snapshotName}`);
+    }
+
+    // Step 2: 새 집계 파일 생성 (임시 이름)
+    const tempName = `${finalName}__작성중_${timestamp}`;
+    const fileId = await createReplacingAggregateSheet(drive, archiveFolderId, tempName, buffer);
+
+    // Step 3: 검증 체크포인트 (추후 validateAggregateFile 함수 추가 가능)
+    // 현재는 파일 생성 성공 = 검증 성공으로 간주
+
+    // Step 4: 최종 이름으로 변경 (원자적 연산)
+    await drive.files.update({
+      fileId: fileId,
+      requestBody: { name: finalName },
+      fields: 'id,name'
+    });
+
+    console.log(`✅ 집계 완료: ${finalName} (스냅샷 백업: ${snapshotName})`);
+    return fileId;
+  } catch (error) {
+    console.error(`❌ 집계 실패: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * 오래된 스냅샷 정리 (3개월 이상)
+ * 매 분기 1일 자동 실행 권장
+ *
+ * @param {object} drive - googleapis drive 인스턴스
+ * @param {string} archiveFolderId - 보관 폴더 ID
+ * @returns {Promise<number>} 삭제된 스냅샷 수
+ */
+export async function cleanupOldSnapshots(drive, archiveFolderId) {
+  try {
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+
+    // 3개월 이상 된 스냅샷 조회
+    const oldSnapshots = await drive.files.list({
+      q: `'${archiveFolderId}' in parents and name contains '_snapshot_' and createdTime < '${threeMonthsAgo.toISOString()}' and trashed = false`,
+      fields: 'files(id, name, createdTime)',
+      pageSize: 1000
+    });
+
+    const snapshotsToDelete = oldSnapshots.data.files || [];
+    let deletedCount = 0;
+
+    // 스냅샷을 휴지통으로 이동
+    for (const file of snapshotsToDelete) {
+      await drive.files.update({
+        fileId: file.id,
+        requestBody: { trashed: true }
+      });
+      deletedCount++;
+    }
+
+    console.log(`🗑️ 오래된 스냅샷 정리 완료: ${deletedCount}개 (3개월 이상)`);
+    return deletedCount;
+  } catch (error) {
+    console.error(`⚠️ 스냅샷 정리 실패: ${error.message}`);
+    return 0; // 정리 실패는 조용히 처리
+  }
 }
 
 export default async function handler(req, res) {

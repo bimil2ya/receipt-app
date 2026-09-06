@@ -78,6 +78,36 @@ export class FolderCache {
   }
 
   /**
+   * 특정 캐시 키를 무효화
+   * @param {string} key - 무효화할 캐시 키
+   */
+  invalidate(key) {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+      this.stats.size = this.cache.size;
+      console.log(`🔄 캐시 무효화: ${key}`);
+    }
+  }
+
+  /**
+   * 부모 폴더 ID 기반으로 모든 자식 폴더 캐시 무효화
+   * @param {string} parentId - 부모 폴더 ID
+   * @returns {number} 무효화된 항목 수
+   */
+  invalidateByParent(parentId) {
+    const keysToDelete = [];
+    for (const [key] of this.cache) {
+      if (key.startsWith(`${parentId}:`)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => this.cache.delete(key));
+    this.stats.size = this.cache.size;
+    console.log(`🔄 부모 폴더 캐시 무효화: ${keysToDelete.length}개 (parentId: ${parentId})`);
+    return keysToDelete.length;
+  }
+
+  /**
    * 만료된 항목 정리
    */
   cleanup() {

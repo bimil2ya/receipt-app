@@ -35,7 +35,7 @@ export const analyzeRateLimiter = createRateLimiter(
 
 export const uploadRateLimiter = createRateLimiter(
   10 * 60_000, // 10분
-  200,         // 10분당 최대 200회
+  400,         // 10분당 최대 400회 (정산서 PDF 청크는 upload.js에서 카운트 제외)
   'upload'
 );
 

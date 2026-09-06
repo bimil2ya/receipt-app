@@ -1,4 +1,5 @@
 api/analytics-dashboard.js
+api/folders-batch.js
 api/image-uploader.js
 api/kakao-token.js
 api/lookup-biz.js

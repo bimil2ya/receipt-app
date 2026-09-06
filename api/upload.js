@@ -29,6 +29,56 @@ import {
   shorten,
 } from './_uploadUtils.js';
 
+// 정산서 PDF 조립은 이 프로젝트에서 가장 무거운 엔드포인트다(청크 다운로드 전량 + 최종 PDF 업로드).
+export const config = { maxDuration: 60 };
+
+const ASSEMBLY_FOLDER_PREFIX = '_정산서조립_';
+const ORIGINALS_FOLDER_NAME = '_원본';
+const PDF_ASSEMBLY_MAX_BYTES = 20 * 1024 * 1024;
+const REPORT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 임시 폴더 안의 chunk-NNNN.bin 을 인덱스별로 모은다(중복 인덱스는 첫 항목만).
+async function listAssemblyChunks(drive, tmpId) {
+  const { data } = await drive.files.list({
+    q: `'${tmpId}' in parents and trashed = false`,
+    fields: 'files(id,name)',
+    pageSize: 100,
+  });
+  const byIndex = new Map();
+  for (const file of data.files || []) {
+    const match = /^chunk-(\d+)\.bin$/.exec(file.name || '');
+    if (!match) continue;
+    const idx = Number(match[1]);
+    if (!byIndex.has(idx)) byIndex.set(idx, file);
+  }
+  return byIndex;
+}
+
+async function downloadFileBuffer(drive, fileId) {
+  const resp = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' });
+  return Buffer.from(resp.data);
+}
+
+// 같은 팀·주에 동시 업로드 중인 폴더를 건드리지 않도록, createdTime 2시간 초과분만 정리한다.
+async function cleanupStaleAssemblyFolders(drive, weekId, keepId) {
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const { data } = await drive.files.list({
+    q: `'${weekId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id,name,createdTime)',
+    pageSize: 100,
+  });
+  for (const folder of data.files || []) {
+    if (folder.id === keepId) continue;
+    if (!String(folder.name || '').startsWith(ASSEMBLY_FOLDER_PREFIX)) continue;
+    if (!folder.createdTime || folder.createdTime >= cutoff) continue;
+    await drive.files.update({ fileId: folder.id, requestBody: { trashed: true } }).catch(() => {});
+  }
+}
+
 
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -167,10 +217,13 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonError(res, Errors.methodNotAllowed());
 
   // ── 호출 빈도 제한
-  const rateKey = origin || 'unknown';
-  const rate = uploadRateLimiter(rateKey);
-  if (!rate.ok) {
-    return jsonError(res, Errors.rateLimit(rate.retryAfterSec));
+  // 정산서 PDF 청크는 xlsx 요청으로 이미 한 번 게이트된 단일 논리 작업의 일부이고 업로드당 ≤20으로 유계라 카운트 제외.
+  if (req.body?.isPdfChunk !== true) {
+    const rateKey = origin || 'unknown';
+    const rate = uploadRateLimiter(rateKey);
+    if (!rate.ok) {
+      return jsonError(res, Errors.rateLimit(rate.retryAfterSec));
+    }
   }
 
   // ── 브라우저 번들에 비밀 토큰을 넣지 않는다.
@@ -185,7 +238,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary, teamId, teamNames, tripStartDate, tripEndDate } = req.body;
+    const {
+      surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary,
+      teamId, teamNames, tripStartDate, tripEndDate,
+      isPdfChunk, reportId, chunkIndex, chunkCount, chunkBase64,
+    } = req.body;
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 25 * 1024 * 1024) {
       return jsonError(res, Errors.badRequest('요청이 너무 큽니다.'));
@@ -236,15 +293,101 @@ export default async function handler(req, res) {
     const targetPath = `영수증정산관리/${yearMonth}/${surveyorName}/${weekFolderName}`;
 
     // ── person 폴더에 남은 기존 자료는 보관함으로 이동
-    // 현재 주 폴더와 보관함 폴더는 유지하고, 나머지 레거시 파일/폴더만 아카이브한다.
-    const legacyRes = await drive.files.list({
-      q: `'${personId}' in parents and trashed = false`,
-      fields: 'files(id,name,mimeType)',
-      pageSize: 200,
-    });
-    for (const item of legacyRes.data.files || []) {
-      if (item.id === weekId || item.id === archiveId) continue;
-      await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
+    // "새 보고 세션 시작"을 의미하는 xlsx 업로드에서만 하면 충분하다.
+    // (xlsx 요청이 먼저 실행돼 스윕을 마친 뒤 이미지·청크 POST가 온다.)
+    if (!isImageOnly && !isPdfChunk) {
+      const legacyRes = await drive.files.list({
+        q: `'${personId}' in parents and trashed = false`,
+        fields: 'files(id,name,mimeType)',
+        pageSize: 200,
+      });
+      for (const item of legacyRes.data.files || []) {
+        if (item.id === weekId || item.id === archiveId) continue;
+        await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
+      }
+    }
+
+    if (isPdfChunk) {
+      // ── 정산서 PDF: 바이트 청크를 임시 폴더에 모았다가 마지막 청크에서 이어붙여 조립
+      // 검증은 임시 폴더 생성보다 먼저 (경로 오염 방지)
+      if (typeof reportId !== 'string' || !REPORT_ID_RE.test(reportId)) {
+        return jsonError(res, Errors.badRequest('reportId 형식 오류.'));
+      }
+      if (!Number.isInteger(chunkIndex) || !Number.isInteger(chunkCount)
+        || chunkCount < 1 || chunkCount > 20 || chunkIndex < 0 || chunkIndex >= chunkCount) {
+        return jsonError(res, Errors.badRequest('chunkIndex/chunkCount 범위 오류.'));
+      }
+      if (!chunkBase64 || typeof chunkBase64 !== 'string' || chunkBase64.length > 4 * 1024 * 1024) {
+        return jsonError(res, Errors.badRequest('chunkBase64 누락 또는 초과.'));
+      }
+      // 파일명은 서버가 만든다 — 주간폴더명과 일치시켜 파일명/폴더명이 어긋나지 않게.
+      // surveyorName은 위에서 경로 금지문자 검증 완료, weekFolderName은 YYYY-MM-DD~YYYY-MM-DD(또는 주간미상) 형식.
+      const pdfName = `정산서_${surveyorName}_${weekFolderName}.pdf`;
+
+      const tmpId = await getOrCreateFolder(drive, `${ASSEMBLY_FOLDER_PREFIX}${reportId}`, weekId);
+      const chunkName = `chunk-${String(chunkIndex).padStart(4, '0')}.bin`;
+      // uploadFile(이름 키 덮어쓰기) — 같은 청크가 재시도로 두 번 와도 동명 파일이 하나만 남아 멱등.
+      await uploadFile(drive, Buffer.from(chunkBase64, 'base64'), chunkName, tmpId, 'application/octet-stream');
+
+      if (chunkIndex !== chunkCount - 1) {
+        return res.status(200).json({ success: true, received: chunkIndex });
+      }
+
+      // ── 마지막 청크: 조립
+      const isComplete = (byIndex) => {
+        if (byIndex.size !== chunkCount) return false;
+        for (let i = 0; i < chunkCount; i += 1) if (!byIndex.has(i)) return false;
+        return true;
+      };
+      let chunkFiles = await listAssemblyChunks(drive, tmpId);
+      for (const wait of [800, 1600]) {
+        if (isComplete(chunkFiles)) break;
+        await sleep(wait);
+        chunkFiles = await listAssemblyChunks(drive, tmpId);
+      }
+      if (!isComplete(chunkFiles)) {
+        return res.status(500).json({
+          success: false,
+          error: 'ASSEMBLY_INCOMPLETE',
+          detail: `${chunkFiles.size}/${chunkCount} 청크만 도착`,
+        });
+      }
+
+      const buffers = [];
+      for (let i = 0; i < chunkCount; i += 1) {
+        buffers.push(await downloadFileBuffer(drive, chunkFiles.get(i).id));
+      }
+      const pdfBuffer = Buffer.concat(buffers);
+      if (pdfBuffer.length > PDF_ASSEMBLY_MAX_BYTES) {
+        return res.status(413).json({ success: false, error: 'PDF_TOO_LARGE', detail: `${pdfBuffer.length} bytes` });
+      }
+
+      const pdfResult = await uploadFile(drive, pdfBuffer, pdfName, weekId, 'application/pdf');
+      await cleanupStaleAssemblyFolders(drive, weekId, tmpId);
+      await drive.files.update({ fileId: tmpId, requestBody: { trashed: true } }).catch(() => {});
+
+      let kakaoSent = false;
+      let kakaoError = null;
+      try {
+        kakaoSent = (await sendKakaoNotification(
+          `📄 정산서 PDF 생성됨\n파일: ${pdfName}\n작업자: ${surveyorName}`
+        )) !== false;
+      } catch (kakaoErr) {
+        kakaoError = kakaoErr.message;
+        console.warn('정산서 PDF 카카오 알림 실패:', kakaoErr.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        assembled: true,
+        type: 'pdf',
+        file: pdfName,
+        uploadStatus: pdfResult.status,
+        fileId: pdfResult.id,
+        targetPath,
+        kakaoSent,
+        kakaoError,
+      });
     }
 
     if (!isImageOnly) {
@@ -396,6 +539,8 @@ export default async function handler(req, res) {
         return jsonError(res, { statusCode: 413, error: 'PAYLOAD_TOO_LARGE', message: `이미지가 너무 큽니다 (최대 ${MAX_DECODED_SIZE / 1024 / 1024}MB).` });
       }
     }
+    // ── 낱장 영수증 사진은 담당자 눈에 안 띄는 하위폴더 _원본/ 에 저장 (Drive 복원 기능 전용)
+    const originalsId = await getOrCreateFolder(drive, ORIGINALS_FOLDER_NAME, weekId);
     const uploaded = [];
     const skipped  = [];
     const details = [];
@@ -405,7 +550,7 @@ export default async function handler(req, res) {
       // 실제 MIME을 dataUrl 헤더에서 추출해 그대로 Drive에 전달 (이전엔 항상 image/jpeg로 잘못 저장)
       const mimeMatch = img.dataUrl.match(/^data:([^;]+);base64,/);
       const imgMime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const result     = await uploadFile(drive, imgBuffer, img.filename, weekId, imgMime);
+      const result     = await uploadFile(drive, imgBuffer, img.filename, originalsId, imgMime);
       const detail = {
         filename: img.filename,
         status: result.status,

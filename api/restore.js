@@ -36,7 +36,10 @@ async function collectImageFilesRecursive(drive, folderId, seenFileIds = new Set
   const files = [];
   for (const entry of entries) {
     if (entry.mimeType === 'application/vnd.google-apps.folder') {
-      if (String(entry.name || '').trim() === ARCHIVE_FOLDER_NAME) continue;
+      const folderName = String(entry.name || '').trim();
+      // 보관함 / PDF 조립 임시 폴더(_정산서조립_*)는 복원할 이미지가 없으므로 재귀 생략. (_원본은 복원 대상)
+      if (folderName === ARCHIVE_FOLDER_NAME) continue;
+      if (folderName.startsWith('_정산서조립_')) continue;
       const nested = await collectImageFilesRecursive(drive, entry.id, seenFileIds);
       files.push(...nested);
       continue;

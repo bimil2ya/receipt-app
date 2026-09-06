@@ -2,12 +2,16 @@ import imageCompression from 'browser-image-compression';
 
 /**
  * 이미지 압축 및 회전 보정 (순차 처리 필수)
- * v11 전문가 가이드: maxWidthOrHeight 1920 강제 적용하여 iOS 크래시 방지
+ * 영수증 인식용 최적화: 용량 절감 (고품질 불필요)
+ * - maxWidthOrHeight: 1280px (영수증 텍스트 충분히 인식 가능)
+ * - maxSizeMB: 0.4MB (용량 절감)
+ * - quality: 0.75 (OCR 인식 충분)
  */
 export async function compressPhoto(file) {
   const options = {
-    maxWidthOrHeight: 1920,      // iOS Canvas Pixel Limit 방어
-    maxSizeMB: 1,               // 1MB 이하로 압축
+    maxWidthOrHeight: 1280,      // 영수증 인식 최적 해상도 (1920 → 1280)
+    maxSizeMB: 0.4,             // 0.4MB 이하로 적극 압축 (1MB → 0.4MB)
+    quality: 0.75,              // JPEG 품질 75% (OCR 충분)
     useWebWorker: true,
     exifOrientation: true,       // EXIF 회전값 자동 보정
     onProgress: (percent) => {
