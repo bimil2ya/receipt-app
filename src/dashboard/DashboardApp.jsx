@@ -15,11 +15,6 @@ export default function DashboardApp() {
   const latestMonth = useRef(month);
   latestMonth.current = month;
 
-  // 부팅 스플래시 제거 (index.html의 #initial-splash — 현장 App과 공유하는 신호).
-  useEffect(() => {
-    window.dispatchEvent(new CustomEvent('receipt-app:booted'));
-  }, []);
-
   const load = useCallback(
     async (force) => {
       if (!token) return;

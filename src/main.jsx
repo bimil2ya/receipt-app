@@ -116,12 +116,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 const initialSplash = document.getElementById('initial-splash');
-let splashFallbackTimer;
 const removeInitialSplash = () => {
-  clearTimeout(splashFallbackTimer);
   initialSplash?.remove();
   window.removeEventListener('receipt-app:booted', removeInitialSplash);
 };
-window.addEventListener('receipt-app:booted', removeInitialSplash, { once: true });
-// 하드 폴백 — 부팅 이벤트가 안 오는 경우(lazy 청크 로드 실패 등)에도 스플래시가 영구히 남지 않도록.
-splashFallbackTimer = setTimeout(removeInitialSplash, 8000);
+
+if (isDashboard) {
+  // 대시보드는 자체 로딩 UI(Suspense fallback + DashboardApp 로딩 화면)가 있으므로
+  // 원시 HTML 스플래시를 바로 걷는다. lazy 청크 로드가 실패해도 ErrorBoundary가
+  // 스플래시에 가리지 않게.
+  removeInitialSplash();
+} else {
+  // 현장 App: IndexedDB 초기화까지 스플래시 유지. App이 준비되면 이벤트 발생.
+  window.addEventListener('receipt-app:booted', removeInitialSplash, { once: true });
+}

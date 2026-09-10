@@ -8,10 +8,15 @@ const requiredEnvVars = [
   'GDRIVE_CLIENT_ID',
   'GDRIVE_CLIENT_SECRET',
   'GDRIVE_REFRESH_TOKEN',
-  // Redis (Upstash) — 제출 잠금·대시보드 rate-limit. Vercel Upstash 연동이 자동 주입.
+];
+
+// 대시보드(#/dashboard)를 배포·활성화할 때 위 requiredEnvVars로 옮길 것.
+// 지금은 경고만 — 대시보드가 아직 미배포라 다른 배포를 막지 않게.
+//   KV_REST_API_URL / KV_REST_API_TOKEN (Upstash 연동이 자동 주입 — 제출 P0도 필요)
+//   DASHBOARD_PW_OWNER / DASHBOARD_PW_STAFF / DASHBOARD_TOKEN_SECRET / RECOVERY_EMAIL
+const dashboardEnvVars = [
   'KV_REST_API_URL',
   'KV_REST_API_TOKEN',
-  // 출장비 집행 현황 대시보드 (#/dashboard). 없으면 로그인이 500/503.
   'DASHBOARD_PW_OWNER',
   'DASHBOARD_PW_STAFF',
   'DASHBOARD_TOKEN_SECRET',
@@ -33,6 +38,12 @@ try {
       console.log(`❌ ${envVar} - 미설정!`);
       allValid = false;
     }
+  }
+
+  const missingDashboard = dashboardEnvVars.filter((v) => !output.includes(v));
+  if (missingDashboard.length) {
+    console.log(`\n⚠️  대시보드(#/dashboard) 미설정 env: ${missingDashboard.join(', ')}`);
+    console.log('   대시보드를 배포·활성화하기 전에 설정할 것 (배포는 막지 않음).');
   }
 } catch (error) {
   console.error('❌ Vercel 환경변수 조회 실패:', error.message);
