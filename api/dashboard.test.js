@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import handler from './dashboard.js';
 import { signToken } from './_dashboardToken.js';
-import { resetKvToMemory, configureKv, KvUnavailableError } from './_kv.js';
+import { setTestRedis, memoryRedis, KvUnavailableError } from './_kv.js';
+
+const throwingRedis = () => {
+  const boom = async () => {
+    throw new Error('kv down');
+  };
+  return { incr: boom, expire: boom, del: boom, get: boom, set: boom };
+};
 import { sendRecoveryEmail } from './_dashboardMail.js';
 
 vi.mock('./_dashboardMail.js', () => ({
@@ -56,7 +63,7 @@ async function call(reqOpts) {
 }
 
 beforeEach(() => {
-  resetKvToMemory();
+  setTestRedis(memoryRedis());
   vi.clearAllMocks();
   process.env.DASHBOARD_PW_OWNER = OWNER_PW;
   process.env.DASHBOARD_PW_STAFF = STAFF_PW;
@@ -121,30 +128,28 @@ describe('action=auth', () => {
   });
 
   it('fails closed (503) when KV is unavailable', async () => {
-    const boom = async () => {
-      throw new Error('boom');
-    };
-    configureKv({ incr: boom, expire: boom, get: boom, del: boom });
+    setTestRedis(throwingRedis());
     const res = await call({ method: 'POST', action: 'auth', body: { password: OWNER_PW } });
     expect(res.statusCode).toBe(503);
   });
 
   it('still succeeds if only rlReset (post-success unlock) fails', async () => {
-    let calls = 0;
-    configureKv({
+    let incrs = 0;
+    setTestRedis({
       incr: async () => {
-        calls += 1;
+        incrs += 1;
         return 1;
       },
-      expire: async () => true,
+      expire: async () => 1,
       get: async () => null,
+      set: async () => 'OK',
       del: async () => {
         throw new Error('unlock failed');
       },
     });
     const res = await call({ method: 'POST', action: 'auth', body: { password: OWNER_PW } });
     expect(res.statusCode).toBe(200);
-    expect(calls).toBeGreaterThan(0);
+    expect(incrs).toBeGreaterThan(0);
   });
 
   it('buckets lockout by x-real-ip, not by a spoofable x-forwarded-for', async () => {
@@ -187,10 +192,7 @@ describe('action=forgot', () => {
   });
 
   it('still returns the same 200 when KV is down (no info leak, no mail)', async () => {
-    const boom = async () => {
-      throw new Error('kv down');
-    };
-    configureKv({ incr: boom, expire: boom, get: boom, del: boom });
+    setTestRedis(throwingRedis());
     const res = await call({ method: 'POST', action: 'forgot', body: { role: 'owner' } });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ success: true, message: '메일을 보냈습니다' });

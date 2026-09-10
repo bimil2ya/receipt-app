@@ -1,70 +1,79 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { kv, kvIncrWithTtl, resetKvToMemory, configureKv, KvUnavailableError } from './_kv.js';
+import { getRedis, memoryRedis, setTestRedis, KvUnavailableError } from './_kv.js';
 
-beforeEach(() => resetKvToMemory());
+afterEach(() => setTestRedis(null));
 
-describe('_kv in-memory store', () => {
-  it('incr counts up and returns the post-increment value', async () => {
-    expect(await kv.incr('a')).toBe(1);
-    expect(await kv.incr('a')).toBe(2);
+describe('memoryRedis shim', () => {
+  let r;
+  beforeEach(() => {
+    r = memoryRedis();
   });
 
-  it('kvIncrWithTtl fixes the window on first set (NX — not sliding)', async () => {
+  it('incr counts up from 0', async () => {
+    expect(await r.incr('a')).toBe(1);
+    expect(await r.incr('a')).toBe(2);
+  });
+
+  it('expire NX fixes the window on first set (not sliding)', async () => {
     vi.useFakeTimers();
     try {
-      await kvIncrWithTtl('w', 10); // expireAt = now + 10s
+      await r.incr('w');
+      await r.expire('w', 10, 'NX'); // exp = now + 10s
       vi.advanceTimersByTime(6000);
-      await kvIncrWithTtl('w', 10); // NX — must NOT extend to now+10
-      vi.advanceTimersByTime(5000); // total 11s → past original window
-      expect(await kv.get('w')).toBeNull();
+      await r.expire('w', 10, 'NX'); // NX — must not extend
+      vi.advanceTimersByTime(5000); // total 11s
+      expect(await r.get('w')).toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('self-heals a TTL-less key when an earlier expire failed', async () => {
-    let failExpire = true;
-    configureKv({
-      incr: async () => 1,
-      // 첫 호출은 실패(고아 키), 이후 성공
-      expire: async () => {
-        if (failExpire) {
-          failExpire = false;
-          throw new Error('transient');
-        }
-        return true;
-      },
-      get: async () => 1,
-      del: async () => 1,
-    });
-    await expect(kvIncrWithTtl('x', 60)).rejects.toBeInstanceOf(KvUnavailableError);
-    // 다음 호출이 expire를 다시 시도한다
-    await expect(kvIncrWithTtl('x', 60)).resolves.toBe(1);
+  it('set NX refuses to overwrite a live key', async () => {
+    expect(await r.set('k', '1', { nx: true, ex: 60 })).toBe('OK');
+    expect(await r.set('k', '2', { nx: true, ex: 60 })).toBeNull();
+    expect(await r.get('k')).toBe('1');
+  });
+
+  it('del removes a key', async () => {
+    await r.incr('k');
+    expect(await r.del('k')).toBe(1);
+    expect(await r.get('k')).toBeNull();
   });
 });
 
-describe('_kv unconfigured guard (production default)', () => {
-  const original = process.env.VERCEL_ENV;
+describe('getRedis()', () => {
+  const orig = { ...process.env };
   afterEach(() => {
-    process.env.VERCEL_ENV = original;
-    vi.resetModules();
+    process.env.VERCEL_ENV = orig.VERCEL_ENV;
+    process.env.KV_REST_API_URL = orig.KV_REST_API_URL;
+    process.env.KV_REST_API_TOKEN = orig.KV_REST_API_TOKEN;
+    setTestRedis(null);
+  });
+
+  it('returns the injected test client when set', () => {
+    const fake = { tag: 'fake' };
+    setTestRedis(fake);
+    expect(getRedis()).toBe(fake);
+  });
+
+  it('uses the in-memory shim locally even when KV creds are present (no prod Redis from local)', () => {
+    setTestRedis(null);
+    delete process.env.VERCEL_ENV;
+    process.env.KV_REST_API_URL = 'https://example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'x'.repeat(64);
+    const r = getRedis();
+    expect(typeof r.incr).toBe('function');
+    expect(typeof r.eval).toBe('undefined'); // shim has no Lua — not a real Redis
   });
 
   it.each(['production', 'preview'])(
-    'throws KV_UNAVAILABLE on every op when VERCEL_ENV=%s and no client is injected',
-    async (envName) => {
+    'throws KV_UNAVAILABLE on a %s deployment with no credentials',
+    (envName) => {
+      setTestRedis(null);
       process.env.VERCEL_ENV = envName;
-      vi.resetModules();
-      const fresh = await import('./_kv.js');
-      await expect(fresh.kv.incr('k')).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
-      await expect(fresh.kvIncrWithTtl('k', 10)).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
+      delete process.env.KV_REST_API_URL;
+      delete process.env.KV_REST_API_TOKEN;
+      expect(() => getRedis()).toThrow(KvUnavailableError);
     },
   );
-
-  it('uses the in-memory store locally (no VERCEL_ENV)', async () => {
-    delete process.env.VERCEL_ENV;
-    vi.resetModules();
-    const fresh = await import('./_kv.js');
-    await expect(fresh.kv.incr('k')).resolves.toBe(1);
-  });
 });
