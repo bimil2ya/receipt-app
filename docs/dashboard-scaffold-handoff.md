@@ -97,13 +97,30 @@
 **배포(또는 실 로그인 노출) 전 남은 것 — Codex 작업과 무관, 별도:**
 - Vercel 함수 예산: `dashboard.js` +1. `api/`의 non-`_` 헬퍼(`driveUtils.js`,
   `indexeddb-schema.js` 등)가 함수로 세어질 수 있음 → `.vercelignore` 추가 또는 `_` 개명 검토.
-- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드 env 5종 추가 (없으면 `deploy:prod`가 검증 못 함).
-- KV 실구현 시 `expire`는 `EXPIRE key ttl NX`(고정 윈도우). `incr`+`expire` 비원자성 주의.
+- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드 env 추가
+  (`DASHBOARD_PW_OWNER`/`STAFF`, `DASHBOARD_TOKEN_SECRET`, `RECOVERY_EMAIL` — KV는 이미 연결됨).
+- `incr`+`expire`는 별개 명령이라 원자적이지 않음 — `expire`를 매번 `NX`로 호출해 self-heal(이미 구현).
 - SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
+
+## Codex 작업과의 정합 (2026-09-11 확인)
+
+Codex 진행 상황(P0 최종 제출 신뢰성, 6단계 진입): `_submissionLock.js`·`_submissionJob.js`가
+`api/_kv.js`의 `KvUnavailableError`를 import 중. Upstash Redis가 이미 Vercel 프로젝트에 연결됨
+(`.env.local`에 `KV_REST_API_URL`/`KV_REST_API_TOKEN` 존재). → **"KV 저장소 결정" 선결조건 해소.**
+
+이 브랜치에서 맞춘 것(커밋 `5e325b8`):
+- `_kv.js` = 공유 Redis foundation. `getRedis()`는 Codex의 `getSubmissionRedis()`와 같은 계약
+  (env·`new Redis({url,token})`·`KvUnavailableError`). `KvUnavailableError` 이름·code 불변.
+- 차이: `getRedis()`는 **로컬에서 인메모리 셰임**(rate-limit 잠금이 프로덕션 Redis에 새면
+  실제 대시보드가 잠기므로). Codex의 `getSubmissionRedis()`는 로컬도 실제 Redis — 병합 시 재검토.
+- `_dashboardRate.js` 키 namespace = `dashboard:v1:rl:*` (Codex의 `submission-lock:v1:*`와 분리).
+
+**병합 시 Codex가 할 수 있는 정리(선택)**: `_submissionLock.js`의 `getSubmissionRedis()`를
+`import { getRedis } from './_kv.js'`로 대체 가능(계약 동일). 지금은 중복이지만 충돌 아님.
 
 ## 안 해도 되는 것 (별도 트랙 — Codex는 건드리지 말 것)
 
-- `api/_kv.js` 의 `configureKv()` 실구현 + `@upstash/redis` 설치 — Upstash 승인 대기 중
+- `api/_kv.js` — Codex와 정합 완료(위). `getRedis()`/`memoryRedis()`/`KvUnavailableError` 유지
 - `api/_dashboardMail.js` 의 실제 이메일 전송 — sender 미정 (Resend/Nodemailer)
 - 클라이언트 `#/dashboard` 화면 — `cb39f19`에서 완료(스텁 데이터로 동작).
   `_dashboardData.js`가 실데이터로 바뀌면 자동으로 실데이터를 그린다.
