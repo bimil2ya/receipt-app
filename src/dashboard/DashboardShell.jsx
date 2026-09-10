@@ -145,7 +145,8 @@ function TeamTab({ data, token }) {
       </Panel>
 
       <Panel title="정산서 · 영수증" note="표지 = 용도별 집계장, 이후 = 영수증 이미지">
-        <ReportsPanel token={token} reports={team.reports} />
+        {/* key로 조 전환 시 remount → 열려 있던 PDF blob·상태 정리 */}
+        <ReportsPanel key={team.names} token={token} reports={team.reports} />
       </Panel>
 
       <Panel title="출장 원장" note={`${rows.length}건 · 자료 취합용`}>

@@ -61,6 +61,8 @@ export async function fetchReportObjectUrl(token, ref) {
   }
   if (res.status === 401) return { ok: false, reason: 'expired' };
   if (!res.ok) return { ok: false, reason: 'error' };
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('pdf')) return { ok: false, reason: 'error' }; // 예상치 못한 응답(JSON 오류 등)
   const blob = await res.blob().catch(() => null);
   if (!blob || blob.size === 0) return { ok: false, reason: 'error' };
   return { ok: true, url: URL.createObjectURL(blob) };

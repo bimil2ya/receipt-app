@@ -70,6 +70,8 @@ let upstashKey = '';
 export function setTestRedis(client) {
   testRedis = client === undefined ? memoryRedis() : client;
   localShim = null;
+  upstashClient = null;
+  upstashKey = '';
 }
 
 /**

@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { authenticate, fetchDashboardData } from './api';
+import { authenticate, fetchDashboardData, fetchReportObjectUrl } from './api';
 
 afterEach(() => vi.unstubAllGlobals());
+
+const pdfResponse = (overrides = {}) => ({
+  ok: true,
+  status: 200,
+  headers: { get: (k) => (k === 'content-type' ? 'application/pdf' : null) },
+  blob: async () => ({ size: 100, type: 'application/pdf' }),
+  ...overrides,
+});
 
 describe('authenticate', () => {
   it('returns reason:network when fetch rejects (offline)', async () => {
@@ -56,5 +64,34 @@ describe('fetchDashboardData', () => {
       expect.stringContaining('action=data&month=2026-09'),
       expect.objectContaining({ headers: { Authorization: 'Bearer mytoken' } }),
     );
+  });
+});
+
+describe('fetchReportObjectUrl', () => {
+  it('returns an object URL for a PDF response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pdfResponse()));
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:mock' });
+    await expect(fetchReportObjectUrl('t', 'ref~sig')).resolves.toEqual({ ok: true, url: 'blob:mock' });
+  });
+
+  it('rejects a non-PDF 200 (e.g. JSON error body)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        pdfResponse({ headers: { get: () => 'application/json' } }),
+      ),
+    );
+    await expect(fetchReportObjectUrl('t', 'r')).resolves.toEqual({ ok: false, reason: 'error' });
+  });
+
+  it('maps 401 to expired', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pdfResponse({ ok: false, status: 401 })));
+    await expect(fetchReportObjectUrl('t', 'r')).resolves.toEqual({ ok: false, reason: 'expired' });
+  });
+
+  it('rejects an empty blob', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(pdfResponse({ blob: async () => ({ size: 0 }) })));
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:mock' });
+    await expect(fetchReportObjectUrl('t', 'r')).resolves.toEqual({ ok: false, reason: 'error' });
   });
 });

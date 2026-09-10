@@ -12,9 +12,8 @@ import { KvUnavailableError, getRedis } from './_kv.js';
 
 // Preview·Production이 같은 Upstash keyspace를 공유한다(Vercel이 KV_REST_API_URL을
 // 두 환경에 같은 값으로 주입). 환경을 키에 넣어 preview 인증 시도가 프로덕션 잠금
-// 카운터와 섞이지 않게 한다.
-const ENV = process.env.VERCEL_ENV || 'local';
-const NS = `dashboard:v1:${ENV}:rl`;
+// 카운터와 섞이지 않게 한다. VERCEL_ENV를 호출 시점에 읽는다(모듈 로드 시점이 아니라).
+const ns = () => `dashboard:v1:${process.env.VERCEL_ENV || 'local'}:rl`;
 const hashKey = (raw) => createHash('sha256').update(String(raw)).digest('hex').slice(0, 16);
 
 async function guarded(op, fn) {
@@ -38,7 +37,7 @@ async function bump(redis, key, ttlSec) {
  */
 export async function rlHit(rawKey, { max, windowSec }, redis = getRedis()) {
   return guarded('rlHit', async () => {
-    const count = await bump(redis, `${NS}:${hashKey(rawKey)}`, windowSec);
+    const count = await bump(redis, `${ns()}:${hashKey(rawKey)}`, windowSec);
     if (count > max) return { ok: false, count, retryAfterSec: windowSec };
     return { ok: true, count };
   });
@@ -46,7 +45,7 @@ export async function rlHit(rawKey, { max, windowSec }, redis = getRedis()) {
 
 /** 성공 로그인 후 해당 키의 실패 카운트를 지운다. */
 export async function rlReset(rawKey, redis = getRedis()) {
-  return guarded('rlReset', () => redis.del(`${NS}:${hashKey(rawKey)}`));
+  return guarded('rlReset', () => redis.del(`${ns()}:${hashKey(rawKey)}`));
 }
 
 /**
@@ -55,7 +54,7 @@ export async function rlReset(rawKey, redis = getRedis()) {
  */
 export async function forgotGate({ perHour }, redis = getRedis()) {
   return guarded('forgotGate', async () => {
-    const count = await bump(redis, `${NS}:forgot`, 3600);
+    const count = await bump(redis, `${ns()}:forgot`, 3600);
     return count <= perHour;
   });
 }

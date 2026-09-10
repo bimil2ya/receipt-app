@@ -46,24 +46,18 @@ export default function ReportsPanel({ token, reports }) {
     }
   }
 
+  // 인쇄 = 새 탭으로 PDF를 열고 브라우저 PDF 뷰어의 인쇄(Ctrl+P)로 출력.
+  // 인라인 보기(load)와 독립 — openRef/state를 건드리지 않는다.
   async function print(ref) {
-    let url = state.url;
-    if (openRef !== ref || !url) {
-      const res = await fetchReportObjectUrl(token, ref);
-      if (!res.ok) {
-        setOpenRef(ref);
-        setState({ status: 'error', url: '', error: 'PDF를 불러오지 못했습니다.' });
-        return;
-      }
-      revoke();
-      urlRef.current = res.url;
-      url = res.url;
-      setOpenRef(ref);
-      setState({ status: 'ready', url, error: '' });
+    const res = await fetchReportObjectUrl(token, ref);
+    if (!res.ok) {
+      // 실패하면 인라인으로 열어 오류 메시지를 보여준다.
+      load(ref);
+      return;
     }
-    // 새 탭으로 PDF를 연다 — 브라우저 PDF 뷰어의 인쇄 버튼(Ctrl+P)으로 출력.
-    // (탭 간 자동 w.print()는 Chromium PDF 뷰어에서 신뢰할 수 없어 시도하지 않는다.)
-    window.open(url, '_blank', 'noopener');
+    window.open(res.url, '_blank', 'noopener');
+    // 탭이 바이트를 복사한 뒤 해제 (탭은 blob 무효화 후에도 로드된 PDF를 유지).
+    setTimeout(() => URL.revokeObjectURL(res.url), 30000);
   }
 
   if (!reports || reports.length === 0) {
