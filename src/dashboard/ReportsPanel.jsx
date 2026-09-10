@@ -61,17 +61,9 @@ export default function ReportsPanel({ token, reports }) {
       setOpenRef(ref);
       setState({ status: 'ready', url, error: '' });
     }
-    const w = window.open(url, '_blank', 'noopener');
-    if (w) {
-      // 뷰어가 로드되면 인쇄 대화상자 — 일부 브라우저는 차단하므로 사용자가 직접 눌러도 됨.
-      w.addEventListener('load', () => {
-        try {
-          w.print();
-        } catch {
-          /* 사용자가 뷰어에서 직접 인쇄 */
-        }
-      });
-    }
+    // 새 탭으로 PDF를 연다 — 브라우저 PDF 뷰어의 인쇄 버튼(Ctrl+P)으로 출력.
+    // (탭 간 자동 w.print()는 Chromium PDF 뷰어에서 신뢰할 수 없어 시도하지 않는다.)
+    window.open(url, '_blank', 'noopener');
   }
 
   if (!reports || reports.length === 0) {
@@ -81,7 +73,7 @@ export default function ReportsPanel({ token, reports }) {
   return (
     <div className="flex flex-col gap-2">
       {reports.map((r) => {
-        const isOpen = openRef === r.ref;
+        const isOpen = !!openRef && openRef === r.ref;
         return (
           <div key={r.ref || r.label} className="rounded-lg border border-slate-200">
             <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">

@@ -8,6 +8,14 @@ const requiredEnvVars = [
   'GDRIVE_CLIENT_ID',
   'GDRIVE_CLIENT_SECRET',
   'GDRIVE_REFRESH_TOKEN',
+  // Redis (Upstash) — 제출 잠금·대시보드 rate-limit. Vercel Upstash 연동이 자동 주입.
+  'KV_REST_API_URL',
+  'KV_REST_API_TOKEN',
+  // 출장비 집행 현황 대시보드 (#/dashboard). 없으면 로그인이 500/503.
+  'DASHBOARD_PW_OWNER',
+  'DASHBOARD_PW_STAFF',
+  'DASHBOARD_TOKEN_SECRET',
+  'RECOVERY_EMAIL',
 ];
 
 console.log('🔍 환경변수 검증 중...\n');

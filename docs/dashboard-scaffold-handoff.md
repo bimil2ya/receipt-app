@@ -65,6 +65,9 @@
 - `fetchReportPdf(id)` — 지금은 최소 스텁 PDF. → `createDrive()` +
   `drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' })` (upload.js의 `downloadFileBuffer` 참고).
 - `id`는 클라이언트가 조작 못 한다(dashboard-data가 `signReportRef`로 서명, `?action=report`가 검증).
+  **단 HMAC은 `_dashboardData.js`가 넘긴 id면 뭐든 인가한다** → `reportsForMonth`가 반드시
+  `<메인>/<팀>/<주간>/정산서_*.pdf` 경로의 fileId만 반환하도록(다른 Drive 파일 id를 실수로
+  서명하면 그 파일이 열린다). `fetchReportPdf`에서도 파일 mimeType=`application/pdf` + 이름 패턴 재확인 권장.
 - 정산서 표지가 이미 "용도별 집계장", 이후 페이지가 영수증 이미지다(`src/utils/receiptPdfReport.js`) — 별도 가공 불필요.
 
 ## 채울 것 ②  P2 확정 사항 회신 (착수 키트 §2)
@@ -97,10 +100,14 @@
 **배포(또는 실 로그인 노출) 전 남은 것 — Codex 작업과 무관, 별도:**
 - Vercel 함수 예산: `dashboard.js` +1. `api/`의 non-`_` 헬퍼(`driveUtils.js`,
   `indexeddb-schema.js` 등)가 함수로 세어질 수 있음 → `.vercelignore` 추가 또는 `_` 개명 검토.
-- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드 env 추가
-  (`DASHBOARD_PW_OWNER`/`STAFF`, `DASHBOARD_TOKEN_SECRET`, `RECOVERY_EMAIL` — KV는 이미 연결됨).
+- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드/KV env 추가 완료(이번 커밋).
+  **`DASHBOARD_PW_OWNER`/`STAFF`/`DASHBOARD_TOKEN_SECRET`/`RECOVERY_EMAIL`을 Vercel에 넣기 전에는
+  `npm run deploy:prod`가 실패한다** — 브랜치 병합 전에 시크릿부터.
 - `incr`+`expire`는 별개 명령이라 원자적이지 않음 — `expire`를 매번 `NX`로 호출해 self-heal(이미 구현).
 - SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
+- **Vercel 함수 예산**: `dashboard.js`(+1) + Codex의 `review.js`(+1). 현재 비-`_`·비-ignore `/api/*.js`가
+  ~15개(`driveUtils.js`·`indexeddb-schema.js`처럼 라이브러리인데 라우트로 세어질 수 있는 것 포함).
+  Hobby(12)면 이미 초과. 신규 2개 붙기 전에 `.vercelignore` 추가 또는 `_` 개명으로 정리 필요. `api/*.md` 12개도.
 
 ## Codex 작업과의 정합 (2026-09-11 확인)
 
@@ -108,15 +115,25 @@ Codex 진행 상황(P0 최종 제출 신뢰성, 6단계 진입): `_submissionLoc
 `api/_kv.js`의 `KvUnavailableError`를 import 중. Upstash Redis가 이미 Vercel 프로젝트에 연결됨
 (`.env.local`에 `KV_REST_API_URL`/`KV_REST_API_TOKEN` 존재). → **"KV 저장소 결정" 선결조건 해소.**
 
-이 브랜치에서 맞춘 것(커밋 `5e325b8`):
-- `_kv.js` = 공유 Redis foundation. `getRedis()`는 Codex의 `getSubmissionRedis()`와 같은 계약
-  (env·`new Redis({url,token})`·`KvUnavailableError`). `KvUnavailableError` 이름·code 불변.
-- 차이: `getRedis()`는 **로컬에서 인메모리 셰임**(rate-limit 잠금이 프로덕션 Redis에 새면
-  실제 대시보드가 잠기므로). Codex의 `getSubmissionRedis()`는 로컬도 실제 Redis — 병합 시 재검토.
-- `_dashboardRate.js` 키 namespace = `dashboard:v1:rl:*` (Codex의 `submission-lock:v1:*`와 분리).
+이 브랜치에서 맞춘 것(커밋 `5e325b8`·`<이번>`):
+- `_kv.js`에 3개 export: `KvUnavailableError`(이름·code 불변 — Codex import), `createUpstashClient()`
+  (자격증명당 1개 메모이즈, Codex의 `new Redis()` 블록과 통합 가능한 유일한 지점),
+  `getRedis()`(대시보드 rate-limit 전용), `memoryRedis()`(로컬 셰임 — incr/expire(NX)/del/get/set(nx,ex)만, **Lua eval 없음**).
+- `_dashboardRate.js` 키 = `dashboard:v1:${VERCEL_ENV}:rl:*` — **환경 prefix**로 preview↔production 잠금 카운터 격리.
 
-**병합 시 Codex가 할 수 있는 정리(선택)**: `_submissionLock.js`의 `getSubmissionRedis()`를
-`import { getRedis } from './_kv.js'`로 대체 가능(계약 동일). 지금은 중복이지만 충돌 아님.
+### ⚠️ `getRedis()`를 `getSubmissionRedis()`와 **통합하지 말 것**
+- `getRedis()`는 `VERCEL_ENV`가 production/preview가 **아닌 모든 환경**(로컬 vitest, `vercel dev`,
+  CI, `npm run dev`)에서 `memoryRedis()` 셰임을 준다. 셰임엔 `eval`이 없어서 `_submissionLock.js`의
+  Lua `EVAL` renew/release가 즉시 `KvUnavailableError` → **로컬 제출 흐름이 fail-closed로 깨진다.**
+  또 셰임은 프로세스 로컬이라 분산 잠금으로 무의미.
+- 통합하려면 `_submissionLock.js`의 `getSubmissionRedis()`가 `_kv.js`의 **`createUpstashClient()`**
+  를 호출하게 하라(둘 다 실제 Upstash, 셰임 없음). `getRedis()`가 아니다.
+
+### ⚠️ 로컬 개발 비대칭 (병합 후)
+`npm run dev` + `.env.local`(KV 자격증명 있음)에서 **대시보드는 셰임 / 제출 흐름은 실제 프로덕션
+Upstash**에 붙는다(`getSubmissionRedis()`는 자격증명 존재만 확인). 로컬에서 최종 제출을 한 번
+돌리면 `submission-lock:*`·`receipt-submission:*`(TTL 14일)이 프로덕션 Redis에 쓰인다.
+→ Codex 권고: `getSubmissionRedis()`도 `VERCEL_ENV` 게이트 또는 `.env.local`에 dev 전용 Upstash DB.
 
 ## 안 해도 되는 것 (별도 트랙 — Codex는 건드리지 말 것)
 

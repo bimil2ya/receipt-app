@@ -133,6 +133,15 @@ describe('action=auth', () => {
     expect(res.statusCode).toBe(503);
   });
 
+  it('fails closed (503) on a deployment with no KV credentials (getRedis sync throw)', async () => {
+    setTestRedis(null); // real getRedis() path
+    process.env.VERCEL_ENV = 'production';
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+    const res = await call({ method: 'POST', action: 'auth', body: { password: OWNER_PW } });
+    expect(res.statusCode).toBe(503);
+  });
+
   it('still succeeds if only rlReset (post-success unlock) fails', async () => {
     let incrs = 0;
     setTestRedis({

@@ -24,8 +24,10 @@ export class KvUnavailableError extends Error {
   }
 }
 
-// 로컬 전용 인메모리 Redis 셰임 — incr / expire(NX) / del / get / set(nx,ex)만.
-// Lua eval은 없다(제출 잠금은 실제 Redis 필요).
+// 로컬 전용 인메모리 Redis 셰임 — 대시보드 rate-limit이 쓰는 명령만 부분 구현:
+// incr / expire(key, sec, 'NX') / del / get / set(key, val, {nx, ex}).
+// set의 xx·keepTtl·px, expire의 XX/GT/LT, Lua eval은 **의도적으로 없다**.
+// 제출 잠금/job 코드(_submissionLock.js)는 자체 fake를 주입하거나 실제 Redis를 쓸 것.
 export function memoryRedis() {
   const map = new Map();
   const live = (e) => e && (e.exp === 0 || e.exp > Date.now());
@@ -61,6 +63,8 @@ export function memoryRedis() {
 
 let testRedis = null;
 let localShim = null;
+let upstashClient = null;
+let upstashKey = '';
 
 /** 테스트에서 가짜 Redis를 주입한다. 인자 없이 호출하면 새 인메모리 셰임으로 리셋. */
 export function setTestRedis(client) {
@@ -69,13 +73,34 @@ export function setTestRedis(client) {
 }
 
 /**
- * 공유 Redis 클라이언트를 반환한다.
+ * 실제 Upstash 클라이언트를 만든다(url+token 조합당 1개 메모이즈).
+ * 자격증명이 없으면 KvUnavailableError. Codex의 getSubmissionRedis()도 결국 이걸
+ * 호출하도록 통합하면 두 개의 손수 짠 new Redis() 블록이 드리프트하지 않는다.
+ */
+export function createUpstashClient() {
+  const url = process.env.KV_REST_API_URL;
+  const token = process.env.KV_REST_API_TOKEN;
+  if (!url || !token) {
+    throw new KvUnavailableError('KV_REST_API_URL / KV_REST_API_TOKEN not set');
+  }
+  const key = `${url}\n${token}`;
+  if (!upstashClient || upstashKey !== key) {
+    upstashClient = new Redis({ url, token });
+    upstashKey = key;
+  }
+  return upstashClient;
+}
+
+/**
+ * 대시보드 rate-limit용 Redis. 절대 통합 대상이 아니다 — 로컬 셰임을 허용하기 때문:
  *
- * - 배포(production·preview): 실제 Upstash. 자격증명이 없으면 KvUnavailableError(fail-closed).
- * - 로컬: **.env.local에 자격증명이 있어도** 인메모리 셰임을 쓴다. 로컬 테스트가
- *   프로덕션과 같은 Redis의 rate-limit 잠금 키를 건드리면 실제 대시보드가 잠기므로.
- *   (Codex의 getSubmissionRedis()는 로컬도 실제 Redis — 잠금 성격이 달라 허용. 병합 시 재검토.)
- *   로컬 셰임은 프로세스 수명 동안 한 인스턴스로 유지된다(요청 간 카운터 누적).
+ * - 배포(production·preview): 실제 Upstash. 자격증명 없으면 KvUnavailableError(fail-closed).
+ * - 그 외(로컬 vitest·vercel dev·CI·npm run dev): **.env.local에 자격증명이 있어도**
+ *   인메모리 셰임. 로컬 테스트가 프로덕션 Redis의 잠금 키를 건드리면 실제 대시보드가
+ *   잠기므로. 셰임은 프로세스 수명 동안 한 인스턴스(요청 간 카운터 누적).
+ *
+ * 반대로 Codex의 제출 잠금(_submissionLock.js)은 로컬에서도 분산성이 필요하고 Lua eval을
+ * 쓰므로 셰임을 쓸 수 없다 — getSubmissionRedis()를 이 함수로 대체하면 잠금이 깨진다.
  *
  * @returns {import('@upstash/redis').Redis | ReturnType<typeof memoryRedis>}
  */
@@ -83,12 +108,7 @@ export function getRedis() {
   if (testRedis) return testRedis;
   const deployed =
     process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
-  if (deployed) {
-    const url = process.env.KV_REST_API_URL;
-    const token = process.env.KV_REST_API_TOKEN;
-    if (url && token) return new Redis({ url, token });
-    throw new KvUnavailableError('KV_REST_API_URL / KV_REST_API_TOKEN not set on this deployment');
-  }
+  if (deployed) return createUpstashClient();
   if (!localShim) localShim = memoryRedis();
   return localShim;
 }

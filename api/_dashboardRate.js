@@ -10,7 +10,11 @@
 import { createHash } from 'crypto';
 import { KvUnavailableError, getRedis } from './_kv.js';
 
-const NS = 'dashboard:v1:rl';
+// Preview·Production이 같은 Upstash keyspace를 공유한다(Vercel이 KV_REST_API_URL을
+// 두 환경에 같은 값으로 주입). 환경을 키에 넣어 preview 인증 시도가 프로덕션 잠금
+// 카운터와 섞이지 않게 한다.
+const ENV = process.env.VERCEL_ENV || 'local';
+const NS = `dashboard:v1:${ENV}:rl`;
 const hashKey = (raw) => createHash('sha256').update(String(raw)).digest('hex').slice(0, 16);
 
 async function guarded(op, fn) {
