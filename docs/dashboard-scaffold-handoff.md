@@ -71,6 +71,18 @@
 현재 ~66개 파일 미커밋, 테스트 실패 상태. 논리 단위로 커밋하고 e2e를 통과시킨다.
 커밋 후 `검토기록` 시트 열 구성을 "동결"로 선언 → 계획서 §3을 실제 산출물과 재대조.
 
+## 코드 리뷰 상태 (2026-09-11, 커밋 `1d459fb`)
+
+내부 리뷰 1회 완료. 판정: **Codex에게 넘겨도 되는 상태** — `_dashboardData.js` 실구현은
+발견된 어떤 이슈로도 차단되지 않는다. 치명 1 / 중대 3 / 사소 다수를 `1d459fb`에서 반영.
+
+**배포(또는 실 로그인 노출) 전 남은 것 — Codex 작업과 무관, 별도:**
+- Vercel 함수 예산: `dashboard.js` +1. `api/`의 non-`_` 헬퍼(`driveUtils.js`,
+  `indexeddb-schema.js` 등)가 함수로 세어질 수 있음 → `.vercelignore` 추가 또는 `_` 개명 검토.
+- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드 env 5종 추가 (없으면 `deploy:prod`가 검증 못 함).
+- KV 실구현 시 `expire`는 `EXPIRE key ttl NX`(고정 윈도우). `incr`+`expire` 비원자성 주의.
+- SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
+
 ## 안 해도 되는 것 (별도 트랙 — Codex는 건드리지 말 것)
 
 - `api/_kv.js` 의 `configureKv()` 실구현 + `@upstash/redis` 설치 — Upstash 승인 대기 중
