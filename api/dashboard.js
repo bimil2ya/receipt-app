@@ -22,6 +22,29 @@ const METHOD = { auth: 'POST', forgot: 'POST', data: 'GET' };
 const AUTH_MAX_FAILS = 5;
 const AUTH_WINDOW_SEC = 600; // 10분
 const TOKEN_TTL_SEC = 8 * 3600;
+const MIN_PW_LEN = 8;
+
+// 부팅 시 env 오설정(짧은 비밀번호)을 경고한다 — 검증이 아니라 진단.
+for (const key of ['DASHBOARD_PW_OWNER', 'DASHBOARD_PW_STAFF']) {
+  const v = process.env[key];
+  if (v && v.length < MIN_PW_LEN) {
+    console.error(`[dashboard] ${key} 가 ${MIN_PW_LEN}자 미만입니다 — 무차별 대입에 취약`);
+  }
+}
+
+// Vercel은 x-real-ip에 실제 클라이언트 IP를 넣는다. x-forwarded-for는 프록시 체인이라
+// 최좌측 값이 클라이언트 제어 가능한 경우가 있다. socket.remoteAddress는 Vercel 내부
+// 프록시라 모든 요청이 한 버킷으로 뭉치므로 폴백에서 제외한다.
+function clientIp(req) {
+  const h = req.headers || {};
+  const real = h['x-real-ip'];
+  if (real) return String(real).trim();
+  const fwd = String(h['x-forwarded-for'] || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return fwd[0] || 'unknown';
+}
 
 export default async function handler(req, res) {
   if (applyCorsHeaders(req, res, { methods: 'GET, POST, OPTIONS' }) === true) return; // OPTIONS
@@ -50,11 +73,6 @@ export default async function handler(req, res) {
   }
 }
 
-function clientIp(req) {
-  const fwd = String((req.headers && req.headers['x-forwarded-for']) || '');
-  return fwd.split(',')[0].trim() || (req.socket && req.socket.remoteAddress) || 'unknown';
-}
-
 async function handleAuth(req, res) {
   const ip = clientIp(req);
   const gate = await rlHit(`auth:${ip}`, { max: AUTH_MAX_FAILS, windowSec: AUTH_WINDOW_SEC });
@@ -78,7 +96,12 @@ async function handleAuth(req, res) {
     return res.status(401).json({ success: false, error: 'invalid password' });
   }
 
-  await rlReset(`auth:${ip}`);
+  // 잠금 해제 실패는 치명적이지 않다(다음 윈도우 만료로 자연 복구) → 삼킨다.
+  try {
+    await rlReset(`auth:${ip}`);
+  } catch {
+    /* KV 일시 오류 — 로그인은 성공 처리 */
+  }
   const token = signToken({ role }, { ttlSec: TOKEN_TTL_SEC });
   return res.status(200).json({ success: true, token });
 }

@@ -8,22 +8,31 @@ export function HBars({ rows, valueFmt = won }) {
     <div className="flex flex-col gap-2">
       {rows.map((r) => {
         const pct = (r.value / max) * 100;
+        const inside = pct >= 45;
         return (
           <div key={r.label} className="grid grid-cols-[6rem_1fr] items-center gap-2 text-sm">
             <span className="truncate text-right font-medium text-slate-500">{r.label}</span>
-            <div className="relative h-6 overflow-hidden rounded bg-slate-100">
-              <div
-                className="absolute inset-y-0 left-0 rounded-r"
-                style={{ width: `${pct}%`, background: r.color || '#2a78d6', minWidth: 2 }}
-              />
-              <span
-                className={`absolute top-1/2 -translate-y-1/2 font-mono text-xs font-semibold ${
-                  pct < 45 ? 'left-[calc(100%+6px)] text-slate-700' : 'right-2 text-white'
-                }`}
-                style={pct < 45 ? { left: `calc(${pct}% + 6px)` } : undefined}
-              >
-                {valueFmt(r.value)}
-              </span>
+            {/* 트랙: overflow-hidden으로 채움만 자름. 바깥 라벨은 트랙 밖(clip 안 됨). */}
+            <div className="relative h-6">
+              <div className="absolute inset-0 overflow-hidden rounded bg-slate-100">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-r"
+                  style={{ width: `${pct}%`, background: r.color || '#2a78d6', minWidth: 2 }}
+                />
+                {inside && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-xs font-semibold text-white">
+                    {valueFmt(r.value)}
+                  </span>
+                )}
+              </div>
+              {!inside && (
+                <span
+                  className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap font-mono text-xs font-semibold text-slate-700"
+                  style={{ left: `calc(${pct}% + 6px)` }}
+                >
+                  {valueFmt(r.value)}
+                </span>
+              )}
             </div>
           </div>
         );
@@ -88,7 +97,7 @@ export function DotStrip({ label, values, color = '#2a78d6' }) {
               title={`${won(v)}원`}
               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
               style={{
-                left: `${(v / max) * 100}%`,
+                left: `${4 + (v / max) * 92}%`,
                 width: outlier ? 11 : 8,
                 height: outlier ? 11 : 8,
                 background: color,

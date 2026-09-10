@@ -120,22 +120,46 @@ describe('action=auth', () => {
   });
 
   it('fails closed (503) when KV is unavailable', async () => {
+    const boom = async () => {
+      throw new Error('boom');
+    };
+    configureKv({ incr: boom, expire: boom, get: boom, del: boom });
+    const res = await call({ method: 'POST', action: 'auth', body: { password: OWNER_PW } });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('still succeeds if only rlReset (post-success unlock) fails', async () => {
+    let calls = 0;
     configureKv({
       incr: async () => {
-        throw new Error('boom');
+        calls += 1;
+        return 1;
       },
-      expire: async () => {
-        throw new Error('boom');
-      },
-      get: async () => {
-        throw new Error('boom');
-      },
+      expire: async () => true,
+      get: async () => null,
       del: async () => {
-        throw new Error('boom');
+        throw new Error('unlock failed');
       },
     });
     const res = await call({ method: 'POST', action: 'auth', body: { password: OWNER_PW } });
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(200);
+    expect(calls).toBeGreaterThan(0);
+  });
+
+  it('buckets lockout by x-real-ip, not by a spoofable x-forwarded-for', async () => {
+    const asIp = (ip, xff) => ({
+      method: 'POST',
+      action: 'auth',
+      body: { password: 'wrong' },
+      headers: { 'x-real-ip': ip, ...(xff ? { 'x-forwarded-for': xff } : {}) },
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await call(asIp('1.1.1.1'));
+    }
+    // 같은 x-real-ip — x-forwarded-for를 바꿔도 잠금 유지
+    expect((await call(asIp('1.1.1.1', '9.9.9.9'))).statusCode).toBe(429);
+    // 다른 x-real-ip — 별개 버킷
+    expect((await call(asIp('2.2.2.2'))).statusCode).toBe(401);
   });
 });
 

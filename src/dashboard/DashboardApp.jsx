@@ -12,6 +12,8 @@ export default function DashboardApp() {
   const [state, setState] = useState({ status: 'idle', data: null, error: '' });
   const [updatedAt, setUpdatedAt] = useState('');
   const cache = useRef(new Map());
+  const latestMonth = useRef(month);
+  latestMonth.current = month;
 
   // 부팅 스플래시 제거 (index.html의 #initial-splash — 현장 App과 공유하는 신호).
   useEffect(() => {
@@ -28,15 +30,20 @@ export default function DashboardApp() {
       }
       setState((s) => ({ ...s, status: 'loading' }));
       const res = await fetchDashboardData(token, month);
+      // 월을 빠르게 바꾸면 응답이 뒤섞일 수 있다 — 최신 요청만 반영.
+      if (latestMonth.current !== key) return;
       if (res.ok) {
         cache.current.set(key, res.data);
         setState({ status: 'ready', data: res.data, error: '' });
-        const d = new Date();
-        setUpdatedAt(`${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+        const g = res.data.generatedAt ? new Date(res.data.generatedAt) : new Date();
+        setUpdatedAt(
+          `${String(g.getMonth() + 1).padStart(2, '0')}-${String(g.getDate()).padStart(2, '0')} ${String(g.getHours()).padStart(2, '0')}:${String(g.getMinutes()).padStart(2, '0')}`,
+        );
       } else if (res.reason === 'expired') {
         writeToken('');
         setToken('');
         cache.current.clear();
+        setState({ status: 'idle', data: null, error: '' });
       } else {
         setState({ status: 'error', data: null, error: '자료를 불러오지 못했습니다. 잠시 후 다시 시도하세요.' });
       }

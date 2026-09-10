@@ -20,7 +20,8 @@ function hmac(body, secret) {
  * @param {{ ttlSec: number }} options
  * @returns {string} token
  */
-export function signToken(claims, { ttlSec }) {
+export function signToken(claims, { ttlSec } = {}) {
+  if (!ttlSec) throw new Error('signToken requires ttlSec');
   const secret = process.env.DASHBOARD_TOKEN_SECRET;
   if (!secret) throw new Error('DASHBOARD_TOKEN_SECRET is not set');
   const payload = {

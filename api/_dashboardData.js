@@ -23,9 +23,10 @@ const sumValues = (obj) => Object.values(obj).reduce((a, b) => a + b, 0);
 const coreOf = (byCategory) =>
   CATEGORIES.reduce((a, c) => a + (FUEL_MED.has(c) ? 0 : byCategory[c] || 0), 0);
 
+// 내부 도구는 KST 기준. 클라이언트가 항상 &month=를 보내므로 이 폴백은 드물게만 쓰인다.
 function currentMonth() {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  const kst = new Date(Date.now() + 9 * 3600 * 1000);
+  return `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 /**
@@ -54,7 +55,7 @@ export async function buildDashboardPayload({ month, role } = {}) {
   const core = teams.reduce((a, t) => a + t.core, 0);
   const receiptCount = teams.reduce((a, t) => a + t.receiptCount, 0);
 
-  // 원장: 합계가 totals.spent와 정확히 일치하도록 조별 1행씩 + 나머지 1행.
+  // 원장: 합계가 totals.spent와 정확히 일치하도록 조별 1행씩(스텁).
   const ledger = teams.map((t) => ({
     date: `${resolvedMonth}-05`,
     team: t.names,
