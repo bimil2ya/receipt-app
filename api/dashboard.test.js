@@ -39,8 +39,9 @@ function makeRes() {
     setHeader(k, v) {
       this.headers[k] = v;
     },
-    end() {
+    end(payload) {
       this.ended = true;
+      if (payload !== undefined) this.body = payload;
       return this;
     },
   };
@@ -292,6 +293,66 @@ describe('action=data — role-scoped payload (contract)', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.headers['Cache-Control']).toBe('private, no-store');
+  });
+
+  it('includes signed report refs on every team (both roles)', async () => {
+    for (const role of ['owner', 'staff']) {
+      const { body } = await fetchPayload(role);
+      for (const t of body.teams) {
+        expect(Array.isArray(t.reports)).toBe(true);
+        for (const r of t.reports) {
+          if (r.available) expect(typeof r.ref).toBe('string');
+        }
+      }
+    }
+  });
+});
+
+describe('action=report', () => {
+  async function anyRef() {
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const data = await call({
+      method: 'GET',
+      action: 'data',
+      headers: { authorization: `Bearer ${token}` },
+      query: { month: '2026-09' },
+    });
+    return data.body.teams[0].reports.find((r) => r.available).ref;
+  }
+
+  it('401 without a valid token', async () => {
+    const ref = await anyRef();
+    const res = await call({ method: 'GET', action: 'report', query: { ref } });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('400 for a tampered / unsigned ref', async () => {
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const res = await call({
+      method: 'GET',
+      action: 'report',
+      headers: { authorization: `Bearer ${token}` },
+      query: { ref: 'arbitrary-drive-file-id~deadbeef' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('streams a PDF for a valid signed ref (staff and owner both allowed)', async () => {
+    const ref = await anyRef();
+    for (const role of ['staff', 'owner']) {
+      const token = signToken({ role }, { ttlSec: 3600 });
+      const res = await call({
+        method: 'GET',
+        action: 'report',
+        headers: { authorization: `Bearer ${token}` },
+        query: { ref },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['Content-Type']).toBe('application/pdf');
+      expect(res.headers['Cache-Control']).toBe('private, no-store');
+      expect(Buffer.isBuffer(res.body)).toBe(true);
+      expect(res.body.slice(0, 5).toString('latin1')).toBe('%PDF-');
+    }
   });
 });
 

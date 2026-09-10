@@ -5,6 +5,8 @@
 //    여기를 실제 Google Sheet export 파싱으로 교체한다. 착수 키트 §2 참고.
 //    지금은 고정 예시를 반환하되, 계약 테스트(합계 정합·역할별 키)는 통과하도록 만들어 둔다.
 
+import { reportsForMonth, signReportRef } from './_dashboardReports.js';
+
 const CATEGORIES = ['숙박비', '식비', '기타', '유류비', '의료비등'];
 const FUEL_MED = new Set(['유류비', '의료비등']);
 
@@ -45,6 +47,13 @@ export async function buildDashboardPayload({ month, role } = {}) {
     receiptCount: t.receiptCount,
     submitted: true,
     review: { ...t.review },
+    // 조별 정산서 PDF(표지 = 집계장, 이후 = 영수증 이미지). ref는 서명된 값.
+    reports: reportsForMonth({ teamNames: t.names, month: resolvedMonth }).map((r) => ({
+      label: r.label,
+      date: r.date,
+      available: r.available,
+      ref: r.available ? signReportRef(r.id) : null,
+    })),
   }));
 
   const byCategory = CATEGORIES.reduce((acc, c) => {

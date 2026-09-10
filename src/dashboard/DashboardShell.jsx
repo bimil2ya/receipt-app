@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { won, monthLabel, SEVERITY, CATEGORY_COLORS } from './format';
 import { HBars, StackBars, DotStrip } from './charts';
+import ReportsPanel from './ReportsPanel';
 
 const CATS = ['숙박비', '식비', '기타', '유류비', '의료비등'];
 
@@ -100,7 +101,7 @@ function OverviewTab({ data, isOwner }) {
   );
 }
 
-function TeamTab({ data }) {
+function TeamTab({ data, token }) {
   const [idx, setIdx] = useState(0);
   const team = data.teams[idx] || data.teams[0];
   if (!team) return <p className="text-sm text-slate-500">자료가 없습니다.</p>;
@@ -141,6 +142,10 @@ function TeamTab({ data }) {
 
       <Panel title="용도별 지출">
         <HBars rows={CATS.map((c) => ({ label: c, value: team.byCategory[c] || 0, color: CATEGORY_COLORS[c] }))} />
+      </Panel>
+
+      <Panel title="정산서 · 영수증" note="표지 = 용도별 집계장, 이후 = 영수증 이미지">
+        <ReportsPanel token={token} reports={team.reports} />
       </Panel>
 
       <Panel title="출장 원장" note={`${rows.length}건 · 자료 취합용`}>
@@ -257,7 +262,7 @@ function AnomalyTab({ data }) {
   );
 }
 
-export default function DashboardShell({ data: raw, month, months, onMonthChange, onRefresh, onLogout, updatedAt }) {
+export default function DashboardShell({ data: raw, token, month, months, onMonthChange, onRefresh, onLogout, updatedAt }) {
   // 계약상 배열 필드는 항상 존재하지만, 부분 응답에도 흰 화면 대신 화면이 뜨도록 방어.
   const data = {
     ...raw,
@@ -326,7 +331,7 @@ export default function DashboardShell({ data: raw, month, months, onMonthChange
         </nav>
 
         {activeTab === 'overview' && <OverviewTab data={data} isOwner={isOwner} />}
-        {activeTab === 'team' && <TeamTab data={data} />}
+        {activeTab === 'team' && <TeamTab data={data} token={token} />}
         {activeTab === 'trend' && <TrendTab data={data} />}
         {activeTab === 'anomaly' && isOwner && <AnomalyTab data={data} />}
       </div>

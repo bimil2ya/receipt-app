@@ -15,10 +15,11 @@ import { signToken, verifyToken } from './_dashboardToken.js';
 import { rlHit, rlReset, forgotGate } from './_dashboardRate.js';
 import { buildDashboardPayload } from './_dashboardData.js';
 import { sendRecoveryEmail } from './_dashboardMail.js';
+import { verifyReportRef, fetchReportPdf } from './_dashboardReports.js';
 
 export const config = { maxDuration: 60 };
 
-const METHOD = { auth: 'POST', forgot: 'POST', data: 'GET' };
+const METHOD = { auth: 'POST', forgot: 'POST', data: 'GET', report: 'GET' };
 const AUTH_MAX_FAILS = 5;
 const AUTH_WINDOW_SEC = 600; // 10분
 const TOKEN_TTL_SEC = 8 * 3600;
@@ -61,6 +62,7 @@ export default async function handler(req, res) {
   try {
     if (action === 'auth') return await handleAuth(req, res);
     if (action === 'forgot') return await handleForgot(req, res);
+    if (action === 'report') return await handleReport(req, res);
     return await handleData(req, res);
   } catch (err) {
     if (err && err.code === 'KV_UNAVAILABLE') {
@@ -144,4 +146,23 @@ async function handleData(req, res) {
 
   res.setHeader('Cache-Control', 'private, no-store');
   return res.status(200).json(payload);
+}
+
+// 조별 정산서 PDF(표지 = 용도별 집계장, 이후 = 영수증 이미지). 담당자·노경호 공통.
+async function handleReport(req, res) {
+  const bearer = String((req.headers && req.headers.authorization) || '').replace(/^Bearer\s+/i, '');
+  if (!verifyToken(bearer)) {
+    return res.status(401).json({ success: false, error: 'invalid token' });
+  }
+  // ref는 dashboard-data가 서명해 내려준 값만 유효 — 임의 Drive fileId 접근 차단.
+  const id = verifyReportRef(String((req.query && req.query.ref) || ''));
+  if (!id) {
+    return res.status(400).json({ success: false, error: 'invalid report ref' });
+  }
+
+  const pdf = await fetchReportPdf(id); // 스텁: 최소 PDF / P2: Drive 다운로드
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="report.pdf"');
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.status(200).end(pdf);
 }

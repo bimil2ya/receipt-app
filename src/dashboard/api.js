@@ -47,6 +47,25 @@ export async function requestForgot(role) {
   // 응답은 항상 동일하므로 성공/실패를 노출하지 않는다.
 }
 
+// 정산서 PDF를 blob으로 받아 objectURL을 돌려준다(토큰을 URL에 안 실음).
+// 호출부는 다 쓰면 URL.revokeObjectURL 해야 한다.
+export async function fetchReportObjectUrl(token, ref) {
+  let res;
+  try {
+    res = await fetch(`/api/dashboard?action=report&ref=${encodeURIComponent(ref)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+  } catch {
+    return { ok: false, reason: 'error' };
+  }
+  if (res.status === 401) return { ok: false, reason: 'expired' };
+  if (!res.ok) return { ok: false, reason: 'error' };
+  const blob = await res.blob().catch(() => null);
+  if (!blob || blob.size === 0) return { ok: false, reason: 'error' };
+  return { ok: true, url: URL.createObjectURL(blob) };
+}
+
 export async function fetchDashboardData(token, month) {
   const qs = month ? `&month=${encodeURIComponent(month)}` : '';
   let res;

@@ -89,6 +89,7 @@ export default function DashboardApp() {
   return (
     <DashboardShell
       data={state.data}
+      token={token}
       month={month}
       months={MONTHS}
       onMonthChange={setMonth}
