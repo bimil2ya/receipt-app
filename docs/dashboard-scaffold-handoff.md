@@ -100,11 +100,18 @@
 **배포(또는 실 로그인 노출) 전 남은 것 — Codex 작업과 무관, 별도:**
 - Vercel 함수 예산: `dashboard.js` +1. `api/`의 non-`_` 헬퍼(`driveUtils.js`,
   `indexeddb-schema.js` 등)가 함수로 세어질 수 있음 → `.vercelignore` 추가 또는 `_` 개명 검토.
-- `scripts/verify-env.mjs`의 `requiredEnvVars`에 대시보드/KV env 추가 완료(이번 커밋).
-  **`DASHBOARD_PW_OWNER`/`STAFF`/`DASHBOARD_TOKEN_SECRET`/`RECOVERY_EMAIL`을 Vercel에 넣기 전에는
-  `npm run deploy:prod`가 실패한다** — 브랜치 병합 전에 시크릿부터.
+- `scripts/verify-env.mjs`: 대시보드 env는 **경고만**(배포는 안 막음 — 대시보드가 아직
+  미배포라 무관한 배포를 깨지 않게). 대시보드를 실제 배포·활성화할 때
+  `dashboardEnvVars`를 `requiredEnvVars`로 옮기고 Vercel에 값 설정:
+  `DASHBOARD_PW_OWNER`/`STAFF`/`DASHBOARD_TOKEN_SECRET`/`RECOVERY_EMAIL`
+  (`KV_REST_API_*`는 Upstash 연동이 이미 넣어둠).
 - `incr`+`expire`는 별개 명령이라 원자적이지 않음 — `expire`를 매번 `NX`로 호출해 self-heal(이미 구현).
 - SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
+- **공유 IP 잠금**: rate-limit이 IP별이라 노경호·담당자가 같은 사무실 망(같은 공인 IP)이면
+  한 사람의 5회 오타가 둘 다 10분 잠금. 2인·10분·"비밀번호 찾기"로 복구 가능이라 수용,
+  거슬리면 IP + 대략적 기기 식별자 조합으로.
+- `ErrorBoundary`(공유)는 다크 테마 — 대시보드에서 렌더 크래시 시 어두운 오류 박스가 뜬다
+  (데이터 로드 실패는 `DashboardApp`이 자체 라이트 테마로 처리). 수용 가능, 필요 시 라우트별 분기.
 - **Vercel 함수 예산**: `dashboard.js`(+1) + Codex의 `review.js`(+1). 현재 비-`_`·비-ignore `/api/*.js`가
   ~15개(`driveUtils.js`·`indexeddb-schema.js`처럼 라이브러리인데 라우트로 세어질 수 있는 것 포함).
   Hobby(12)면 이미 초과. 신규 2개 붙기 전에 `.vercelignore` 추가 또는 `_` 개명으로 정리 필요. `api/*.md` 12개도.
