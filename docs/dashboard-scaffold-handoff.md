@@ -6,11 +6,16 @@
 
 ## 브랜치 상태
 
-- 브랜치: `feat/dashboard-scaffold`
-- 커밋: `9637ed3` (main HEAD `939e067` 위, **신규 파일 7개만** — 735줄)
+- 브랜치: `feat/dashboard-scaffold` (origin에 push됨), main HEAD `939e067` 위 3커밋:
+  - `9637ed3` — API 골격 7파일 (라우터·토큰·KV·rate·데이터스텁·메일스텁·테스트 21개)
+  - `68d40b3` — 이 문서
+  - `cb39f19` — 클라이언트 화면 `#/dashboard` 7파일 (로그인·역할별 탭·차트)
 - P2 WIP(현재 ~66개 미커밋 파일)와 **파일 충돌 없음** (전부 신규 파일).
-  이 브랜치를 `git merge feat/dashboard-scaffold` 또는 `git cherry-pick 9637ed3` 하거나
-  이 브랜치 위에서 이어서 작업하면 된다.
+  `git merge feat/dashboard-scaffold` 하거나 이 브랜치 위에서 이어서 작업하면 된다.
+- `npm run lint` 0, `npm run build` 성공, `npx vitest run api/dashboard.test.js` 21/21.
+- 로컬 dev에서 owner 로그인 → 4탭, staff 로그인 → 3탭(이상 지출 없음) 확인됨.
+  (dev 실행: `DASHBOARD_PW_OWNER=… DASHBOARD_PW_STAFF=… DASHBOARD_TOKEN_SECRET=… npm run dev`
+   후 `http://localhost:5173/#/dashboard`)
 
 ## 이미 있는 것 — 건드리지 말 것 (계약이 테스트로 고정됨)
 
@@ -22,6 +27,7 @@
 | `api/_dashboardRate.js` | auth 10분 5회 잠금 / forgot 전역 1시간 1회 / IP는 sha256 앞 16자만 저장 |
 | `api/_dashboardMail.js` | 복구 메일 — sender 미연결, 로그만 |
 | `api/dashboard.test.js` | vitest 21개 — **계속 green이어야 함** |
+| `src/dashboard/*` + `src/main.jsx` | 클라이언트 화면. `payload.role`로 UI 결정 — API 응답 형태를 바꾸면 여기가 따라 깨진다 |
 
 `npx vitest run api/dashboard.test.js` → 21 passed. 전체 스위트도 395 passed / 0 failed 확인됨.
 
@@ -65,9 +71,14 @@
 현재 ~66개 파일 미커밋, 테스트 실패 상태. 논리 단위로 커밋하고 e2e를 통과시킨다.
 커밋 후 `검토기록` 시트 열 구성을 "동결"로 선언 → 계획서 §3을 실제 산출물과 재대조.
 
-## 안 해도 되는 것 (별도 트랙)
+## 안 해도 되는 것 (별도 트랙 — Codex는 건드리지 말 것)
 
 - `api/_kv.js` 의 `configureKv()` 실구현 + `@upstash/redis` 설치 — Upstash 승인 대기 중
 - `api/_dashboardMail.js` 의 실제 이메일 전송 — sender 미정 (Resend/Nodemailer)
-- 클라이언트 `#/dashboard` 화면 — 착수 키트 §8
-- 배포 (`api/dashboard.js`는 신규 라우트 +1, env 5종)
+- 클라이언트 `#/dashboard` 화면 — `cb39f19`에서 완료(스텁 데이터로 동작).
+  `_dashboardData.js`가 실데이터로 바뀌면 자동으로 실데이터를 그린다.
+  단 **응답 필드 이름·구조를 바꾸면 `src/dashboard/DashboardShell.jsx`도 같이 고쳐야 한다.**
+- 배포 (`api/dashboard.js`는 신규 라우트 +1, env: `DASHBOARD_PW_OWNER/STAFF`,
+  `DASHBOARD_TOKEN_SECRET`, `RECOVERY_EMAIL`, KV 연동, 이메일 sender 키)
+- SW 캐시: `#/dashboard` 청크(`DashboardApp-*.js`)는 현재 precache에 포함됨 —
+  나중에 workbox `globIgnores` 또는 `dontCacheBustURLsMatching`로 제외 검토
