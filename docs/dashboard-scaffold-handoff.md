@@ -77,6 +77,10 @@
 - `1d459fb`: 내부 에이전트 리뷰 반영(fail-closed 기본값, x-real-ip, PIN 경고, expire NX 등)
 - `db43834`: 정독 2 (api.js 네트워크 실패 방어, recentMonths 월 롤오버 버그, preview도 fail-closed)
 - `6f219ce`: 정독 3 (forgot가 KV 다운에도 동일 200, _dashboardMail 조용한 거짓말 제거, 스플래시 하드폴백)
+- `7035c6d`: 정독 4 (부분 응답에도 흰 화면 대신 렌더, won이 콤마 문자열 허용)
+
+**응답 필드 이름·구조를 바꾸면 `src/dashboard/DashboardShell.jsx`도 같이 고쳐라.**
+`_dashboardData`가 amount를 숫자로 emit해야 한다(문자열도 won이 파싱하지만 다른 계산은 숫자 가정).
 
 **배포(또는 실 로그인 노출) 전 남은 것 — Codex 작업과 무관, 별도:**
 - Vercel 함수 예산: `dashboard.js` +1. `api/`의 non-`_` 헬퍼(`driveUtils.js`,
