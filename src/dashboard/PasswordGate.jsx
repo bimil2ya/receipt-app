@@ -24,6 +24,8 @@ export default function PasswordGate({ onAuthed }) {
       setError(`시도가 많습니다. 잠시 후 다시 시도하세요${result.retryAfter ? ` (${result.retryAfter}초)` : ''}.`);
     } else if (result.reason === 'unavailable') {
       setError('지금은 로그인할 수 없습니다. 잠시 후 다시 시도하세요.');
+    } else if (result.reason === 'network') {
+      setError('네트워크 연결을 확인해 주세요.');
     } else {
       setError('비밀번호가 맞지 않습니다.');
     }

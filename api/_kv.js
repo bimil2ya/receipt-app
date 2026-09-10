@@ -50,7 +50,8 @@ function createMemoryStore() {
   };
 }
 
-// 프로덕션에서 configureKv() 없이 배포되면 모든 접근이 실패한다 → fail-closed.
+// Vercel 배포(production·preview)에서 configureKv() 없이 뜨면 모든 접근이 실패한다
+// → 조용한 인메모리 fallback 대신 fail-closed. 로컬(VERCEL_ENV 없음)만 인메모리.
 function createUnconfiguredStore() {
   const fail = async () => {
     throw new KvUnavailableError('KV store is not configured (call configureKv on boot)');
@@ -58,7 +59,9 @@ function createUnconfiguredStore() {
   return { incr: fail, expire: fail, get: fail, del: fail };
 }
 
-let store = process.env.VERCEL_ENV === 'production' ? createUnconfiguredStore() : createMemoryStore();
+const IS_VERCEL_DEPLOY =
+  process.env.VERCEL_ENV === 'production' || process.env.VERCEL_ENV === 'preview';
+let store = IS_VERCEL_DEPLOY ? createUnconfiguredStore() : createMemoryStore();
 
 /**
  * 프로덕션에서 실제 KV 클라이언트를 주입한다(부팅 시 1회).

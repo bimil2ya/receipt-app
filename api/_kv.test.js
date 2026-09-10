@@ -50,11 +50,21 @@ describe('_kv unconfigured guard (production default)', () => {
     vi.resetModules();
   });
 
-  it('throws KV_UNAVAILABLE on every op when VERCEL_ENV=production and no client is injected', async () => {
-    process.env.VERCEL_ENV = 'production';
+  it.each(['production', 'preview'])(
+    'throws KV_UNAVAILABLE on every op when VERCEL_ENV=%s and no client is injected',
+    async (envName) => {
+      process.env.VERCEL_ENV = envName;
+      vi.resetModules();
+      const fresh = await import('./_kv.js');
+      await expect(fresh.kv.incr('k')).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
+      await expect(fresh.kvIncrWithTtl('k', 10)).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
+    },
+  );
+
+  it('uses the in-memory store locally (no VERCEL_ENV)', async () => {
+    delete process.env.VERCEL_ENV;
     vi.resetModules();
     const fresh = await import('./_kv.js');
-    await expect(fresh.kv.incr('k')).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
-    await expect(fresh.kvIncrWithTtl('k', 10)).rejects.toMatchObject({ code: 'KV_UNAVAILABLE' });
+    await expect(fresh.kv.incr('k')).resolves.toBe(1);
   });
 });

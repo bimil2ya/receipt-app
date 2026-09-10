@@ -11,11 +11,12 @@ export function monthLabel(ym) {
 }
 
 export function recentMonths(count = 6) {
+  const now = new Date();
   const out = [];
-  const d = new Date();
   for (let i = 0; i < count; i += 1) {
+    // 1일로 고정한 Date로 계산 — 3월 31일에서 setMonth(1)이 3월로 되말리는 버그 회피.
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    d.setMonth(d.getMonth() - 1);
   }
   return out;
 }

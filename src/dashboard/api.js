@@ -21,11 +21,16 @@ export function writeToken(token) {
 }
 
 export async function authenticate(password) {
-  const res = await fetch('/api/dashboard?action=auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
+  let res;
+  try {
+    res = await fetch('/api/dashboard?action=auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+  } catch {
+    return { ok: false, reason: 'network' };
+  }
   const body = await res.json().catch(() => ({}));
   if (res.ok && body.token) return { ok: true, token: body.token };
   if (res.status === 429) return { ok: false, reason: 'locked', retryAfter: body.retryAfter };
@@ -44,12 +49,18 @@ export async function requestForgot(role) {
 
 export async function fetchDashboardData(token, month) {
   const qs = month ? `&month=${encodeURIComponent(month)}` : '';
-  const res = await fetch(`/api/dashboard?action=data${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store',
-  });
+  let res;
+  try {
+    res = await fetch(`/api/dashboard?action=data${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+  } catch {
+    return { ok: false, reason: 'error' };
+  }
   if (res.status === 401) return { ok: false, reason: 'expired' };
   if (!res.ok) return { ok: false, reason: 'error' };
-  const body = await res.json();
+  const body = await res.json().catch(() => null);
+  if (!body || typeof body !== 'object') return { ok: false, reason: 'error' };
   return { ok: true, data: body };
 }
