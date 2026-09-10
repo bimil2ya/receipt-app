@@ -5,6 +5,19 @@ import App from './App.jsx'
 import ErrorBoundary from './components/layout/ErrorBoundary.jsx'
 import './index.css'
 
+// 대시보드 코드는 별도 청크로 — 현장 입력 번들에 싣지 않는다.
+const DashboardApp = React.lazy(() => import('./dashboard/DashboardApp.jsx'))
+
+// #/dashboard — 노경호·담당자 전용 관리자 화면. 현장 입력 UI와 완전히 분리된 트리.
+const isDashboard = typeof window !== 'undefined' && window.location.hash.startsWith('#/dashboard');
+// 해시가 대시보드 안팎으로 바뀌면 트리를 통째로 교체하기 위해 새로고침.
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => {
+    const nowDashboard = window.location.hash.startsWith('#/dashboard');
+    if (nowDashboard !== isDashboard) window.location.reload();
+  });
+}
+
 // 이미 SW의 통제를 받고 있는지(=캐시된 버전으로 구동 중인지) 기록.
 // 통제받지 않는 상태(=최초 방문)에서의 controllerchange는 첫 등록이라 reload 불필요.
 const hadControllerAtStartup = typeof navigator !== 'undefined'
@@ -91,7 +104,13 @@ window.onerror = function(message, source, lineno) {
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      {isDashboard ? (
+        <React.Suspense fallback={<div style={{ padding: 24, color: '#64748b', font: '14px system-ui' }}>불러오는 중…</div>}>
+          <DashboardApp />
+        </React.Suspense>
+      ) : (
+        <App />
+      )}
     </ErrorBoundary>
   </React.StrictMode>,
 )
