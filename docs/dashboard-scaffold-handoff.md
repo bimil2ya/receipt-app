@@ -55,6 +55,18 @@
 - `maxDuration: 60` 은 `api/dashboard.js`에 이미 설정됨. Drive/Sheets 429는
   지수 백오프. 과거 월 순회는 요청받은 월만(화면이 여러 달 합침).
 
+## 채울 것 ①-b  `api/_dashboardReports.js` — 조별 정산서 PDF
+
+`?action=report`·클라이언트 `ReportsPanel`·HMAC 서명(ref)·PDF 스트리밍은 완성.
+**두 함수만 실제 Drive 연동으로 교체:**
+- `reportsForMonth({ teamNames, month })` — 지금은 고정 1개. → `<메인폴더>/<팀폴더>/<주간폴더>/정산서_*.pdf`
+  (`api/upload.js`가 `정산서_{surveyorName}_{weekFolderName}.pdf`로 업로드)를 team·month로 필터해
+  `[{ id: <Drive fileId>, label, date, available: true }]` 반환. 한 조에 2명이면 2개 나올 수 있음.
+- `fetchReportPdf(id)` — 지금은 최소 스텁 PDF. → `createDrive()` +
+  `drive.files.get({ fileId: id, alt: 'media' }, { responseType: 'arraybuffer' })` (upload.js의 `downloadFileBuffer` 참고).
+- `id`는 클라이언트가 조작 못 한다(dashboard-data가 `signReportRef`로 서명, `?action=report`가 검증).
+- 정산서 표지가 이미 "용도별 집계장", 이후 페이지가 영수증 이미지다(`src/utils/receiptPdfReport.js`) — 별도 가공 불필요.
+
 ## 채울 것 ②  P2 확정 사항 회신 (착수 키트 §2)
 
 - `검토기록` 탭 최종 열 목록 (writable 열 포함)
