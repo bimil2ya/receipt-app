@@ -108,19 +108,24 @@ async function handleAuth(req, res) {
 
 async function handleForgot(req, res) {
   const role = req.body && req.body.role === 'owner' ? 'owner' : 'staff';
-  const allowed = await forgotGate({ perHour: 1 });
-  if (allowed) {
-    const password =
-      role === 'owner' ? process.env.DASHBOARD_PW_OWNER : process.env.DASHBOARD_PW_STAFF;
-    await sendRecoveryEmail({
-      to: process.env.RECOVERY_EMAIL,
-      role,
-      password: password || '(env 미설정)',
-      ip: clientIp(req),
-      at: new Date().toISOString(),
-    });
+
+  // KV·메일 오류를 응답으로 노출하지 않는다 — 항상 같은 200을 돌려준다.
+  // (KV 실패 = fail-closed로 메일을 안 보냄. 스팸도, 정보 유출도 없음.)
+  try {
+    if (await forgotGate({ perHour: 1 })) {
+      const password =
+        role === 'owner' ? process.env.DASHBOARD_PW_OWNER : process.env.DASHBOARD_PW_STAFF;
+      await sendRecoveryEmail({
+        to: process.env.RECOVERY_EMAIL,
+        role,
+        password: password || '(env 미설정)',
+        ip: clientIp(req),
+        at: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error('[dashboard] forgot 처리 실패(무시하고 동일 응답)', err && err.message);
   }
-  // 성공/실패(레이트리밋 포함)를 응답으로 구분하지 않는다.
   return res.status(200).json({ success: true, message: '메일을 보냈습니다' });
 }
 

@@ -184,6 +184,17 @@ describe('action=forgot', () => {
       expect.objectContaining({ to: 'bimil2ya@naver.com', role: 'staff' }),
     );
   });
+
+  it('still returns the same 200 when KV is down (no info leak, no mail)', async () => {
+    const boom = async () => {
+      throw new Error('kv down');
+    };
+    configureKv({ incr: boom, expire: boom, get: boom, del: boom });
+    const res = await call({ method: 'POST', action: 'forgot', body: { role: 'owner' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ success: true, message: '메일을 보냈습니다' });
+    expect(sendRecoveryEmail).not.toHaveBeenCalled();
+  });
 });
 
 describe('action=data — token', () => {

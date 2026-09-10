@@ -116,8 +116,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 const initialSplash = document.getElementById('initial-splash');
+let splashFallbackTimer;
 const removeInitialSplash = () => {
+  clearTimeout(splashFallbackTimer);
   initialSplash?.remove();
   window.removeEventListener('receipt-app:booted', removeInitialSplash);
 };
 window.addEventListener('receipt-app:booted', removeInitialSplash, { once: true });
+// 하드 폴백 — 부팅 이벤트가 안 오는 경우(lazy 청크 로드 실패 등)에도 스플래시가 영구히 남지 않도록.
+splashFallbackTimer = setTimeout(removeInitialSplash, 8000);

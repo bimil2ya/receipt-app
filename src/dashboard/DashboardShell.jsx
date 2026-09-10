@@ -34,7 +34,13 @@ function OverviewTab({ data, isOwner }) {
         <Kpi label="이번 달 총 지출" value={won(t.spent)} sub={`${data.teams.length}개 조 · ${t.receiptCount}건`} />
         <Kpi
           label="전월 대비"
-          value={t.prevMonthSpent ? `${Math.round(((t.spent - t.prevMonthSpent) / t.prevMonthSpent) * 100)}%` : '—'}
+          value={
+            t.prevMonthSpent
+              ? `${t.spent >= t.prevMonthSpent ? '+' : ''}${Math.round(
+                  ((t.spent - t.prevMonthSpent) / t.prevMonthSpent) * 100,
+                )}%`
+              : '—'
+          }
           sub={t.prevMonthSpent ? `전월 ${won(t.prevMonthSpent)}` : '전월 자료 없음'}
         />
         <Kpi label="숙박·식비·기타" value={won(t.core)} sub={`유류·의료 ${won(t.fuelMed)} 별도`} />
