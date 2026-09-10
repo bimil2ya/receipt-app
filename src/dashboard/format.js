@@ -1,4 +1,8 @@
-export const won = (n) => Math.round(Number(n) || 0).toLocaleString('ko-KR');
+// 숫자 또는 "120,000" 같은 문자열도 받는다.
+export const won = (n) => {
+  const num = typeof n === 'string' ? Number(n.replace(/[,\s]/g, '')) : Number(n);
+  return Math.round(Number.isFinite(num) ? num : 0).toLocaleString('ko-KR');
+};
 
 export function currentMonth() {
   const d = new Date();

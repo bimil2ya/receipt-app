@@ -39,5 +39,12 @@ describe('monthLabel / won', () => {
   it('won coerces junk to 0 and adds thousands separators', () => {
     expect(won('abc')).toBe('0');
     expect(won(1234567)).toBe('1,234,567');
+    expect(won(null)).toBe('0');
+    expect(won(undefined)).toBe('0');
+  });
+
+  it('won accepts a comma-formatted string (sheet export)', () => {
+    expect(won('120,000')).toBe('120,000');
+    expect(won(' 1 234 567 ')).toBe('1,234,567');
   });
 });

@@ -257,7 +257,16 @@ function AnomalyTab({ data }) {
   );
 }
 
-export default function DashboardShell({ data, month, months, onMonthChange, onRefresh, onLogout, updatedAt }) {
+export default function DashboardShell({ data: raw, month, months, onMonthChange, onRefresh, onLogout, updatedAt }) {
+  // 계약상 배열 필드는 항상 존재하지만, 부분 응답에도 흰 화면 대신 화면이 뜨도록 방어.
+  const data = {
+    ...raw,
+    teams: Array.isArray(raw.teams) ? raw.teams : [],
+    ledger: Array.isArray(raw.ledger) ? raw.ledger : [],
+    trend: Array.isArray(raw.trend) ? raw.trend : [],
+    totals: raw.totals || { spent: 0, core: 0, fuelMed: 0, receiptCount: 0, prevMonthSpent: null },
+    byCategory: raw.byCategory || {},
+  };
   const isOwner = data.role === 'owner';
   const tabs = [
     ['overview', '전체 현황'],
