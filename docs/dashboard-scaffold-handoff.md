@@ -4,31 +4,41 @@
 > 계획서: https://claude.ai/code/artifact/5b539111-92c6-4cb0-a538-a22cf8429f81
 > 착수 키트: https://claude.ai/code/artifact/b092bbaa-0556-48e1-9916-d69bc827b49e
 
-## ⚠️ 배포 전 반드시 결정·처리 (보안·신뢰성)
+## 🛑 배포 하드 블로커 — 이거 없이는 배포 자체가 실패
 
-1. **`maxDuration: 60` 플랜 지원 확인.** `api/dashboard.js`가 `config.maxDuration = 60`.
-   Hobby가 10초 캡이면 P2의 `data`(Sheets export + 파싱)가 504. → Vercel 플랜/함수 캡 실측.
-2. **Vercel 함수 수.** `dashboard.js`(+1) + Codex `review.js`(+1). `api/`의 non-`_` 헬퍼가
-   함수로 세어질 수 있어 이미 상한 근처. 12/12면 배포 실패 → `.vercelignore`/`_` 개명 선행.
-3. **비밀번호 = 패스프레이즈.** 이 화면은 영수증의 **카드번호·사업자번호·조원 실명·금액**을
+**Hobby 함수 12개 상한. 프로덕션(main @ 939e067)이 이미 12/12 꽉 참**
+(`.claude/.../memory/vercel-deploy.md`). `api/`의 non-`_` `.js`는 `export default`가 없는
+순수 모듈(`driveUtils.js`·`cache.js`·`approvalReport.js`)도 함수로 카운트됨.
+
+- `api/dashboard.js` = 함수 **#13** → **`npm run deploy:prod` 실패.**
+- Codex의 `api/review.js`(현재 untracked)까지 배포하면 **#14.**
+- **해결(memory에 이미 문서화, "미실행 후속 작업")**: `driveUtils.js`·`cache.js`·`approvalReport.js`를
+  `_` 접두사로 rename + import 경로 수정 → 슬롯 3개 확보.
+- **⚠️ 이 rename은 Codex와 조율 필수** — Codex의 미커밋 WIP(`upload.js`·`aggregate.js`·
+  `_aggregateUtils.js`·`teams.js`·`review.js`)가 전부 `driveUtils.js`를 import한다. 지금
+  단독으로 하면 Codex 작업 트리가 즉시 깨진다. Codex P0 병합 후, 또는 Codex와 함께.
+- 대안: Vercel Pro 업그레이드(함수 상한 해제).
+
+## ⚠️ 배포 전 결정 (보안·신뢰성)
+
+1. **비밀번호 = 패스프레이즈.** 이 화면은 영수증의 **카드번호·사업자번호·조원 실명·금액**을
    노출한다. 6자리 PIN(100만 조합)으로는 부족 — `DASHBOARD_PW_OWNER`/`STAFF`를 **12자 이상
    패스프레이즈**로. (코드는 부팅 시 경고만 — 강제하면 의도적 값도 잠김.)
-4. **Codex 제출 Redis 키에 환경 prefix.** `submission-lock:v1:month:*`(120초)·
-   `receipt-submission:v1:*`(14일)에 `VERCEL_ENV`가 없다 → **preview URL에서 수동 제출 1번이면
-   프로덕션 Upstash에 잠금·job이 쓰인다**(실 제출을 120초 막거나 job 키를 14일 남김).
-   e2e는 안전(`e2e/submission.spec.js`가 `/api/**` 전부 mock, 로컬 대상). 하지만 preview
-   수동 테스트는 위험. → Codex의 `getSubmissionRedis` 키에도 env prefix 권장. (대시보드
-   `dashboard:v1:${VERCEL_ENV}:rl:*`은 이미 prefix됨.)
-5. **정산서 PDF 전달 전략 (P2).** `?action=report`는 지금 `res.end(buffer)`로 스트리밍 —
-   **Vercel 서버리스 응답 본문 상한(~4.5MB)**을 넘는 정산서(영수증 이미지 다수, 최대 20MB)는
-   413으로 실패한다(가드·클라이언트 메시지 있음). P2에서 **짧은 수명 Drive 서명 URL 리다이렉트**
-   또는 별도 스토리지/스트리밍으로 교체. `_dashboardReports.js:fetchReportPdf` TODO 참고.
-6. **`?action=data` 응답 크기.** 스텁은 `ledger[]` 7행이지만 P2는 `전체내역` 전량 +
-   `reviewsRaw[]` 전량 → 바쁜 달엔 4.5MB에 근접할 수 있다. `ledger`를 페이지네이션하거나
-   조별 드릴다운에서만 로드(계획서 §5)하도록 P2에서 결정.
-7. **세션 토큰 폐기.** TTL 4h로 줄였으나 스테이트리스 HMAC이라 개별 폐기 불가 —
-   유출 시 `DASHBOARD_TOKEN_SECRET` 로테이션(전원 재로그인)이 유일. 진짜 로그아웃/폐기가
-   필요하면 `jti` + KV denylist(요청당 KV read 1회 추가 — throttle이 이미 KV를 치므로 부담 적음).
+2. **정산서 PDF 전달 전략 (P2).** `?action=report`는 지금 `res.end(buffer)` — **Vercel 응답
+   본문 상한(~4.5MB)**을 넘는 정산서(영수증 이미지 다수, 최대 20MB)는 413(가드·클라 메시지 있음).
+   P2에서 **짧은 수명 Drive 서명 URL 리다이렉트** 또는 스트리밍으로 교체. `fetchReportPdf` TODO.
+3. **`?action=data` 응답 크기.** 스텁은 `ledger[]` 7행이지만 P2는 `전체내역`+`reviewsRaw` 전량
+   → 바쁜 달 4.5MB 근접. `ledger` 페이지네이션 또는 조별 드릴다운에서만 로드(계획서 §5).
+4. **세션 토큰 폐기.** TTL 4h로 줄였으나 스테이트리스 HMAC이라 개별 폐기 불가 — 유출 시
+   `DASHBOARD_TOKEN_SECRET` 로테이션(전원 재로그인). 진짜 로그아웃/폐기 필요하면 `jti` + KV denylist.
+
+### 확인 완료 — 문제 아님
+- `maxDuration: 60` — **문제 없음.** `api/upload.js`가 이미 60으로 배포 중이고 Vercel 기본
+  타임아웃이 300s로 올랐다. `api/dashboard.js`의 `config.maxDuration = 60` 그대로 둔다.
+- Preview keyspace 오염 — **거의 무의미.** memory 확인: **Preview 타깃엔 env가 하나도 없다.**
+  → preview에서 `getRedis()`는 `KV_REST_API_*` 없음 → `KvUnavailableError` → 503(로그인 자체 불가).
+  Codex의 `getSubmissionRedis()`도 동일 → 제출도 preview에서 못 함. preview가 프로덕션
+  Upstash를 건드릴 경로가 없다. (그래도 Codex 키에 env prefix는 방어적으로 권장.)
 
 ## 브랜치 상태
 
