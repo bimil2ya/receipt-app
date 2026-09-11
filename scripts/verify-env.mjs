@@ -14,6 +14,7 @@ const requiredEnvVars = [
 // 지금은 경고만 — 대시보드가 아직 미배포라 다른 배포를 막지 않게.
 //   KV_REST_API_URL / KV_REST_API_TOKEN (Upstash 연동이 자동 주입 — 제출 P0도 필요)
 //   DASHBOARD_PW_OWNER / DASHBOARD_PW_STAFF / DASHBOARD_TOKEN_SECRET / RECOVERY_EMAIL
+//   DASHBOARD_SMTP_HOST / DASHBOARD_SMTP_USER / DASHBOARD_SMTP_PASS (비밀번호 찾기 메일 발송)
 const dashboardEnvVars = [
   'KV_REST_API_URL',
   'KV_REST_API_TOKEN',
@@ -21,6 +22,9 @@ const dashboardEnvVars = [
   'DASHBOARD_PW_STAFF',
   'DASHBOARD_TOKEN_SECRET',
   'RECOVERY_EMAIL',
+  'DASHBOARD_SMTP_HOST',
+  'DASHBOARD_SMTP_USER',
+  'DASHBOARD_SMTP_PASS',
 ];
 
 console.log('🔍 환경변수 검증 중...\n');

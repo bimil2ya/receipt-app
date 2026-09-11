@@ -51,13 +51,15 @@ errorCode: exceeded_serverless_functions_per_deployment
    → 바쁜 달 4.5MB 근접. `ledger` 페이지네이션 또는 조별 드릴다운에서만 로드(계획서 §5).
 4. **세션 토큰 폐기.** TTL 4h로 줄였으나 스테이트리스 HMAC이라 개별 폐기 불가 — 유출 시
    `DASHBOARD_TOKEN_SECRET` 로테이션(전원 재로그인). 진짜 로그아웃/폐기 필요하면 `jti` + KV denylist.
-5. **🔴 "비밀번호 찾기"가 실제로 동작하지 않는다.** `_dashboardMail.js`는 sender 미연결 —
-   `?action=forgot`는 **아무 메일도 안 보내면서** UI엔 "메일을 보냈습니다"라고 응답한다
-   (열거 공격 방지용 고정 문구지만, sender가 없으면 그냥 거짓말). 패스프레이즈로 바꾸는 순간
-   **owner가 암호를 잊으면 복구 경로가 없다**(env 재배포만 가능). 배포 전 택1:
-   - Resend/Nodemailer sender 키 연결 (`_dashboardMail.js`의 TODO, 30분 작업)
-   - sender 없이 갈 거면 `PasswordGate`의 안내 문구를 정직하게("관리자에게 문의") 바꾸고
-     owner 패스프레이즈를 비밀번호 관리자에 저장하도록 합의.
+5. ~~"비밀번호 찾기"가 실제로 동작하지 않는다~~ — **해결됨.** `_dashboardMail.js`가
+   Nodemailer로 실제 SMTP 발송을 한다(기존에 쓰던 메일 계정 사용, Resend 아님).
+   `DASHBOARD_SMTP_HOST`/`DASHBOARD_SMTP_USER`/`DASHBOARD_SMTP_PASS`(필수) +
+   `DASHBOARD_SMTP_PORT`(기본 587)/`DASHBOARD_SMTP_FROM`(기본 SMTP_USER, 선택)를
+   Vercel env에 넣으면 된다. **env가 비어 있으면 이전처럼 로그만 남기고 조용히 생략**하므로
+   (fail-safe, `handleForgot`은 항상 같은 200을 응답) 지금 당장 설정 안 해도 아무것도 안 깨진다.
+   로컬 fake SMTP 서버로 `handleForgot → sendRecoveryEmail → 실제 발송`까지 통째로 E2E 검증함
+   (envelope from/to, 제목, 본문의 실제 패스프레이즈까지 수신 확인). 단위테스트
+   `api/_dashboardMail.test.js` 5개(미설정/수신처 없음/발송 성공/포트별 TLS/발송 실패) 추가.
 
 ### 확인 완료 — 문제 아님
 - `maxDuration: 60` — **문제 없음.** `api/upload.js`가 이미 60으로 배포 중이고 Vercel 기본
@@ -92,7 +94,7 @@ errorCode: exceeded_serverless_functions_per_deployment
 | `api/_dashboardToken.js` | HMAC-SHA256 스테이트리스 토큰 sign/verify (`_auth.js`엔 `safeCompare`만 있어 신규) |
 | `api/_kv.js` | KV 어댑터 — 인메모리 fallback + `configureKv(client)` 주입구. 접근 실패는 `KvUnavailableError`(code `KV_UNAVAILABLE`)로 **전파**(삼키지 않음) |
 | `api/_dashboardRate.js` | auth 10분 5회 잠금 / forgot 전역 1시간 1회 / IP는 sha256 앞 16자만 저장 |
-| `api/_dashboardMail.js` | 복구 메일 — sender 미연결, 로그만 |
+| `api/_dashboardMail.js` | 복구 메일 — Nodemailer/SMTP로 실제 발송(env 없으면 로그만, fail-safe) |
 | `api/dashboard.test.js` | vitest 21개 — **계속 green이어야 함** |
 | `src/dashboard/*` + `src/main.jsx` | 클라이언트 화면. `payload.role`로 UI 결정 — API 응답 형태를 바꾸면 여기가 따라 깨진다 |
 
@@ -175,8 +177,8 @@ errorCode: exceeded_serverless_functions_per_deployment
 - `incr`+`expire`는 별개 명령이라 원자적이지 않음 — `expire`를 매번 `NX`로 호출해 self-heal(이미 구현).
 - SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
 - **공유 IP 잠금**: rate-limit이 IP별이라 노경호·담당자가 같은 사무실 망(같은 공인 IP)이면
-  한 사람의 5회 오타가 둘 다 10분 잠금. 2인·10분 대기면 수용 가능(단 "비밀번호 찾기"는
-  sender 미연결이라 실복구 불가 — 위 §5 참고). 거슬리면 IP + 대략적 기기 식별자 조합으로.
+  한 사람의 5회 오타가 둘 다 10분 잠금. 2인·10분 대기로 수용하기로 함(현행 유지, 결정 완료).
+  "비밀번호 찾기"는 이제 실제로 메일이 가므로(위 §5) 잠금 중에도 복구는 가능.
 - `ErrorBoundary`(공유)는 다크 테마 — 대시보드에서 렌더 크래시 시 어두운 오류 박스가 뜬다
   (데이터 로드 실패는 `DashboardApp`이 자체 라이트 테마로 처리). 수용 가능, 필요 시 라우트별 분기.
 - **Vercel 함수 예산** → 위 "배포 함수 상한" 섹션으로 통합. 조치 후 로컬 빌드 12/12(여유 0).
@@ -210,11 +212,12 @@ Upstash**에 붙는다(`getSubmissionRedis()`는 자격증명 존재만 확인).
 ## 안 해도 되는 것 (별도 트랙 — Codex는 건드리지 말 것)
 
 - `api/_kv.js` — Codex와 정합 완료(위). `getRedis()`/`memoryRedis()`/`KvUnavailableError` 유지
-- `api/_dashboardMail.js` 의 실제 이메일 전송 — sender 미정 (Resend/Nodemailer)
+- `api/_dashboardMail.js` — 완료(Nodemailer/SMTP). env만 채우면 됨(위 §5)
 - 클라이언트 `#/dashboard` 화면 — `cb39f19`에서 완료(스텁 데이터로 동작).
   `_dashboardData.js`가 실데이터로 바뀌면 자동으로 실데이터를 그린다.
   단 **응답 필드 이름·구조를 바꾸면 `src/dashboard/DashboardShell.jsx`도 같이 고쳐야 한다.**
 - 배포 (`api/dashboard.js`는 신규 라우트 +1, env: `DASHBOARD_PW_OWNER/STAFF`,
-  `DASHBOARD_TOKEN_SECRET`, `RECOVERY_EMAIL`, KV 연동, 이메일 sender 키)
+  `DASHBOARD_TOKEN_SECRET`, `RECOVERY_EMAIL`, KV 연동,
+  `DASHBOARD_SMTP_HOST/USER/PASS`[필수 3개]+`PORT/FROM`[선택])
 - SW 캐시: `#/dashboard` 청크(`DashboardApp-*.js`)는 현재 precache에 포함됨 —
   나중에 workbox `globIgnores` 또는 `dontCacheBustURLsMatching`로 제외 검토

@@ -9,12 +9,14 @@
     "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.js",
     "test:e2e": "playwright test",
     "verify:env": "node scripts/verify-env.mjs",
     "deploy:prod": "npm run verify:env && vercel deploy --prod --force"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
+    "@upstash/redis": "^1.38.4",
     "browser-image-compression": "^2.0.2",
     "file-saver": "^2.0.5",
     "googleapis": "^172.0.0",
@@ -23,6 +25,7 @@
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.378.0",
+    "nodemailer": "^10.0.3",
     "p-limit": "^5.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
