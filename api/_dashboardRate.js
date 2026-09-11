@@ -58,3 +58,19 @@ export async function forgotGate({ perHour }, redis = getRedis()) {
     return count <= perHour;
   });
 }
+
+/**
+ * 인증된 요청의 best-effort 스로틀(data·report). 한도 초과면 false.
+ * auth와 달리 **fail-open** — 이미 인증된 요청이고, KV 하나가 흔들려도 대시보드가
+ * 통째로 죽으면 안 되므로. (무차별 대입 방어는 auth의 fail-closed가 담당.)
+ * 목적: 유출된 세션 토큰이 공유 Google API 쿼터·Vercel 함수시간을 갉아먹는 것 완화.
+ * @returns {Promise<boolean>} 허용 여부
+ */
+export async function throttle(rawKey, { max, windowSec }, redis = getRedis()) {
+  try {
+    const count = await bump(redis, `${ns()}:t:${hashKey(rawKey)}`, windowSec);
+    return count <= max;
+  } catch {
+    return true; // fail-open
+  }
+}

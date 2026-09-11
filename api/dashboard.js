@@ -12,7 +12,7 @@
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
 import { safeCompare } from './_auth.js';
 import { signToken, verifyToken } from './_dashboardToken.js';
-import { rlHit, rlReset, forgotGate } from './_dashboardRate.js';
+import { rlHit, rlReset, forgotGate, throttle } from './_dashboardRate.js';
 import { buildDashboardPayload } from './_dashboardData.js';
 import { sendRecoveryEmail } from './_dashboardMail.js';
 import { verifyReportRef, fetchReportPdf } from './_dashboardReports.js';
@@ -23,13 +23,17 @@ const METHOD = { auth: 'POST', forgot: 'POST', data: 'GET', report: 'GET' };
 const AUTH_MAX_FAILS = 5;
 const AUTH_WINDOW_SEC = 600; // 10분
 const TOKEN_TTL_SEC = 8 * 3600;
-const MIN_PW_LEN = 8;
-
-// 부팅 시 env 오설정(짧은 비밀번호)을 경고한다 — 검증이 아니라 진단.
+// 이 대시보드는 영수증의 카드번호·사업자번호·조원 실명·금액을 노출한다.
+// 6자리 숫자 PIN(100만 조합)으로는 부족 — 최소 12자 패스프레이즈를 권장한다.
+// (부팅 시 진단만 — env 값을 강제로 막으면 의도적으로 정한 값도 잠기므로.)
+const MIN_PW_LEN = 12;
 for (const key of ['DASHBOARD_PW_OWNER', 'DASHBOARD_PW_STAFF']) {
   const v = process.env[key];
-  if (v && v.length < MIN_PW_LEN) {
-    console.error(`[dashboard] ${key} 가 ${MIN_PW_LEN}자 미만입니다 — 무차별 대입에 취약`);
+  if (v && (v.length < MIN_PW_LEN || /^\d+$/.test(v))) {
+    console.error(
+      `[dashboard] ${key}: ${MIN_PW_LEN}자 미만이거나 숫자만 — 무차별 대입에 취약. ` +
+        '영수증 PII를 노출하는 화면이므로 패스프레이즈 권장.',
+    );
   }
 }
 
@@ -137,6 +141,10 @@ async function handleData(req, res) {
   if (!claim) {
     return res.status(401).json({ success: false, error: 'invalid token' });
   }
+  // best-effort 스로틀(fail-open) — 유출 토큰이 공유 Google API 쿼터를 갉아먹는 것 완화.
+  if (!(await throttle(`data:${bearer}`, { max: 40, windowSec: 60 }))) {
+    return res.status(429).json({ success: false, error: 'too many requests' });
+  }
   const role = claim.role === 'owner' ? 'owner' : 'staff';
   const month = /^\d{4}-\d{2}$/.test(String((req.query && req.query.month) || ''))
     ? req.query.month
@@ -153,6 +161,9 @@ async function handleReport(req, res) {
   const bearer = String((req.headers && req.headers.authorization) || '').replace(/^Bearer\s+/i, '');
   if (!verifyToken(bearer)) {
     return res.status(401).json({ success: false, error: 'invalid token' });
+  }
+  if (!(await throttle(`report:${bearer}`, { max: 30, windowSec: 60 }))) {
+    return res.status(429).json({ success: false, error: 'too many requests' });
   }
   // ref는 dashboard-data가 서명해 내려준 값만 유효 — 임의 Drive fileId 접근 차단.
   const id = verifyReportRef(String((req.query && req.query.ref) || ''));

@@ -306,6 +306,14 @@ describe('action=data — role-scoped payload (contract)', () => {
     expect(res.headers['Cache-Control']).toBe('private, no-store');
   });
 
+  it('throttles a session hammering data (429 after the per-minute cap)', async () => {
+    const token = signToken({ role: 'owner' }, { ttlSec: 3600 });
+    const hit = () =>
+      call({ method: 'GET', action: 'data', headers: { authorization: `Bearer ${token}` } });
+    for (let i = 0; i < 40; i += 1) expect((await hit()).statusCode).toBe(200);
+    expect((await hit()).statusCode).toBe(429);
+  });
+
   it('includes signed report refs on every team (both roles)', async () => {
     for (const role of ['owner', 'staff']) {
       const { body } = await fetchPayload(role);
