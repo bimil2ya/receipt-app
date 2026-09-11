@@ -4,12 +4,29 @@
 > 계획서: https://claude.ai/code/artifact/5b539111-92c6-4cb0-a538-a22cf8429f81
 > 착수 키트: https://claude.ai/code/artifact/b092bbaa-0556-48e1-9916-d69bc827b49e
 
+## ⚠️ 배포 전 반드시 결정·처리 (보안·신뢰성)
+
+1. **`maxDuration: 60` 플랜 지원 확인.** `api/dashboard.js`가 `config.maxDuration = 60`.
+   Hobby가 10초 캡이면 P2의 `data`(Sheets export + 파싱)가 504. → Vercel 플랜/함수 캡 실측.
+2. **Vercel 함수 수.** `dashboard.js`(+1) + Codex `review.js`(+1). `api/`의 non-`_` 헬퍼가
+   함수로 세어질 수 있어 이미 상한 근처. 12/12면 배포 실패 → `.vercelignore`/`_` 개명 선행.
+3. **비밀번호 = 패스프레이즈.** 이 화면은 영수증의 **카드번호·사업자번호·조원 실명·금액**을
+   노출한다. 6자리 PIN(100만 조합)으로는 부족 — `DASHBOARD_PW_OWNER`/`STAFF`를 **12자 이상
+   패스프레이즈**로. (코드는 부팅 시 경고만 — 강제하면 의도적 값도 잠김.)
+4. **Codex 제출 Redis 키에 환경 prefix.** `submission-lock:v1:month:*`(120초)·
+   `receipt-submission:v1:*`(14일)에 `VERCEL_ENV`가 없다 → **preview URL에서 수동 제출 1번이면
+   프로덕션 Upstash에 잠금·job이 쓰인다**(실 제출을 120초 막거나 job 키를 14일 남김).
+   e2e는 안전(`e2e/submission.spec.js`가 `/api/**` 전부 mock, 로컬 대상). 하지만 preview
+   수동 테스트는 위험. → Codex의 `getSubmissionRedis` 키에도 env prefix 권장. (대시보드
+   `dashboard:v1:${VERCEL_ENV}:rl:*`은 이미 prefix됨.)
+
 ## 브랜치 상태
 
-- 브랜치: `feat/dashboard-scaffold` (origin에 push됨), main HEAD `939e067` 위 3커밋:
-  - `9637ed3` — API 골격 7파일 (라우터·토큰·KV·rate·데이터스텁·메일스텁·테스트 21개)
-  - `68d40b3` — 이 문서
-  - `cb39f19` — 클라이언트 화면 `#/dashboard` 7파일 (로그인·역할별 탭·차트)
+- 브랜치: `feat/dashboard-scaffold` (origin push), main HEAD `939e067` 위 ~29커밋.
+- API: `dashboard.js`(라우터 `?action=auth|data|forgot|report`) + `_dashboardToken/Rate/Data/Mail/Reports.js` + `_kv.js`.
+- 클라이언트: `src/dashboard/*` + `src/main.jsx`(`#/dashboard` lazy).
+- 검토 9회(내부 에이전트 2 + 자체 7). `npm run lint` 0 / `npx vitest run` 451 passed / `npm run build` OK.
+  Codex의 `_submissionLock.test.js`·`_submissionJob.test.js` 그대로 green(`KvUnavailableError` 계약 불변).
 - P2 WIP(현재 ~66개 미커밋 파일)와 **파일 충돌 없음** (전부 신규 파일).
   `git merge feat/dashboard-scaffold` 하거나 이 브랜치 위에서 이어서 작업하면 된다.
 - `npm run lint` 0, `npm run build` 성공, `npx vitest run api/dashboard.test.js` 21/21.
