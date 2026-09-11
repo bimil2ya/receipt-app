@@ -102,8 +102,10 @@ function OverviewTab({ data, isOwner }) {
 }
 
 function TeamTab({ data, token }) {
-  const [idx, setIdx] = useState(0);
-  const team = data.teams[idx] || data.teams[0];
+  // 이름으로 선택을 기억한다 — 인덱스로 기억하면 월이 바뀌어 조 순서/구성이
+  // 달라졌을 때(조 개편·변경이력) 사용자가 고른 것과 다른 조가 조용히 뜬다.
+  const [selectedName, setSelectedName] = useState(null);
+  const team = data.teams.find((tm) => tm.names === selectedName) || data.teams[0];
   if (!team) return <p className="text-sm text-slate-500">자료가 없습니다.</p>;
   const rows = data.ledger.filter((r) => r.team === team.names);
   return (
@@ -111,12 +113,12 @@ function TeamTab({ data, token }) {
       <div className="mb-4">
         <label className="mr-2 text-xs font-semibold uppercase text-slate-400">조 선택</label>
         <select
-          value={idx}
-          onChange={(e) => setIdx(Number(e.target.value))}
+          value={team.names}
+          onChange={(e) => setSelectedName(e.target.value)}
           className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
         >
-          {data.teams.map((tm, i) => (
-            <option key={tm.names} value={i}>
+          {data.teams.map((tm) => (
+            <option key={tm.names} value={tm.names}>
               {tm.names}
             </option>
           ))}

@@ -7,6 +7,9 @@ export default function ReportsPanel({ token, reports }) {
   const [openRef, setOpenRef] = useState(null);
   const [state, setState] = useState({ status: 'idle', url: '', error: '' });
   const urlRef = useRef('');
+  // 서로 다른 정산서를 연달아 열면(두 번째 클릭이 첫 요청 완료 전에 발생) 응답이
+  // 늦게 온 쪽이 화면을 덮어쓸 수 있다 — 이 값과 다르면 그 응답은 버린다.
+  const requestedRef = useRef(null);
 
   // 열려 있던 objectURL 정리
   useEffect(() => {
@@ -25,6 +28,7 @@ export default function ReportsPanel({ token, reports }) {
   async function load(ref) {
     if (openRef === ref) {
       // 토글 닫기
+      requestedRef.current = null;
       revoke();
       setOpenRef(null);
       setState({ status: 'idle', url: '', error: '' });
@@ -32,8 +36,14 @@ export default function ReportsPanel({ token, reports }) {
     }
     revoke();
     setOpenRef(ref);
+    requestedRef.current = ref;
     setState({ status: 'loading', url: '', error: '' });
     const res = await fetchReportObjectUrl(token, ref);
+    if (requestedRef.current !== ref) {
+      // 응답이 오는 사이 다른 정산서를 열었거나 닫았다 — 이 결과는 화면에 반영하지 않는다.
+      if (res.ok) URL.revokeObjectURL(res.url);
+      return;
+    }
     if (res.ok) {
       urlRef.current = res.url;
       setState({ status: 'ready', url: res.url, error: '' });
