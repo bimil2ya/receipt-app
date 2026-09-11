@@ -15,15 +15,18 @@ export function HBars({ rows, valueFmt = won }) {
             {/* 트랙: overflow-hidden으로 채움만 자름. 바깥 라벨은 트랙 밖(clip 안 됨). */}
             <div className="relative h-6">
               <div className="absolute inset-0 overflow-hidden rounded bg-slate-100">
+                {/* 라벨은 채움 막대의 자식이어야 한다 — 트랙(전체 너비) 기준으로 right-2를 주면
+                    막대가 트랙보다 짧을 때(예: 67%) 흰 글자가 막대 밖 회색 트랙 위에 찍혀 안 보인다. */}
                 <div
                   className="absolute inset-y-0 left-0 rounded-r"
                   style={{ width: `${pct}%`, background: r.color || '#2a78d6', minWidth: 2 }}
-                />
-                {inside && (
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-xs font-semibold text-white">
-                    {valueFmt(r.value)}
-                  </span>
-                )}
+                >
+                  {inside && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-xs font-semibold text-white">
+                      {valueFmt(r.value)}
+                    </span>
+                  )}
+                </div>
               </div>
               {!inside && (
                 <span
