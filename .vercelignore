@@ -13,3 +13,7 @@ node_modules/
 .env.local
 .claude/
 .impeccable/
+
+# 라이브러리 파일(export default 없음) — Vercel이 함수로 카운트하지만 라우트가 아님.
+# monitoring.js는 어디서도 import되지 않는 죽은 코드.
+api/monitoring.js
