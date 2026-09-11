@@ -51,6 +51,13 @@ errorCode: exceeded_serverless_functions_per_deployment
    → 바쁜 달 4.5MB 근접. `ledger` 페이지네이션 또는 조별 드릴다운에서만 로드(계획서 §5).
 4. **세션 토큰 폐기.** TTL 4h로 줄였으나 스테이트리스 HMAC이라 개별 폐기 불가 — 유출 시
    `DASHBOARD_TOKEN_SECRET` 로테이션(전원 재로그인). 진짜 로그아웃/폐기 필요하면 `jti` + KV denylist.
+5. **🔴 "비밀번호 찾기"가 실제로 동작하지 않는다.** `_dashboardMail.js`는 sender 미연결 —
+   `?action=forgot`는 **아무 메일도 안 보내면서** UI엔 "메일을 보냈습니다"라고 응답한다
+   (열거 공격 방지용 고정 문구지만, sender가 없으면 그냥 거짓말). 패스프레이즈로 바꾸는 순간
+   **owner가 암호를 잊으면 복구 경로가 없다**(env 재배포만 가능). 배포 전 택1:
+   - Resend/Nodemailer sender 키 연결 (`_dashboardMail.js`의 TODO, 30분 작업)
+   - sender 없이 갈 거면 `PasswordGate`의 안내 문구를 정직하게("관리자에게 문의") 바꾸고
+     owner 패스프레이즈를 비밀번호 관리자에 저장하도록 합의.
 
 ### 확인 완료 — 문제 아님
 - `maxDuration: 60` — **문제 없음.** `api/upload.js`가 이미 60으로 배포 중이고 Vercel 기본
@@ -168,13 +175,11 @@ errorCode: exceeded_serverless_functions_per_deployment
 - `incr`+`expire`는 별개 명령이라 원자적이지 않음 — `expire`를 매번 `NX`로 호출해 self-heal(이미 구현).
 - SW precache: `DashboardApp-*.js` 청크가 현장 유저에게도 precache됨 → `workbox.globIgnores` 검토.
 - **공유 IP 잠금**: rate-limit이 IP별이라 노경호·담당자가 같은 사무실 망(같은 공인 IP)이면
-  한 사람의 5회 오타가 둘 다 10분 잠금. 2인·10분·"비밀번호 찾기"로 복구 가능이라 수용,
-  거슬리면 IP + 대략적 기기 식별자 조합으로.
+  한 사람의 5회 오타가 둘 다 10분 잠금. 2인·10분 대기면 수용 가능(단 "비밀번호 찾기"는
+  sender 미연결이라 실복구 불가 — 위 §5 참고). 거슬리면 IP + 대략적 기기 식별자 조합으로.
 - `ErrorBoundary`(공유)는 다크 테마 — 대시보드에서 렌더 크래시 시 어두운 오류 박스가 뜬다
   (데이터 로드 실패는 `DashboardApp`이 자체 라이트 테마로 처리). 수용 가능, 필요 시 라우트별 분기.
-- **Vercel 함수 예산**: `dashboard.js`(+1) + Codex의 `review.js`(+1). 현재 비-`_`·비-ignore `/api/*.js`가
-  ~15개(`driveUtils.js`·`indexeddb-schema.js`처럼 라이브러리인데 라우트로 세어질 수 있는 것 포함).
-  Hobby(12)면 이미 초과. 신규 2개 붙기 전에 `.vercelignore` 추가 또는 `_` 개명으로 정리 필요. `api/*.md` 12개도.
+- **Vercel 함수 예산** → 위 "배포 함수 상한" 섹션으로 통합. 조치 후 로컬 빌드 12/12(여유 0).
 
 ## Codex 작업과의 정합 (2026-09-11 확인)
 
