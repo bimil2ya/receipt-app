@@ -94,6 +94,15 @@ export default function PasswordGate({ onAuthed }) {
           )}
         </div>
       </form>
+
+      {/* 현장 조원이 실수로 이 화면에 들어온 경우 돌아갈 길
+          (해시가 #/dashboard를 벗어나면 main.jsx의 hashchange 리스너가 reload) */}
+      <a
+        href="#/"
+        className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs text-slate-400 underline"
+      >
+        ← 영수증 입력 화면으로
+      </a>
     </div>
   );
 }

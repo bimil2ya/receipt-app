@@ -38,11 +38,13 @@ export default function ReportsPanel({ token, reports }) {
       urlRef.current = res.url;
       setState({ status: 'ready', url: res.url, error: '' });
     } else {
-      setState({
-        status: 'error',
-        url: '',
-        error: res.reason === 'expired' ? '세션이 만료됐습니다. 다시 로그인하세요.' : 'PDF를 불러오지 못했습니다.',
-      });
+      const msg =
+        res.reason === 'expired'
+          ? '세션이 만료됐습니다. 다시 로그인하세요.'
+          : res.reason === 'toolarge'
+            ? '이 정산서는 화면 미리보기가 어려울 만큼 큽니다. Drive에서 직접 확인하세요.'
+            : 'PDF를 불러오지 못했습니다.';
+      setState({ status: 'error', url: '', error: msg });
     }
   }
 

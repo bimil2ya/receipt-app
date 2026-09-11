@@ -11,10 +11,16 @@ const throwingRedis = () => {
   return { incr: boom, expire: boom, del: boom, get: boom, set: boom };
 };
 import { sendRecoveryEmail } from './_dashboardMail.js';
+import { fetchReportPdf } from './_dashboardReports.js';
 
 vi.mock('./_dashboardMail.js', () => ({
   sendRecoveryEmail: vi.fn(async () => ({ sent: true })),
 }));
+
+vi.mock('./_dashboardReports.js', async (importOriginal) => {
+  const real = await importOriginal();
+  return { ...real, fetchReportPdf: vi.fn(real.fetchReportPdf) };
+});
 
 const OWNER_PW = 'owner-secret-123456';
 const STAFF_PW = 'staff-secret-654321';
@@ -372,6 +378,19 @@ describe('action=report', () => {
       expect(Buffer.isBuffer(res.body)).toBe(true);
       expect(res.body.slice(0, 5).toString('latin1')).toBe('%PDF-');
     }
+  });
+
+  it('413 when the PDF exceeds the serverless response limit', async () => {
+    fetchReportPdf.mockResolvedValueOnce(Buffer.alloc(5 * 1024 * 1024));
+    const ref = await anyRef();
+    const token = signToken({ role: 'owner' }, { ttlSec: 3600 });
+    const res = await call({
+      method: 'GET',
+      action: 'report',
+      headers: { authorization: `Bearer ${token}` },
+      query: { ref },
+    });
+    expect(res.statusCode).toBe(413);
   });
 });
 
