@@ -19,6 +19,16 @@
    e2e는 안전(`e2e/submission.spec.js`가 `/api/**` 전부 mock, 로컬 대상). 하지만 preview
    수동 테스트는 위험. → Codex의 `getSubmissionRedis` 키에도 env prefix 권장. (대시보드
    `dashboard:v1:${VERCEL_ENV}:rl:*`은 이미 prefix됨.)
+5. **정산서 PDF 전달 전략 (P2).** `?action=report`는 지금 `res.end(buffer)`로 스트리밍 —
+   **Vercel 서버리스 응답 본문 상한(~4.5MB)**을 넘는 정산서(영수증 이미지 다수, 최대 20MB)는
+   413으로 실패한다(가드·클라이언트 메시지 있음). P2에서 **짧은 수명 Drive 서명 URL 리다이렉트**
+   또는 별도 스토리지/스트리밍으로 교체. `_dashboardReports.js:fetchReportPdf` TODO 참고.
+6. **`?action=data` 응답 크기.** 스텁은 `ledger[]` 7행이지만 P2는 `전체내역` 전량 +
+   `reviewsRaw[]` 전량 → 바쁜 달엔 4.5MB에 근접할 수 있다. `ledger`를 페이지네이션하거나
+   조별 드릴다운에서만 로드(계획서 §5)하도록 P2에서 결정.
+7. **세션 토큰 폐기.** TTL 4h로 줄였으나 스테이트리스 HMAC이라 개별 폐기 불가 —
+   유출 시 `DASHBOARD_TOKEN_SECRET` 로테이션(전원 재로그인)이 유일. 진짜 로그아웃/폐기가
+   필요하면 `jti` + KV denylist(요청당 KV read 1회 추가 — throttle이 이미 KV를 치므로 부담 적음).
 
 ## 브랜치 상태
 
