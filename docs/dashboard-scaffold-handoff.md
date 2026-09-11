@@ -4,28 +4,40 @@
 > 계획서: https://claude.ai/code/artifact/5b539111-92c6-4cb0-a538-a22cf8429f81
 > 착수 키트: https://claude.ai/code/artifact/b092bbaa-0556-48e1-9916-d69bc827b49e
 
-## 🛑 배포 하드 블로커 — Vercel Hobby 함수 12개 상한 (실측 확인됨)
+## ⚠️ 배포 함수 상한 — Vercel Hobby 12개 (해소됨, 여유 없음)
 
-이 브랜치의 preview 자동배포가 계속 실패했다. Vercel API로 확인한 원인:
+이 브랜치의 preview 자동배포가 계속 실패했었다. Vercel API로 확인한 원인:
 ```
 errorCode: exceeded_serverless_functions_per_deployment
 "No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan."
 ```
-`.vercel/output/functions` 실측: **브랜치 15개**(monitoring.js 제외 후) = main 13 + `dashboard.js` + `review.js`.
+`npx vercel build` 로컬 실측:
+| 상태 | `.vercel/output/functions/api/*.func` | 비고 |
+|---|---|---|
+| main (939e067) | 13 | 마지막 성공 프로덕션 배포 2026-09-06 |
+| 이 브랜치 (조치 전) | 14 | main + `dashboard.func` + `review.func` − `monitoring`(.vercelignore) |
+| **이 브랜치 (조치 후)** | **12** | 아래 `.vercelignore` 2건 추가 |
+
 `api/`의 `.js`는 `export default`가 없는 순수 모듈(`driveUtils.js`·`cache.js`·`approvalReport.js`·
-`indexeddb-schema.js`·`metadata.js`)도 Vercel이 함수로 카운트한다. **main 자체가 이미 13 > 12.**
+`indexeddb-schema.js`·`metadata.js`)도 Vercel이 (깨진) 함수로 카운트한다.
 
-### 이 브랜치에서 한 것
-- `vercel.json` → `git.deploymentEnabled: { "feat/dashboard-scaffold": false }` — 자동배포 중단
-  (preview는 env가 없어 무의미). **병합 전 이 키 제거.**
-- `.vercelignore` → `api/monitoring.js`(죽은 파일, import 0) 추가. (−1)
+### 이 브랜치에서 한 조치
+- `.vercelignore`에 3건 추가 — **전부 `export default` 없음 + 배포 코드에서 import 0**:
+  - `api/monitoring.js` — 죽은 코드.
+  - `api/metadata.js` — 코드 참조 없음(문서만). Drive 헬퍼지만 어디서도 안 씀.
+  - `api/indexeddb-schema.js` — 유일 consumer `offline-sync.js`가 이미 제외됨. 브라우저 전용(`indexedDB`).
+  → 로컬 빌드 14 → **12**. cloud 카운트도 그만큼 내려가 preview·프로덕션 모두 배포 가능.
+- `vercel.json` → `git.deploymentEnabled: { "feat/dashboard-scaffold": false }` — 자동배포 중단.
+  이제 12개로 맞았으니 **이 키를 지우면 preview 자동배포가 되살아난다**(단 preview엔 env가 없어
+  대시보드 런타임은 503). **병합 시 이 키 제거.**
 
-### 실제 배포하려면 (Codex/팀 — 반드시 선행)
-- `driveUtils.js`·`cache.js`·`approvalReport.js`를 `_` 접두사로 rename + import 경로 수정
-  → 함수 3개 감소 → 12. (`indexeddb-schema.js`·`metadata.js`도 같은 방식으로 여유 확보 권장)
-- **⚠️ Codex와 조율 필수** — Codex WIP(`upload.js`·`aggregate.js`·`_aggregateUtils.js`·`teams.js`·
-  `review.js`)가 `driveUtils.js`를 import(9곳). 단독 실행 시 Codex 트리 즉시 깨짐. P0 병합 후.
-- 또는 **Vercel Pro 업그레이드**(함수 상한 해제) — 2인 내부 도구엔 이게 가장 단순할 수도.
+### 남은 리스크 — 여유가 0이다
+- 병합 후 main = 12(로컬) / ~10(cloud 추정). 그래도 **다음에 함수 하나 늘면 다시 깨진다.**
+- 근본 해결(택1, Codex/팀 판단):
+  - `driveUtils.js`·`cache.js`·`approvalReport.js`를 `_` 접두사로 rename + import 경로 수정
+    → 함수 3개 추가 감소. **⚠️ Codex WIP가 `driveUtils.js`를 9곳에서 import — 단독 실행 시 즉시
+    깨짐. P0 병합 후 조율.**
+  - **Vercel Pro 업그레이드** — 2인 내부 도구엔 이게 가장 단순.
 
 ## ⚠️ 배포 전 결정 (보안·신뢰성)
 
@@ -50,10 +62,13 @@ errorCode: exceeded_serverless_functions_per_deployment
 
 ## 브랜치 상태
 
-- 브랜치: `feat/dashboard-scaffold` (origin push), main HEAD `939e067` 위 ~29커밋.
+- 브랜치: `feat/dashboard-scaffold` (origin push), main HEAD `939e067` 위 ~40커밋.
 - API: `dashboard.js`(라우터 `?action=auth|data|forgot|report`) + `_dashboardToken/Rate/Data/Mail/Reports.js` + `_kv.js`.
 - 클라이언트: `src/dashboard/*` + `src/main.jsx`(`#/dashboard` lazy).
-- 검토 9회(내부 에이전트 2 + 자체 7). `npm run lint` 0 / `npx vitest run` 451 passed / `npm run build` OK.
+- main 대비 변경: 신규 파일 22개 + `src/main.jsx` +32/−2 + `.vercelignore`/`vercel.json`/`eslint.config.js`.
+  **기존 앱 코드 중 손댄 것은 `src/main.jsx` 하나뿐** — 필드 앱 렌더 경로·스플래시 로직 불변,
+  `hashchange` 리스너는 `#/dashboard` 경계를 넘을 때만 reload(필드 앱엔 inert).
+- 검토 9회(내부 에이전트 2 + 자체 7). `npm run lint` 0 / `npx vitest run` 452 passed·15 skipped / `npm run build` OK.
   Codex의 `_submissionLock.test.js`·`_submissionJob.test.js` 그대로 green(`KvUnavailableError` 계약 불변).
 - P2 WIP(현재 ~66개 미커밋 파일)와 **파일 충돌 없음** (전부 신규 파일).
   `git merge feat/dashboard-scaffold` 하거나 이 브랜치 위에서 이어서 작업하면 된다.

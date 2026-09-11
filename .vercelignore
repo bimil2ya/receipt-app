@@ -14,6 +14,11 @@ node_modules/
 .claude/
 .impeccable/
 
-# 라이브러리 파일(export default 없음) — Vercel이 함수로 카운트하지만 라우트가 아님.
-# monitoring.js는 어디서도 import되지 않는 죽은 코드.
+# 라이브러리/스키마 파일(export default 없음) — Vercel이 함수로 카운트하지만 라우트가 아님.
+# monitoring.js: 어디서도 import되지 않는 죽은 코드.
+# metadata.js: 코드에서 import하는 곳 없음(문서 참조만).
+# indexeddb-schema.js: 유일한 consumer인 offline-sync.js가 이미 위에서 제외됨. 브라우저 전용(indexedDB) 코드.
+# → Hobby plan 12함수 제한 대응. 근본 해결은 driveUtils/cache/approvalReport를 _ 접두사로 개명(전 코드베이스 import 조정 필요, Codex 인수인계 문서 참조).
 api/monitoring.js
+api/metadata.js
+api/indexeddb-schema.js
