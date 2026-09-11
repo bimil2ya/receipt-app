@@ -4,20 +4,28 @@
 > 계획서: https://claude.ai/code/artifact/5b539111-92c6-4cb0-a538-a22cf8429f81
 > 착수 키트: https://claude.ai/code/artifact/b092bbaa-0556-48e1-9916-d69bc827b49e
 
-## 🛑 배포 하드 블로커 — 이거 없이는 배포 자체가 실패
+## 🛑 배포 하드 블로커 — Vercel Hobby 함수 12개 상한 (실측 확인됨)
 
-**Hobby 함수 12개 상한. 프로덕션(main @ 939e067)이 이미 12/12 꽉 참**
-(`.claude/.../memory/vercel-deploy.md`). `api/`의 non-`_` `.js`는 `export default`가 없는
-순수 모듈(`driveUtils.js`·`cache.js`·`approvalReport.js`)도 함수로 카운트됨.
+이 브랜치의 preview 자동배포가 계속 실패했다. Vercel API로 확인한 원인:
+```
+errorCode: exceeded_serverless_functions_per_deployment
+"No more than 12 Serverless Functions can be added to a Deployment on the Hobby plan."
+```
+`.vercel/output/functions` 실측: **브랜치 15개**(monitoring.js 제외 후) = main 13 + `dashboard.js` + `review.js`.
+`api/`의 `.js`는 `export default`가 없는 순수 모듈(`driveUtils.js`·`cache.js`·`approvalReport.js`·
+`indexeddb-schema.js`·`metadata.js`)도 Vercel이 함수로 카운트한다. **main 자체가 이미 13 > 12.**
 
-- `api/dashboard.js` = 함수 **#13** → **`npm run deploy:prod` 실패.**
-- Codex의 `api/review.js`(현재 untracked)까지 배포하면 **#14.**
-- **해결(memory에 이미 문서화, "미실행 후속 작업")**: `driveUtils.js`·`cache.js`·`approvalReport.js`를
-  `_` 접두사로 rename + import 경로 수정 → 슬롯 3개 확보.
-- **⚠️ 이 rename은 Codex와 조율 필수** — Codex의 미커밋 WIP(`upload.js`·`aggregate.js`·
-  `_aggregateUtils.js`·`teams.js`·`review.js`)가 전부 `driveUtils.js`를 import한다. 지금
-  단독으로 하면 Codex 작업 트리가 즉시 깨진다. Codex P0 병합 후, 또는 Codex와 함께.
-- 대안: Vercel Pro 업그레이드(함수 상한 해제).
+### 이 브랜치에서 한 것
+- `vercel.json` → `git.deploymentEnabled: { "feat/dashboard-scaffold": false }` — 자동배포 중단
+  (preview는 env가 없어 무의미). **병합 전 이 키 제거.**
+- `.vercelignore` → `api/monitoring.js`(죽은 파일, import 0) 추가. (−1)
+
+### 실제 배포하려면 (Codex/팀 — 반드시 선행)
+- `driveUtils.js`·`cache.js`·`approvalReport.js`를 `_` 접두사로 rename + import 경로 수정
+  → 함수 3개 감소 → 12. (`indexeddb-schema.js`·`metadata.js`도 같은 방식으로 여유 확보 권장)
+- **⚠️ Codex와 조율 필수** — Codex WIP(`upload.js`·`aggregate.js`·`_aggregateUtils.js`·`teams.js`·
+  `review.js`)가 `driveUtils.js`를 import(9곳). 단독 실행 시 Codex 트리 즉시 깨짐. P0 병합 후.
+- 또는 **Vercel Pro 업그레이드**(함수 상한 해제) — 2인 내부 도구엔 이게 가장 단순할 수도.
 
 ## ⚠️ 배포 전 결정 (보안·신뢰성)
 
