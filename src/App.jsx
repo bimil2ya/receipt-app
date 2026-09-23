@@ -18,6 +18,7 @@ import useDriveRestore from './hooks/useDriveRestore';
 import useAppUiState from './hooks/useAppUiState';
 import useToastMessage from './hooks/useToastMessage';
 import useStoredTeamNames from './hooks/useStoredTeamNames';
+import useOfficeReviews from './hooks/useOfficeReviews';
 import useConfirmModal from './hooks/useConfirmModal';
 import ConfirmModal from './components/layout/ConfirmModal';
 
@@ -112,6 +113,8 @@ export default function App() {
   // 마이그레이션: 기존 receipt_date가 있으면 그걸 초기값으로 사용.
   const [tripStartDate, setTripStartDate] = useState(() => readStorageItem('trip_start_date', '') || readStorageItem('receipt_date', '') || getToday());
   const [tripEndDate, setTripEndDate] = useState(() => readStorageItem('trip_end_date', '') || readStorageItem('trip_start_date', '') || getToday());
+  const [reviewTargetId, setReviewTargetId] = useState('');
+  const officeReviews = useOfficeReviews({ teamNames: canonicalNames, reportDate: tripStartDate });
   const calculatedBudget = useMemo(() => {
     const s = new Date(tripStartDate);
     const e = new Date(tripEndDate);
@@ -121,12 +124,14 @@ export default function App() {
   }, [tripStartDate, tripEndDate]);
   const {
     editState,
+    editErrors,
+    amountRef: editAmountRef,
     setEditState,
     handleEdit,
     handleInlineEdit,
     handleUpdateRotation,
     handleViewImage,
-  } = useReceiptEditing({ receipts, saveReceipts, setDetailId, setTab });
+  } = useReceiptEditing({ receipts, saveReceipts, setDetailId, setTab, assignment: { id: selectedTeam?.id, name: canonicalNames } });
 
   // ── SummaryTab ref — 출장마감 패널에서 카톡 공유를 직접 트리거하기 위해
   const summaryTabRef = useRef(null);
@@ -137,12 +142,18 @@ export default function App() {
   // ── 출장 마감 전송 횟수 (출장 단위 localStorage 영속)
   const {
     kakaoSendCount,
-    setKakaoSendCount,
     uploadSendCount,
-    setUploadSendCount,
     lastDuplicateReport,
     setLastDuplicateReport,
+    resetTripClosingState,
+    startKakaoOperation,
+    finishKakaoOperation,
+    storageKey: tripStorageKey,
+    generation: tripGeneration,
+    completedFingerprintKeys,
+    commitUploadCompletion,
   } = useTripClosingState({ canonicalNames, selectedTeam, tripStartDate });
+  const kakaoOperationRef = useRef(null);
   // 카톡 캡처 중 — Android GPU가 off-screen 엘리먼트를 제외하는 문제 방지용
   const [summaryCapturing, setSummaryCapturing] = useState(false);
 
@@ -174,13 +185,19 @@ export default function App() {
         showAlertToast(msg);
       }
     },
-    onUploadError: ({ failedFiles, duplicateCount }) => {
+    onUploadError: ({ failedFiles, invalidReceipts = [], duplicateCount }) => {
       const parts = [];
       if (failedFiles.length > 0) {
         const failedSummary = failedFiles
           .map(f => `${f.name}${f.error ? ` (${f.error})` : ''}`)
           .join(', ');
         parts.push(`❌ 실패 ${failedFiles.length}건: ${failedSummary}`);
+      }
+      if (invalidReceipts.length > 0) {
+        const invalidSummary = invalidReceipts
+          .map(receipt => `${receipt.fileName} · ${receipt.storeName} (${receipt.error})`)
+          .join(', ');
+        parts.push(`⚠️ 금액 확인 필요 ${invalidReceipts.length}건: ${invalidSummary}`);
       }
       if (duplicateCount > 0) parts.push(`⚠️ 중복 제외 ${duplicateCount}건`);
       showToast(parts.join(' / '));
@@ -189,13 +206,16 @@ export default function App() {
   const {
     manualReceipt,
     setManualReceipt,
+    manualErrors,
     manualStoreRef,
+    manualAmountRef,
     handleManualAdd,
-  } = useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast, onClose: closeManualModal });
+  } = useManualReceiptEntry({ saveReceipts, setPinnedNewIds, showToast, onClose: closeManualModal, assignment: { id: selectedTeam?.id, name: canonicalNames }, relatedReviewReceiptId: reviewTargetId, onAdded: () => setReviewTargetId('') });
   const {
     driveUploading,
     uploadProgress,
     lastUploadFailures,
+    submissionNeedsResend,
     uploadToDrive,
     retryFailedUploads,
   } = useDriveUpload({
@@ -207,7 +227,10 @@ export default function App() {
     tripEndDate,
     localApprovalReport,
     setLastDuplicateReport,
-    setUploadSendCount,
+    tripStorageKey,
+    tripGeneration,
+    completedFingerprintKeys,
+    commitUploadCompletion,
     showToast,
     showConfirm,
   });
@@ -238,7 +261,7 @@ export default function App() {
   const duplicateReport = lastDuplicateReport || localApprovalReport;
 
   // ── 집계
-  const { grandTotal, budgetTotal, fuelTotal, medTotal, budgetRatio, remainingBudget } = useBudgetSummary({ receipts, weeklyBudget });
+  const { grandTotal, budgetTotal, fuelTotal, medTotal, budgetRatio, remainingBudget, amountOverflow } = useBudgetSummary({ receipts, weeklyBudget });
 
   const handleBudgetOpen = useCallback(() => {
     setTempBudget(calculatedBudget);
@@ -289,14 +312,22 @@ export default function App() {
     const budgetVal = Math.max(0, parseInt(tempBudget) || 0);
     if (budgetVal <= 0) { showToast('예산을 먼저 입력해 주세요.'); return; }
     await startNewWeek({ newDate: tripStartDate, newBudget: budgetVal });
-    setKakaoSendCount(0);
-    setUploadSendCount(0);
-    setLastDuplicateReport(null);
+    await resetTripClosingState();
     closeBudgetModal();
-  }, [closeBudgetModal, setKakaoSendCount, setLastDuplicateReport, setUploadSendCount, showToast, startNewWeek, tempBudget, tripStartDate]);
+  }, [closeBudgetModal, resetTripClosingState, showToast, startNewWeek, tempBudget, tripStartDate]);
 
-  const handleSetKakaoDone = useCallback(() => setKakaoSendCount(prev => prev + 1), [setKakaoSendCount]);
-  const handleSummaryCaptureStart = useCallback(() => setSummaryCapturing(true), []);
+  const handleSetKakaoDone = useCallback(async () => {
+    const operation = kakaoOperationRef.current;
+    kakaoOperationRef.current = null;
+    if (!operation) return;
+    try { await finishKakaoOperation(operation); } catch { /* 오래된 출장 또는 저장 실패는 완료 횟수에 반영하지 않는다. */ }
+  }, [finishKakaoOperation]);
+  const handleSummaryCaptureStart = useCallback(() => {
+    setSummaryCapturing(true);
+    return startKakaoOperation()
+      .then(operation => { kakaoOperationRef.current = operation; return operation; })
+      .catch(error => { kakaoOperationRef.current = null; throw error; });
+  }, [startKakaoOperation]);
   const handleSummaryCaptureEnd = useCallback(() => setSummaryCapturing(false), []);
   if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-slate-400">로드 중...</div>;
 
@@ -334,20 +365,22 @@ export default function App() {
         remainingBudget={remainingBudget}
         fuelTotal={fuelTotal}
         medTotal={medTotal}
+        amountOverflow={amountOverflow}
         showBudgetDetails={showBudgetDetails}
         onToggleBudgetDetails={toggleBudgetDetails}
         listPanel={listPanel}
         onBudget={handleBudgetOpen}
         onInput={() => setListPanel('input')}
         onManagement={() => setListPanel('management')}
-        onCamera={() => cameraRef.current?.click()}
-        onUpload={() => receiptFileRef.current?.click()}
-        onManual={openManualModal}
+        onCamera={() => { setReviewTargetId(''); cameraRef.current?.click(); }}
+        onUpload={() => { setReviewTargetId(''); receiptFileRef.current?.click(); }}
+        onManual={() => { setReviewTargetId(''); openManualModal(); }}
         kakaoSendCount={kakaoSendCount}
         uploadSendCount={uploadSendCount}
         driveUploading={driveUploading}
         uploadProgress={uploadProgress}
         lastUploadFailures={lastUploadFailures}
+        submissionNeedsResend={submissionNeedsResend}
         duplicateReport={duplicateReport}
         onOpenDuplicateReport={openDuplicateReportModal}
         onKakaoShare={() => summaryTabRef.current?.triggerKakaoShare()}
@@ -355,12 +388,21 @@ export default function App() {
         onRetryFailedUploads={retryFailedUploads}
         onSaveBackup={saveToJSON}
         onLoadBackup={() => backupFileRef.current?.click()}
+        officeReviews={officeReviews}
         backupFileRef={backupFileRef}
         cameraRef={cameraRef}
         receiptFileRef={receiptFileRef}
         onBackupFile={loadFromFile}
-        onReceiptFiles={(files) => handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate })}
-        onCameraFiles={(files) => handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate })}
+        onReceiptFiles={async (files) => {
+          const result = await handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate, assignmentTeamId: selectedTeam?.id || null, assignmentTeamName: canonicalNames, relatedReviewReceiptId: reviewTargetId });
+          setReviewTargetId('');
+          return result;
+        }}
+        onCameraFiles={async (files) => {
+          const result = await handleFiles(files, receipts, { reportDate: tripStartDate, tripStartDate, tripEndDate, assignmentTeamId: selectedTeam?.id || null, assignmentTeamName: canonicalNames, relatedReviewReceiptId: reviewTargetId });
+          setReviewTargetId('');
+          return result;
+        }}
         processing={processing}
         procMsg={procMsg}
         searchQuery={searchQuery}
@@ -381,6 +423,7 @@ export default function App() {
         onEdit={handleEdit}
         onViewImage={handleViewImage}
         onDelete={handleDeleteRequest}
+        onAddSupportingMaterial={(receiptId, mode = 'photo') => { setReviewTargetId(receiptId); if (mode === 'manual') openManualModal(); else receiptFileRef.current?.click(); }}
         receipts={receipts}
         getImageUrl={getImageUrl}
         onUpdateRotation={handleUpdateRotation}
@@ -423,6 +466,8 @@ export default function App() {
         onCloseWorkerPicker={closeWorkerPicker}
         isOnboarding={true}
         editState={editState}
+        editErrors={editErrors}
+        editAmountRef={editAmountRef}
         categories={ALL_CATS}
         onEditChange={setEditState}
         onEditClose={() => setEditState({ id: null, field: null, value: '' })}
@@ -435,9 +480,11 @@ export default function App() {
         onCloseDuplicateReport={closeDuplicateReportModal}
         showManualModal={showManualModal}
         manualReceipt={manualReceipt}
+        manualErrors={manualErrors}
         manualStoreRef={manualStoreRef}
+        manualAmountRef={manualAmountRef}
         onManualChange={setManualReceipt}
-        onManualClose={closeManualModal}
+        onManualClose={() => { setReviewTargetId(''); closeManualModal(); }}
         onManualSubmit={handleManualAdd}
         showBudgetCalcModal={showBudgetCalcModal}
         tripStartDate={tripStartDate}

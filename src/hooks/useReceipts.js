@@ -4,6 +4,7 @@ import { clearReceiptImageUrlCache, getReceiptImageUrl, openReceiptDb } from '..
 import useReceiptSync from './useReceiptSync';
 import useReceiptBootstrap from './useReceiptBootstrap';
 import useReceiptCrud from './useReceiptCrud';
+import useDraftBackupWorker from './useDraftBackupWorker';
 
 export default function useReceipts() {
   const [receipts,   setReceipts]   = useState([]);
@@ -50,6 +51,26 @@ export default function useReceipts() {
     resetSyncQueue,
   });
 
+  // 초안 백업 worker - enabled: false (transport 없을 때)
+  // 나중에 서버 endpoint 준비 후 enabled: true로 전환
+  const draftBackupWorker = useDraftBackupWorker({
+    enabled: false,
+    transport: undefined,
+  });
+
+  // saveReceipts/deleteReceipt 완료 후 자동으로 draft backup drain
+  const saveReceiptsWithDrain = useCallback(async (...args) => {
+    const result = await saveReceipts(...args);
+    draftBackupWorker.drainAfterMutation();
+    return result;
+  }, [saveReceipts, draftBackupWorker.drainAfterMutation]);
+
+  const deleteReceiptWithDrain = useCallback(async (...args) => {
+    const result = await deleteReceipt(...args);
+    draftBackupWorker.drainAfterMutation();
+    return result;
+  }, [deleteReceipt, draftBackupWorker.drainAfterMutation]);
+
   const resetAll = useCallback(async () => {
     await resetDeviceData();
     await resetActivityLogs();
@@ -68,7 +89,9 @@ export default function useReceipts() {
     saveStatus, pendingSyncCount,
     syncEvents,
     syncDaily,
-    saveReceipts, deleteReceipt, resetAll, resetDeviceData, resetActivityLogs, saveCard, getHistory,
+    saveReceipts: saveReceiptsWithDrain,
+    deleteReceipt: deleteReceiptWithDrain,
+    resetAll, resetDeviceData, resetActivityLogs, saveCard, getHistory,
     retryPendingSync,
     getImageUrl,
   };
