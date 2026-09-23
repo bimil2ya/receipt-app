@@ -19,6 +19,11 @@ import {
 } from './driveUtils.js';
 import { sendKakaoNotification, sendKakaoNotifications } from './notify/kakao.js';
 import { runMonthAggregate } from './aggregate.js';
+import { acquireArtifactSubmissionLock, acquireSubmissionLock, releaseSubmissionLock, renewSubmissionLock } from './_submissionLock.js';
+import { isSubmissionId, readSubmissionJob, reserveFinalSubmission, writeSubmissionJob, writeSubmissionJobIfLockOwned, submissionContractDigest } from './_submissionJob.js';
+import { preflightFinalImage, resolveFinalImageEvidence } from './_imageEvidence.js';
+import { preflightPdfChunk, processPdfEvidence } from './_pdfEvidence.js';
+import { verifySubmissionDrive } from './_submissionDriveEvidence.js';
 import { buildApprovalDuplicateReport } from './approvalReport.js';
 import {
   buildKakaoChunks,
@@ -31,55 +36,71 @@ import {
 
 // 정산서 PDF 조립은 이 프로젝트에서 가장 무거운 엔드포인트다(청크 다운로드 전량 + 최종 PDF 업로드).
 export const config = { maxDuration: 60 };
+const ARTIFACT_LOCK_TTL_SECONDS = config.maxDuration * 3;
 
-const ASSEMBLY_FOLDER_PREFIX = '_정산서조립_';
+/**
+ * Draft backup 요청 검증 (Step 2A)
+ * isDraftBackup === true인 요청만 통과
+ * Final submission 필드와 혼합되지 않아야 함
+ */
+function validateDraftBackupRequest(body) {
+  const error = (msg, code) => {
+    const e = new Error(msg);
+    e.code = code;
+    return e;
+  };
+
+  // Draft backup 필수 필드
+  if (!body?.receiptSummary) {
+    throw error('receiptSummary가 없습니다.', 'DRAFT_MISSING_RECEIPT_SUMMARY');
+  }
+
+  // Final submission 필드와의 혼합 금지
+  const forbiddenFields = [
+    'submissionId', 'submissionKind', 'expected',
+    'isFinalizeOnly',
+    'isPdfChunk', 'reportId', 'chunkIndex', 'chunkCount', 'chunkBase64',
+    'isImageOnly',
+    'xlsxBase64', // Draft는 XLSX를 전송하지 않음 (outbox에만 저장)
+  ];
+
+  for (const field of forbiddenFields) {
+    if (Object.hasOwn(body, field)) {
+      throw error(
+        `isDraftBackup=true 요청에서 ${field}가 있으면 안 됩니다.`,
+        'DRAFT_MIXED_WITH_FINAL'
+      );
+    }
+  }
+}
+
+/**
+ * Final submission 요청 검증 (기존 로직 정리)
+ * isDraftBackup이 아닌 요청 처리
+ */
+function validateFinalSubmissionRequest(body) {
+  // isDraftBackup이 true면 이곳에 오면 안 됨
+  if (body?.isDraftBackup === true) {
+    const error = new Error('isDraftBackup=true는 final submission이 아닙니다.');
+    error.code = 'DRAFT_BACKUP_MISROUTED';
+    throw error;
+  }
+  // 기존 검증은 handler 내에서 계속 진행
+}
+
+function sumSafeAmounts(rows) {
+  return (rows || []).reduce((total, row) => {
+    const amount = Number(row?.amount || 0);
+    const next = total + amount;
+    if (!Number.isSafeInteger(amount) || !Number.isSafeInteger(next)) {
+      const error = new Error('금액 합계가 안전한 정수 범위를 넘었습니다.');
+      error.code = 'AMOUNT_OVERFLOW';
+      throw error;
+    }
+    return next;
+  }, 0);
+}
 const ORIGINALS_FOLDER_NAME = '_원본';
-const PDF_ASSEMBLY_MAX_BYTES = 20 * 1024 * 1024;
-const REPORT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// 임시 폴더 안의 chunk-NNNN.bin 을 인덱스별로 모은다(중복 인덱스는 첫 항목만).
-async function listAssemblyChunks(drive, tmpId) {
-  const { data } = await drive.files.list({
-    q: `'${tmpId}' in parents and trashed = false`,
-    fields: 'files(id,name)',
-    pageSize: 100,
-  });
-  const byIndex = new Map();
-  for (const file of data.files || []) {
-    const match = /^chunk-(\d+)\.bin$/.exec(file.name || '');
-    if (!match) continue;
-    const idx = Number(match[1]);
-    if (!byIndex.has(idx)) byIndex.set(idx, file);
-  }
-  return byIndex;
-}
-
-async function downloadFileBuffer(drive, fileId) {
-  const resp = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' });
-  return Buffer.from(resp.data);
-}
-
-// 같은 팀·주에 동시 업로드 중인 폴더를 건드리지 않도록, createdTime 2시간 초과분만 정리한다.
-async function cleanupStaleAssemblyFolders(drive, weekId, keepId) {
-  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-  const { data } = await drive.files.list({
-    q: `'${weekId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id,name,createdTime)',
-    pageSize: 100,
-  });
-  for (const folder of data.files || []) {
-    if (folder.id === keepId) continue;
-    if (!String(folder.name || '').startsWith(ASSEMBLY_FOLDER_PREFIX)) continue;
-    if (!folder.createdTime || folder.createdTime >= cutoff) continue;
-    await drive.files.update({ fileId: folder.id, requestBody: { trashed: true } }).catch(() => {});
-  }
-}
-
-
 function readReceiptRowsFromXlsx(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -97,8 +118,48 @@ function readReceiptRowsFromXlsx(buffer) {
   })).filter(row => row.date || row.storeName || row.amount);
 }
 
+/**
+ * Final XLSX requests must be fully understood before they can reserve a
+ * submission ID or mutate Drive.  Keeping this pure also makes the replay
+ * gate independently testable.
+ */
+export function preflightXlsxSubmission({ xlsxBase64 }) {
+  if (!xlsxBase64 || typeof xlsxBase64 !== 'string') {
+    const error = new Error('xlsxBase64 데이터가 없습니다.')
+    error.code = 'XLSX_MISSING'
+    throw error
+  }
+  if (xlsxBase64.length > 20 * 1024 * 1024) {
+    const error = new Error('xlsxBase64 데이터가 너무 큽니다.')
+    error.code = 'XLSX_TOO_LARGE'
+    throw error
+  }
+
+  const buffer = Buffer.from(xlsxBase64, 'base64')
+  let rows
+  try {
+    rows = readReceiptRowsFromXlsx(buffer)
+  } catch {
+    const error = new Error('XLSX 파싱 실패')
+    error.code = 'XLSX_PARSE_FAILED'
+    throw error
+  }
+  if (rows.length === 0) {
+    const error = new Error('빈 영수증 데이터입니다.')
+    error.code = 'XLSX_EMPTY'
+    throw error
+  }
+  sumSafeAmounts(rows)
+  return {
+    buffer,
+    rows,
+    sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    receiptDuplicateReport: buildApprovalDuplicateReport(rows),
+  }
+}
+
 function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, imageCount }) {
-  const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
+  const totalAmount = sumSafeAmounts(rows);
   const categoryTotals = rows.reduce((acc, row) => {
     const category = row.category || '기타';
     acc[category] = (acc[category] || 0) + row.amount;
@@ -192,6 +253,278 @@ async function uploadFile(drive, buffer, fileName, folderId, mimeType = 'applica
   return { status: 'uploaded', id: created.data.id };
 }
 
+const FINAL_XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+const FINAL_XLSX_PROPERTIES = Object.freeze({
+  submissionId: 'receiptSubmissionId',
+  submissionKind: 'receiptSubmissionKind',
+  sha256: 'receiptXlsxSha256',
+})
+
+export function buildFinalXlsxAppProperties({ submissionId, sha256 }) {
+  return {
+    [FINAL_XLSX_PROPERTIES.submissionId]: submissionId,
+    [FINAL_XLSX_PROPERTIES.submissionKind]: 'final',
+    [FINAL_XLSX_PROPERTIES.sha256]: sha256,
+  }
+}
+
+function isMatchingFinalXlsxEvidence(file, { submissionId, sha256 }) {
+  const properties = file?.appProperties || {}
+  return properties[FINAL_XLSX_PROPERTIES.submissionId] === submissionId
+    && properties[FINAL_XLSX_PROPERTIES.submissionKind] === 'final'
+    && properties[FINAL_XLSX_PROPERTIES.sha256] === sha256
+}
+
+/**
+ * A Drive file is the durable witness for a final XLSX upload. Redis can be
+ * unavailable after Drive accepts the bytes, so a retry must find this witness
+ * before it creates another XLSX. More than one witness is unsafe to guess.
+ */
+function md5ForBuffer(buffer) {
+  return crypto.createHash('md5').update(buffer).digest('hex')
+}
+
+function isVerifiedFinalXlsxEvidence(file, { weekId, submissionId, sha256, md5, byteLength }) {
+  return file?.trashed === false
+    && file?.mimeType === FINAL_XLSX_MIME
+    && Array.isArray(file?.parents)
+    && file.parents.includes(weekId)
+    // appProperties describe what the caller intended to upload.  They are
+    // not proof that Drive retained the same bytes, so require Drive's
+    // content checksum as well before recovering or accepting this witness.
+    && Number(file?.size) === byteLength
+    && file?.md5Checksum === md5
+    && isMatchingFinalXlsxEvidence(file, { submissionId, sha256 })
+}
+
+/**
+ * A Drive list response is only a hint: parent membership, MIME type and
+ * trash state can change between listing and a retry. Read every candidate
+ * back before using it as a durable submission witness. A malformed or
+ * unreadable same-ID candidate is a conflict, never a reason to upload again.
+ */
+export async function findFinalXlsxEvidence(drive, { weekId, submissionId, sha256, buffer }) {
+  const md5 = md5ForBuffer(buffer)
+  const byteLength = buffer.length
+  const safeSubmissionId = driveQueryString(submissionId)
+  const candidates = []
+  const seenPageTokens = new Set()
+  let pageToken
+  do {
+    const response = await drive.files.list({
+      // Do not restrict this query to the expected week or active files.
+      // A same-submission witness in an archive, another week, or the trash
+      // means Drive accepted part of this submission but its current state is
+      // no longer safe to resume. Finding it globally lets us fail closed
+      // before a retry creates a second XLSX or archives newer source files.
+      q: `appProperties has { key='${FINAL_XLSX_PROPERTIES.submissionId}' and value='${safeSubmissionId}' }`,
+      fields: 'incompleteSearch,nextPageToken,files(id)',
+      pageSize: 1000,
+      pageToken,
+    })
+    const data = response?.data
+    const next = data?.nextPageToken
+    if (!data || !Array.isArray(data.files)
+      || (data.incompleteSearch !== undefined && data.incompleteSearch !== false)
+      || data.files.some(file => typeof file?.id !== 'string' || !file.id.trim())
+      || (next !== undefined && next !== null && (typeof next !== 'string' || !next.trim()))
+      || (next && seenPageTokens.has(next))) {
+      const error = new Error('Drive XLSX 증거 목록을 완전하게 확인하지 못했습니다.')
+      error.code = 'XLSX_EVIDENCE_LIST_UNCONFIRMED'
+      throw error
+    }
+    candidates.push(...data.files)
+    if (next) seenPageTokens.add(next)
+    pageToken = next
+  } while (pageToken)
+
+  const ids = candidates.map((file) => file?.id).filter(Boolean)
+  if (ids.length !== candidates.length || new Set(ids).size !== ids.length) {
+    const error = new Error('같은 제출 ID의 Drive XLSX 증거 목록이 불완전하거나 중복됩니다.')
+    error.code = 'XLSX_EVIDENCE_AMBIGUOUS'
+    error.details = { submissionId, fileIds: ids }
+    throw error
+  }
+
+  const verified = []
+  for (const id of ids) {
+    let file
+    try {
+      const readback = await drive.files.get({
+        fileId: id,
+        fields: 'id,name,mimeType,parents,appProperties,trashed,size,md5Checksum',
+      })
+      file = readback.data
+    } catch (cause) {
+      const error = new Error('Drive XLSX 증거를 다시 읽지 못했습니다.')
+      error.code = 'XLSX_EVIDENCE_UNCONFIRMED'
+      error.details = { submissionId, fileId: id, cause: cause?.message || String(cause) }
+      throw error
+    }
+    // All artifacts intentionally share the submission ID. Only a positively
+    // identified non-XLSX artifact may be excluded from this XLSX witness scan.
+    // Retained XLSX properties always take precedence over an artifact-kind tag.
+    const properties = file?.appProperties
+    if (file?.id === id && properties?.[FINAL_XLSX_PROPERTIES.submissionId] === submissionId
+      && ['image', 'pdf', 'pdf-chunk'].includes(properties.receiptArtifactKind)
+      && !Object.hasOwn(properties, FINAL_XLSX_PROPERTIES.sha256)) continue
+    if (file?.id !== id || !isVerifiedFinalXlsxEvidence(file, {
+      weekId, submissionId, sha256, md5, byteLength,
+    })) {
+      const error = new Error('같은 제출 ID의 Drive XLSX 증거가 현재 위치 또는 속성과 일치하지 않습니다.')
+      error.code = 'XLSX_EVIDENCE_CONFLICT'
+      error.details = { submissionId, fileId: id, readback: file || null }
+      throw error
+    }
+    verified.push(file)
+  }
+
+  if (verified.length > 1) {
+    const error = new Error('같은 제출 ID의 Drive XLSX 증거가 둘 이상입니다.')
+    error.code = 'XLSX_EVIDENCE_AMBIGUOUS'
+    error.details = { submissionId, fileIds: verified.map((file) => file.id) }
+    throw error
+  }
+  return verified[0] || null
+}
+
+async function createFinalXlsxEvidence(drive, { buffer, fileName, weekId, submissionId, sha256 }) {
+  const expectedProperties = buildFinalXlsxAppProperties({ submissionId, sha256 })
+  const md5 = md5ForBuffer(buffer)
+  const created = await drive.files.create({
+    requestBody: { name: fileName, parents: [weekId], appProperties: expectedProperties },
+    media: { mimeType: FINAL_XLSX_MIME, body: Readable.from(buffer) },
+    fields: 'id,name,mimeType,parents,appProperties',
+  })
+  const id = created.data?.id
+  if (!id) {
+    const error = new Error('새 XLSX 업로드 응답의 파일 ID를 확인하지 못했습니다.')
+    error.code = 'XLSX_UPLOAD_UNCONFIRMED'
+    throw error
+  }
+
+  // create 응답만으로 appProperties 저장을 확정할 수 없으므로 Drive에서 다시 읽는다.
+  const readback = await drive.files.get({
+    fileId: id,
+    fields: 'id,name,mimeType,parents,appProperties,trashed,size,md5Checksum',
+  })
+  const file = readback.data
+  if (file?.id !== id || !isVerifiedFinalXlsxEvidence(file, {
+    weekId, submissionId, sha256, md5, byteLength: buffer.length,
+  })) {
+    const error = new Error('새 XLSX Drive 증거 속성의 읽기 확인에 실패했습니다.')
+    error.code = 'XLSX_EVIDENCE_UNCONFIRMED'
+    error.details = { uploadedXlsxId: id, readback: file || null }
+    throw error
+  }
+  return { status: 'uploaded', id, evidence: file }
+}
+
+export async function resolveFinalXlsxEvidence(drive, options) {
+  const found = await findFinalXlsxEvidence(drive, options)
+  if (found) return { status: 'recovered', id: found.id, evidence: found }
+  return createFinalXlsxEvidence(drive, options)
+}
+
+const GOOGLE_SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
+
+async function verifyCompletedReplayEvidence(drive, { job, weekId, monthId, submissionId, sha256, buffer }) {
+  const xlsxFileId = job?.artifacts?.xlsx?.fileId || job?.response?.fileId
+  const aggregateFileId = job?.artifacts?.aggregate?.fileId || job?.response?.aggregate?.fileId
+  if (!xlsxFileId || !aggregateFileId || !weekId || !monthId) {
+    const error = new Error('완료된 제출의 Drive 증거 위치를 확인할 수 없습니다.')
+    error.code = 'COMPLETED_REPLAY_EVIDENCE_MISSING'
+    throw error
+  }
+
+  const xlsxEvidence = await findFinalXlsxEvidence(drive, {
+    weekId, submissionId, sha256, buffer,
+  })
+  if (!xlsxEvidence || xlsxEvidence.id !== xlsxFileId) {
+    const error = new Error('완료된 제출의 XLSX 증거가 기록과 일치하지 않습니다.')
+    error.code = 'COMPLETED_REPLAY_XLSX_MISMATCH'
+    throw error
+  }
+
+  let aggregate
+  try {
+    const readback = await drive.files.get({ fileId: aggregateFileId, fields: 'id,mimeType,parents,trashed' })
+    aggregate = readback.data
+  } catch (cause) {
+    const error = new Error('완료된 제출의 월집계 파일을 다시 읽지 못했습니다.')
+    error.code = 'COMPLETED_REPLAY_AGGREGATE_UNCONFIRMED'
+    error.details = { aggregateFileId, cause: cause?.message || String(cause) }
+    throw error
+  }
+  if (aggregate?.id !== aggregateFileId
+    || aggregate?.mimeType !== GOOGLE_SHEET_MIME
+    || aggregate?.trashed !== false
+    || !Array.isArray(aggregate?.parents)
+    || !aggregate.parents.includes(monthId)) {
+    const error = new Error('완료된 제출의 월집계 파일 위치 또는 상태가 기록과 일치하지 않습니다.')
+    error.code = 'COMPLETED_REPLAY_AGGREGATE_CONFLICT'
+    error.details = { aggregateFileId, readback: aggregate || null }
+    throw error
+  }
+}
+
+async function archivePreviousXlsxFiles(drive, weekId, archiveId, newFileId) {
+  const files = []
+  let pageToken
+  do {
+    const oldFiles = await drive.files.list({
+      q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
+      fields: 'nextPageToken,files(id,name)',
+      pageSize: 1000,
+      pageToken,
+    })
+    files.push(...(oldFiles.data.files || []))
+    pageToken = oldFiles.data.nextPageToken
+  } while (pageToken)
+  for (const file of files) {
+    if (file.id === newFileId) continue
+    let moved
+    try {
+      moved = await moveFileToParent(drive, file.id, weekId, archiveId)
+    } catch (cause) {
+      const error = new Error('기존 XLSX를 보관함으로 옮기지 못해 월집계를 중단했습니다.')
+      error.code = 'XLSX_ARCHIVE_UNCONFIRMED'
+      error.details = { uploadedXlsxId: newFileId, failedOldFileId: file.id, cause: cause.message }
+      throw error
+    }
+    const parents = moved.data?.parents || []
+    if (moved.data?.id !== file.id || !parents.includes(archiveId) || parents.includes(weekId)) {
+      const error = new Error('기존 XLSX 보관 처리 응답을 확인하지 못해 월집계를 중단했습니다.')
+      error.code = 'XLSX_ARCHIVE_UNCONFIRMED'
+      error.details = { uploadedXlsxId: newFileId, failedOldFileId: file.id, response: moved.data || null }
+      throw error
+    }
+  }
+}
+
+async function assertOnlyUploadedXlsxIsActive(drive, weekId, newFileId) {
+  const activeIds = []
+  let pageToken
+  do {
+    const response = await drive.files.list({
+      q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
+      fields: 'nextPageToken,files(id,name)',
+      pageSize: 1000,
+      pageToken,
+    })
+    activeIds.push(...(response.data.files || []).map(file => file.id))
+    pageToken = response.data.nextPageToken
+  } while (pageToken)
+  if (activeIds.length !== 1 || activeIds[0] !== newFileId) {
+    const error = new Error('월집계 직전 활성 XLSX가 변경되어 집계를 중단했습니다.')
+    error.code = 'XLSX_SOURCE_SET_CHANGED'
+    error.details = { uploadedXlsxId: newFileId, activeXlsxIds: activeIds }
+    throw error
+  }
+}
+
+export { archivePreviousXlsxFiles, assertOnlyUploadedXlsxIsActive }
+
 /**
  * POST /api/upload
  *
@@ -237,12 +570,95 @@ export default async function handler(req, res) {
     }
   }
 
+  let submissionLock = null;
+  let artifactSubmissionLock = null;
+  let finalJob = null;
+  let finalJobReserved = false;
   try {
     const {
       surveyorName, reportDate, xlsxBase64, images, isImageOnly, receiptSummary,
       teamId, teamNames, tripStartDate, tripEndDate,
       isPdfChunk, reportId, chunkIndex, chunkCount, chunkBase64,
+      submissionId, submissionKind, expected,
+      isFinalizeOnly,
+      isDraftBackup,
     } = req.body;
+
+    // ── Draft Backup 요청 분기 (Step 2A)
+    // isDraftBackup=true 요청은 final submission과 완전히 분리
+    if (isDraftBackup === true) {
+      try {
+        validateDraftBackupRequest(req.body);
+        // TODO: Step 2B - Draft backup 처리 로직
+        return res.status(501).json({
+          type: 'draft-backup',
+          success: false,
+          error: 'DRAFT_BACKUP_NOT_IMPLEMENTED',
+          message: '초안 백업 기능은 개발 중입니다.',
+        });
+      } catch (err) {
+        return jsonError(res, {
+          type: 'draft-backup',
+          status: 400,
+          error: err.code || 'DRAFT_BACKUP_VALIDATION_FAILED',
+          message: err.message,
+        });
+      }
+    }
+
+    // ── Final Submission 요청 (기존 로직)
+    validateFinalSubmissionRequest(req.body);
+
+    // Finalization is read-only with respect to Drive. Reject mixed payloads
+    // before the default XLSX branch can reserve or mutate anything.
+    if (isFinalizeOnly !== undefined && typeof isFinalizeOnly !== 'boolean') {
+      return res.status(400).json({ type: 'completion', submissionId, complete: false, success: false, error: 'INVALID_FINALIZATION_REQUEST' });
+    }
+    if (isFinalizeOnly === true) {
+      const failure = (status, error) => res.status(status).json({ type: 'completion', submissionId, complete: false, success: false, error });
+      if (submissionKind !== 'final' || !isSubmissionId(submissionId)
+        || ['isImageOnly', 'isPdfChunk', 'xlsxBase64', 'images', 'chunkBase64', 'chunkIndex', 'chunkCount', 'reportId', 'expected'].some(key => Object.hasOwn(req.body, key))) {
+        return failure(400, 'INVALID_FINALIZATION_REQUEST');
+      }
+      try {
+        const candidate = await readSubmissionJob({ submissionId });
+        const validate = job => {
+          if (!job || job.id !== submissionId || job.kind !== 'final') throw new Error('SUBMISSION_JOB_UNCONFIRMED');
+          if (job.schemaVersion !== 2 || !job.expected) throw new Error('LEGACY_SUBMISSION_RESTART_REQUIRED');
+          if (job.contractDigest !== submissionContractDigest(job)) throw new Error('SUBMISSION_CONTRACT_CONFLICT');
+          if (typeof surveyorName !== 'string' || typeof reportDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)
+            || (tripStartDate !== undefined && (typeof tripStartDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(tripStartDate)))
+            || job.scope.surveyorName !== surveyorName || job.scope.yearMonth !== getYearMonth(reportDate)
+            || job.scope.weekFolderName !== getWeekFolderName(tripStartDate || reportDate)) throw new Error('SUBMISSION_SCOPE_CONFLICT');
+          if (!Number.isSafeInteger(job.revision) || job.revision < 1 || job.status !== 'xlsx_response_ready') throw new Error('SUBMISSION_NOT_READY');
+        };
+        validate(candidate);
+        submissionLock = await acquireSubmissionLock({ yearMonth: candidate.scope.yearMonth, ttlSeconds: ARTIFACT_LOCK_TTL_SECONDS });
+        if (!submissionLock.acquired) return failure(409, 'SUBMISSION_IN_PROGRESS');
+        artifactSubmissionLock = await acquireArtifactSubmissionLock({ submissionId, ttlSeconds: ARTIFACT_LOCK_TTL_SECONDS });
+        if (!artifactSubmissionLock.acquired) return failure(409, 'SUBMISSION_IN_PROGRESS');
+        const job = await readSubmissionJob({ submissionId });
+        validate(job);
+        if (job.contractDigest !== candidate.contractDigest || job.revision !== candidate.revision) return failure(409, 'SUBMISSION_REVISION_CONFLICT');
+        const assertOwned = async () => {
+          if (!await renewSubmissionLock(submissionLock) || !await renewSubmissionLock(artifactSubmissionLock)) throw new Error('SUBMISSION_LOCK_LOST');
+        };
+        await assertOwned();
+        const observation = await verifySubmissionDrive(createDrive(), { job, mainId: MAIN_FOLDER_ID, assertOwned });
+        if (!observation || typeof observation.currentAggregateFileId !== 'string' || !observation.currentAggregateFileId
+          || observation.receiptCount !== job.expected?.receiptCount || observation.totalAmount !== job.expected?.totalAmount
+          || !Number.isSafeInteger(observation.aggregateCount) || observation.aggregateCount < observation.receiptCount
+          || !Number.isSafeInteger(observation.aggregateTotal)) throw new Error('COMPLETION_OBSERVATION_UNCONFIRMED');
+        await assertOwned();
+        const nextJob = { ...job, revision: job.revision + 1, completion: { ...observation, observedAt: new Date().toISOString(), revision: job.revision + 1 } };
+        const written = await writeSubmissionJobIfLockOwned({ submissionId, job: nextJob, expectedRevision: job.revision,
+          lock: artifactSubmissionLock, monthLock: submissionLock });
+        if (!written.written) return failure(409, `SUBMISSION_STATE_WRITE_REJECTED: ${written.reason}`);
+        return res.status(200).json({ success: true, type: 'completion', submissionId, complete: true, revision: nextJob.revision });
+      } catch (error) {
+        return failure(error.code === 'KV_UNAVAILABLE' ? 503 : 409, error.code || error.message || 'COMPLETION_UNCONFIRMED');
+      }
+    }
     const contentLength = Number(req.headers['content-length'] || 0);
     if (contentLength > 25 * 1024 * 1024) {
       return jsonError(res, Errors.badRequest('요청이 너무 큽니다.'));
@@ -276,175 +692,304 @@ export default async function handler(req, res) {
     if (receiptSummary && typeof receiptSummary !== 'object') {
       return jsonError(res, Errors.badRequest('receiptSummary 형식 오류.'));
     }
+    if (submissionKind !== undefined && submissionKind !== 'final') {
+      return jsonError(res, Errors.badRequest('submissionKind 형식 오류.'));
+    }
 
-    const drive = createDrive();
+    if ((isImageOnly !== undefined && typeof isImageOnly !== 'boolean')
+      || (isPdfChunk !== undefined && typeof isPdfChunk !== 'boolean') || (isImageOnly && isPdfChunk)) {
+      return jsonError(res, Errors.badRequest('전송 종류 형식 오류.'));
+    }
 
-    // ── 폴더 경로: MAIN / YYYY년 MM월 / 담당자이름 / YYYY-MM-DD~YYYY-MM-DD
+    // ── 최종 XLSX는 Drive를 건드리기 전에 내용을 검증하고 제출 ID를 예약한다.
+    // 이 순서가 지켜져야 재생·충돌 요청이 폴더 생성이나 기존 자료 이동을 유발하지 않는다.
     const yearMonth = getYearMonth(reportDate);
-    const monthId   = await getOrCreateFolder(drive, yearMonth,    MAIN_FOLDER_ID);
-    const personId  = await getOrCreateFolderByNormalizedName(drive, surveyorName, monthId);
-    // ── 오늘 날짜 (서울 기준)
     const today = new Date().toLocaleDateString('ko-KR', {
       timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit',
     }).replace(/\. /g, '').replace('.', '').replace(/\s/g, '');
-    const archiveId  = await getOrCreateFolder(drive, ARCHIVE_FOLDER_NAME, personId);
     const weekFolderName = getWeekFolderName(tripStartDate || reportDate || today);
+    const isXlsxRequest = !isImageOnly && !isPdfChunk;
+    let xlsxPreflight = null;
+    if (isXlsxRequest) {
+      if (submissionKind !== 'final' || !isSubmissionId(submissionId)
+        || !expected || typeof expected !== 'object' || Array.isArray(expected)) {
+        return jsonError(res, Errors.badRequest('최종 XLSX 제출에는 유효한 submissionId와 산출물 계약이 필요합니다.'));
+      }
+      try {
+        xlsxPreflight = preflightXlsxSubmission({ xlsxBase64 });
+      } catch (error) {
+        if (error.code === 'XLSX_TOO_LARGE') {
+          return jsonError(res, { statusCode: 413, error: 'PAYLOAD_TOO_LARGE', message: error.message });
+        }
+        if (error.code === 'XLSX_EMPTY') {
+          return res.status(400).json({
+            success: false,
+            error: error.message,
+            detail: '업로드할 영수증이 0건입니다. 기존 집계 파일을 보호하기 위해 거부했습니다.',
+          });
+        }
+        if (error.code === 'AMOUNT_OVERFLOW') {
+          return res.status(400).json({ success: false, error: 'AMOUNT_OVERFLOW', detail: '금액 합계가 안전한 정수 범위를 넘어 업로드하지 않았습니다.' });
+        }
+        return jsonError(res, Errors.badRequest(error.message));
+      }
+
+      if (submissionKind === 'final') {
+        try {
+          finalJob = await reserveFinalSubmission({
+            submissionId,
+            xlsxSha256: xlsxPreflight.sha256,
+            scope: { yearMonth, surveyorName, weekFolderName },
+            expected,
+          });
+        } catch (error) {
+          if (error instanceof TypeError) return jsonError(res, Errors.badRequest(error.message));
+          throw error;
+        }
+        if (finalJob.state === 'conflict') {
+          if (finalJob.job && (finalJob.job.schemaVersion !== 2 || !finalJob.job.expected)) {
+            return res.status(409).json({ success: false, error: 'LEGACY_SUBMISSION_RESTART_REQUIRED' });
+          }
+          return res.status(409).json({ success: false, error: 'SUBMISSION_ID_CONFLICT' });
+        }
+        // A processing record can be left behind when Drive accepted the XLSX
+        // but the function died before Redis received the response.  Do not
+        // create a second file here: after acquiring the month lock we search
+        // Drive for the signed evidence and resume only from that evidence.
+        // The lock still rejects a genuinely concurrent request below.
+        // 실패한 집계 응답은 재생하지 않는다. 같은 제출 ID가 다시 집계를 시도할 수 있어야 한다.
+        finalJobReserved = finalJob.state === 'reserved';
+      }
+    }
+
+    let pdfChunkBuffer = null;
+    if (isPdfChunk) {
+      if (submissionKind !== 'final' || !isSubmissionId(submissionId)) {
+        return jsonError(res, Errors.badRequest('PDF 제출에는 유효한 submissionId가 필요합니다.'));
+      }
+      artifactSubmissionLock = await acquireArtifactSubmissionLock({ submissionId, ttlSeconds: ARTIFACT_LOCK_TTL_SECONDS });
+      if (!artifactSubmissionLock.acquired) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_IN_PROGRESS' });
+      }
+      const job = await readSubmissionJob({ submissionId });
+      if (!job) return res.status(409).json({ success: false, error: 'SUBMISSION_JOB_NOT_FOUND' });
+      if (job.schemaVersion !== 2 || !job.expected?.pdf) {
+        return res.status(409).json({ success: false, error: 'LEGACY_SUBMISSION_RESTART_REQUIRED' });
+      }
+      if (job.id !== submissionId || job.scope?.yearMonth !== yearMonth
+        || job.scope?.surveyorName !== surveyorName || job.scope?.weekFolderName !== weekFolderName) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_SCOPE_CONFLICT' });
+      }
+      if (submissionContractDigest(job) !== job.contractDigest) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_CONTRACT_CONFLICT' });
+      }
+      if (job.artifacts?.xlsx?.status !== 'confirmed' || !job.response?.folders?.weekId) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_XLSX_NOT_CONFIRMED' });
+      }
+      try {
+        pdfChunkBuffer = preflightPdfChunk({ reportId, chunkIndex, chunkCount, chunkBase64, expected: job.expected.pdf });
+      } catch (error) {
+        return jsonError(res, Errors.badRequest(error.message));
+      }
+      finalJob = { state: 'existing', job };
+    }
+
+    let finalImagePreflight = null;
+    if (isImageOnly) {
+      if (submissionKind !== 'final' || !isSubmissionId(submissionId) || !Array.isArray(images) || images.length !== 1) {
+        return jsonError(res, Errors.badRequest('최종 원본 이미지는 유효한 submissionId와 이미지 한 장이 필요합니다.'));
+      }
+      const candidateJob = await readSubmissionJob({ submissionId });
+      if (!candidateJob) return res.status(409).json({ success: false, error: 'SUBMISSION_JOB_NOT_FOUND' });
+      if (candidateJob.schemaVersion !== 2 || !candidateJob.expected) {
+        return res.status(409).json({ success: false, error: 'LEGACY_SUBMISSION_RESTART_REQUIRED' });
+      }
+      if (candidateJob.scope?.yearMonth !== yearMonth || candidateJob.scope?.surveyorName !== surveyorName || candidateJob.scope?.weekFolderName !== weekFolderName) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_SCOPE_CONFLICT' });
+      }
+      const expectedImage = candidateJob.expected.images?.find(item => item.key === images[0]?.key);
+      if (!expectedImage) return res.status(409).json({ success: false, error: 'SUBMISSION_IMAGE_NOT_EXPECTED' });
+      try {
+        finalImagePreflight = preflightFinalImage({ image: images[0], expected: expectedImage });
+      } catch (error) {
+        return jsonError(res, Errors.badRequest(error.message));
+      }
+      artifactSubmissionLock = await acquireArtifactSubmissionLock({ submissionId, ttlSeconds: ARTIFACT_LOCK_TTL_SECONDS });
+      if (!artifactSubmissionLock.acquired) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_IN_PROGRESS', retryAfterSec: artifactSubmissionLock.ttlSeconds });
+      }
+      const lockedJob = await readSubmissionJob({ submissionId });
+      if (!lockedJob || lockedJob.contractDigest !== candidateJob.contractDigest || lockedJob.revision !== candidateJob.revision) {
+        return res.status(409).json({ success: false, error: 'SUBMISSION_REVISION_CONFLICT' });
+      }
+      finalJob = { state: 'existing', job: lockedJob };
+    }
+
+    // ── 폴더 경로: MAIN / YYYY년 MM월 / 담당자이름 / YYYY-MM-DD~YYYY-MM-DD
+    if (isXlsxRequest) {
+      submissionLock = await acquireSubmissionLock({ yearMonth });
+      if (!submissionLock.acquired) {
+        if (finalJobReserved && finalJob?.job?.schemaVersion !== 2) {
+          await writeSubmissionJob({
+            submissionId: finalJob.job.id,
+            job: {
+              ...finalJob.job,
+              status: 'failed',
+              failedAt: new Date().toISOString(),
+              error: { code: 'SUBMISSION_LOCK_UNAVAILABLE', message: '같은 월의 다른 제출을 처리 중입니다.' },
+            },
+          }).catch((jobWriteError) => {
+            console.error('Submission job lock failure state write failed:', jobWriteError.message);
+          });
+          finalJobReserved = false;
+        }
+        return res.status(409).json({ success: false, error: 'SUBMISSION_IN_PROGRESS', retryAfterSec: submissionLock.ttlSeconds });
+      }
+      if (finalJob?.job?.schemaVersion === 2) {
+        artifactSubmissionLock = await acquireArtifactSubmissionLock({ submissionId, ttlSeconds: ARTIFACT_LOCK_TTL_SECONDS });
+        if (!artifactSubmissionLock.acquired) {
+          return res.status(409).json({ success: false, error: 'SUBMISSION_IN_PROGRESS', retryAfterSec: artifactSubmissionLock.ttlSeconds });
+        }
+        const lockedJob = await readSubmissionJob({ submissionId });
+        if (!lockedJob || lockedJob.contractDigest !== finalJob.job.contractDigest || lockedJob.revision !== finalJob.job.revision) {
+          return res.status(409).json({ success: false, error: 'SUBMISSION_REVISION_CONFLICT' });
+        }
+        finalJob = { ...finalJob, job: lockedJob };
+      }
+      // A previously processing job is now exclusively owned by this request:
+      // errors from the recovery attempt must not leave it stuck forever.
+      if (finalJob?.state === 'processing') finalJobReserved = true;
+    }
+    const drive = createDrive();
+
+    if (isPdfChunk) {
+      const job = finalJob.job;
+      const assertOwned = async () => {
+        if (!await renewSubmissionLock(artifactSubmissionLock)) {
+          throw new Error('SUBMISSION_LOCK_LOST');
+        }
+      };
+      await assertOwned();
+      // Reuse the XLSX destination and verify the entire saved folder chain.
+      // Missing or moved folders must never be silently recreated on PDF retry.
+      const { monthId, personId, weekId } = job.response.folders;
+      for (const [fileId, parentId] of [[monthId, MAIN_FOLDER_ID], [personId, monthId], [weekId, personId]]) {
+        if (!fileId || !parentId) throw new Error('PDF_DESTINATION_UNCONFIRMED');
+        const { data } = await drive.files.get({ fileId, fields: 'id,mimeType,parents,trashed' });
+        if (data?.id !== fileId || data.trashed !== false || data.mimeType !== 'application/vnd.google-apps.folder'
+          || data.parents?.length !== 1 || data.parents[0] !== parentId) throw new Error('PDF_DESTINATION_CONFLICT');
+      }
+      const pdfName = `정산서_${surveyorName}_${weekFolderName}.pdf`;
+      const result = await processPdfEvidence(drive, {
+        submissionId, expected: job.expected.pdf, chunkIndex, buffer: pdfChunkBuffer, weekId, pdfName, assertOwned,
+        expectedFileId: job.artifacts?.pdf?.fileId,
+      });
+      await assertOwned();
+      const previousPdf = job.artifacts?.pdf || {};
+      const pdfState = result.assembled
+        ? { ...previousPdf, status: 'confirmed', fileId: result.id, sha256: job.expected.pdf.sha256,
+            byteLength: job.expected.pdf.byteLength }
+        : { ...previousPdf, status: 'processing', chunks: {
+            ...previousPdf.chunks, [chunkIndex]: { status: 'confirmed', sha256: job.expected.pdf.chunkSha256[chunkIndex] },
+          } };
+      // Record intent before optional notification. Recovery never repeats an uncertain send.
+      const notify = result.assembled && result.status === 'uploaded' && !previousPdf.notification;
+      if (notify) pdfState.notification = { status: 'sending' };
+      else if (pdfState.notification?.status === 'sending') pdfState.notification = { status: 'unknown' };
+      let nextJob = { ...job, revision: job.revision + 1, artifacts: { ...job.artifacts, pdf: pdfState } };
+      const save = async (updated, revision) => {
+        const written = await writeSubmissionJobIfLockOwned({ submissionId, job: updated,
+          expectedRevision: revision, lock: artifactSubmissionLock });
+        if (!written.written) throw new Error(`SUBMISSION_STATE_WRITE_REJECTED: ${written.reason}`);
+      };
+      await save(nextJob, job.revision);
+      if (notify) {
+        await assertOwned();
+        let notification;
+        try {
+          const sent = await sendKakaoNotification(`📄 정산서 PDF 생성됨\n파일: ${pdfName}\n작업자: ${surveyorName}`);
+          notification = { status: sent === true ? 'confirmed' : sent === false ? 'failed' : 'unknown' };
+        } catch {
+          notification = { status: 'unknown' };
+        }
+        const notifiedJob = { ...nextJob, revision: nextJob.revision + 1,
+          artifacts: { ...nextJob.artifacts, pdf: { ...pdfState, notification } } };
+        await save(notifiedJob, nextJob.revision);
+        nextJob = notifiedJob;
+      }
+      return res.status(200).json({
+        success: true, type: 'pdf', assembled: result.assembled, received: chunkIndex,
+        submissionId, reportId, revision: nextJob.revision, fileId: result.id || null,
+        uploadStatus: result.status, file: pdfName,
+        kakaoSent: nextJob.artifacts.pdf.notification?.status === 'confirmed',
+        kakaoStatus: nextJob.artifacts.pdf.notification?.status || 'not_sent',
+      });
+    }
+
+    // Redis 완료 상태도 현재 Drive 증거가 모두 확인된 경우에만 재생한다.
+    // 확인할 ID가 없는 구형 작업은 성공으로 추정하지 않고 어떤 자료도 덮지 않는다.
+    if (isXlsxRequest
+      && finalJob?.state === 'existing'
+      && finalJob.job?.status === 'xlsx_response_ready'
+      && finalJob.job?.response?.success === true) {
+      await verifyCompletedReplayEvidence(drive, {
+        job: finalJob.job,
+        weekId: finalJob.job.response?.folders?.weekId,
+        monthId: finalJob.job.response?.folders?.monthId,
+        submissionId,
+        sha256: xlsxPreflight.sha256,
+        buffer: xlsxPreflight.buffer,
+      });
+      return res.status(200).json({ ...finalJob.job.response, replay: true });
+    }
+
+    const monthId   = await getOrCreateFolder(drive, yearMonth,    MAIN_FOLDER_ID);
+    const personId  = await getOrCreateFolderByNormalizedName(drive, surveyorName, monthId);
+    const archiveId  = await getOrCreateFolder(drive, ARCHIVE_FOLDER_NAME, personId);
     const weekId     = await getOrCreateFolder(drive, weekFolderName, personId);
     const targetPath = `영수증정산관리/${yearMonth}/${surveyorName}/${weekFolderName}`;
 
-    // ── person 폴더에 남은 기존 자료는 보관함으로 이동
-    // "새 보고 세션 시작"을 의미하는 xlsx 업로드에서만 하면 충분하다.
-    // (xlsx 요청이 먼저 실행돼 스윕을 마친 뒤 이미지·청크 POST가 온다.)
-    if (!isImageOnly && !isPdfChunk) {
-      const legacyRes = await drive.files.list({
-        q: `'${personId}' in parents and trashed = false`,
-        fields: 'files(id,name,mimeType)',
-        pageSize: 200,
-      });
-      for (const item of legacyRes.data.files || []) {
-        if (item.id === weekId || item.id === archiveId) continue;
-        await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
-      }
-    }
-
-    if (isPdfChunk) {
-      // ── 정산서 PDF: 바이트 청크를 임시 폴더에 모았다가 마지막 청크에서 이어붙여 조립
-      // 검증은 임시 폴더 생성보다 먼저 (경로 오염 방지)
-      if (typeof reportId !== 'string' || !REPORT_ID_RE.test(reportId)) {
-        return jsonError(res, Errors.badRequest('reportId 형식 오류.'));
-      }
-      if (!Number.isInteger(chunkIndex) || !Number.isInteger(chunkCount)
-        || chunkCount < 1 || chunkCount > 20 || chunkIndex < 0 || chunkIndex >= chunkCount) {
-        return jsonError(res, Errors.badRequest('chunkIndex/chunkCount 범위 오류.'));
-      }
-      if (!chunkBase64 || typeof chunkBase64 !== 'string' || chunkBase64.length > 4 * 1024 * 1024) {
-        return jsonError(res, Errors.badRequest('chunkBase64 누락 또는 초과.'));
-      }
-      // 파일명은 서버가 만든다 — 주간폴더명과 일치시켜 파일명/폴더명이 어긋나지 않게.
-      // surveyorName은 위에서 경로 금지문자 검증 완료, weekFolderName은 YYYY-MM-DD~YYYY-MM-DD(또는 주간미상) 형식.
-      const pdfName = `정산서_${surveyorName}_${weekFolderName}.pdf`;
-
-      const tmpId = await getOrCreateFolder(drive, `${ASSEMBLY_FOLDER_PREFIX}${reportId}`, weekId);
-      const chunkName = `chunk-${String(chunkIndex).padStart(4, '0')}.bin`;
-      // uploadFile(이름 키 덮어쓰기) — 같은 청크가 재시도로 두 번 와도 동명 파일이 하나만 남아 멱등.
-      await uploadFile(drive, Buffer.from(chunkBase64, 'base64'), chunkName, tmpId, 'application/octet-stream');
-
-      if (chunkIndex !== chunkCount - 1) {
-        return res.status(200).json({ success: true, received: chunkIndex });
-      }
-
-      // ── 마지막 청크: 조립
-      const isComplete = (byIndex) => {
-        if (byIndex.size !== chunkCount) return false;
-        for (let i = 0; i < chunkCount; i += 1) if (!byIndex.has(i)) return false;
-        return true;
-      };
-      let chunkFiles = await listAssemblyChunks(drive, tmpId);
-      for (const wait of [800, 1600]) {
-        if (isComplete(chunkFiles)) break;
-        await sleep(wait);
-        chunkFiles = await listAssemblyChunks(drive, tmpId);
-      }
-      if (!isComplete(chunkFiles)) {
-        return res.status(500).json({
-          success: false,
-          error: 'ASSEMBLY_INCOMPLETE',
-          detail: `${chunkFiles.size}/${chunkCount} 청크만 도착`,
-        });
-      }
-
-      const buffers = [];
-      for (let i = 0; i < chunkCount; i += 1) {
-        buffers.push(await downloadFileBuffer(drive, chunkFiles.get(i).id));
-      }
-      const pdfBuffer = Buffer.concat(buffers);
-      if (pdfBuffer.length > PDF_ASSEMBLY_MAX_BYTES) {
-        return res.status(413).json({ success: false, error: 'PDF_TOO_LARGE', detail: `${pdfBuffer.length} bytes` });
-      }
-
-      const pdfResult = await uploadFile(drive, pdfBuffer, pdfName, weekId, 'application/pdf');
-      await cleanupStaleAssemblyFolders(drive, weekId, tmpId);
-      await drive.files.update({ fileId: tmpId, requestBody: { trashed: true } }).catch(() => {});
-
-      let kakaoSent = false;
-      let kakaoError = null;
-      try {
-        kakaoSent = (await sendKakaoNotification(
-          `📄 정산서 PDF 생성됨\n파일: ${pdfName}\n작업자: ${surveyorName}`
-        )) !== false;
-      } catch (kakaoErr) {
-        kakaoError = kakaoErr.message;
-        console.warn('정산서 PDF 카카오 알림 실패:', kakaoErr.message);
-      }
-
-      return res.status(200).json({
-        success: true,
-        assembled: true,
-        type: 'pdf',
-        file: pdfName,
-        uploadStatus: pdfResult.status,
-        fileId: pdfResult.id,
-        targetPath,
-        kakaoSent,
-        kakaoError,
-      });
-    }
 
     if (!isImageOnly) {
       // ── XLSX 업로드
-      if (!xlsxBase64 || typeof xlsxBase64 !== 'string') {
-        return jsonError(res, Errors.badRequest('xlsxBase64 데이터가 없습니다.'));
-      }
-      if (xlsxBase64.length > 20 * 1024 * 1024) {
-        return jsonError(res, { statusCode: 413, error: 'PAYLOAD_TOO_LARGE', message: 'xlsxBase64 데이터가 너무 큽니다.' });
-      }
-      const xlsxBuffer = Buffer.from(xlsxBase64, 'base64');
-
-      // ── 0행 시트 거부 (데이터 손실 방지)
-      // 빈 XLSX가 업로드되면 아래의 기존 파일 정리 로직이 정상 집계 파일을 삭제할 수 있음.
-      // 클라이언트에서 1차 차단되지만, 직접 API 호출/버그/레이스 케이스에 대비한 서버측 방어선.
-      let parsedRows;
-      try {
-        parsedRows = readReceiptRowsFromXlsx(xlsxBuffer);
-      } catch (parseErr) {
-        return jsonError(res, Errors.badRequest('XLSX 파싱 실패'));
-      }
-      if (parsedRows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          error: '빈 영수증 데이터입니다.',
-          detail: '업로드할 영수증이 0건입니다. 기존 집계 파일을 보호하기 위해 거부했습니다.',
-        });
-      }
-      const receiptDuplicateReport = buildApprovalDuplicateReport(parsedRows);
+      const { buffer: xlsxBuffer, rows: parsedRows, receiptDuplicateReport } = xlsxPreflight;
 
       const xlsxName   = `출장비_${today}.xlsx`;
 
-      const xlsxResult = await uploadFile(drive, xlsxBuffer, xlsxName, weekId,
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-
-      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일은 보관함으로 이동
-      const oldFiles = await drive.files.list({
-        q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-        fields: 'files(id,name)',
+      const xlsxResult = await resolveFinalXlsxEvidence(drive, {
+        buffer: xlsxBuffer,
+        fileName: xlsxName,
+        weekId,
+        submissionId,
+        sha256: xlsxPreflight.sha256,
       });
-      for (const f of oldFiles.data.files || []) {
-        if (f.id !== xlsxResult.id) {
-          await moveFileToParent(drive, f.id, weekId, archiveId).catch(() => {});
+
+      // 새 증거가 읽기 확인된 뒤에만 기존 person 루트 자료를 보관한다.
+      // 응답 유실 복구(recovered)는 과거 제출을 다시 정리하지 않아야 한다.
+      if (xlsxResult.status !== 'recovered') {
+        const legacyRes = await drive.files.list({
+          q: `'${personId}' in parents and trashed = false`,
+          fields: 'files(id,name,mimeType)',
+          pageSize: 200,
+        });
+        for (const item of legacyRes.data.files || []) {
+          if (item.id === weekId || item.id === archiveId) continue;
+          await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
         }
       }
 
-      // ── 월별 전체집계 자동 업데이트 (중복 파일이면 데이터 변화 없으므로 생략)
+      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일은 보관함으로 이동
+      await archivePreviousXlsxFiles(drive, weekId, archiveId, xlsxResult.id)
+      await assertOnlyUploadedXlsxIsActive(drive, weekId, xlsxResult.id)
+
+      // ── 월별 전체집계 자동 업데이트
+      // skipped도 이전 요청의 집계 성공을 보장하지 않으므로 실제 집계를 다시 확인한다.
       let aggregateResult = null;
-      if (xlsxResult.status !== 'skipped') {
-        try {
-          aggregateResult = await runMonthAggregate(drive, monthId, yearMonth);
-        } catch (aggErr) {
-          console.warn('월집계 실패 (업로드는 성공):', aggErr.message);
-          aggregateResult = { success: false, error: aggErr.message };
-        }
-      } else {
-        aggregateResult = { success: true, skipped: true };
+      try {
+        aggregateResult = await runMonthAggregate(drive, monthId, yearMonth);
+      } catch (aggErr) {
+        console.warn('월집계 실패 (업로드는 성공):', aggErr.message);
+        aggregateResult = { success: false, error: aggErr.message };
       }
 
       // ── 카카오톡 알림
@@ -476,8 +1021,8 @@ export default async function handler(req, res) {
         console.warn('카카오 알림 실패 (업로드는 성공):', kakaoErr.message);
       }
 
-      return res.status(200).json({
-        success: true,
+      const response = {
+        success: aggregateResult?.success === true,
         type: 'xlsx',
         file: xlsxName,
         skipped: xlsxResult.status === 'skipped',
@@ -502,7 +1047,44 @@ export default async function handler(req, res) {
         aggregate: aggregateResult,
         kakaoSent,
         kakaoError,
-      });
+      };
+      // A final XLSX acknowledgement belongs to one persisted submission job.
+      // The client must reject a response that cannot prove that ownership.
+      if (finalJob?.job?.schemaVersion === 2) {
+        response.submissionId = finalJob.job.id;
+        response.revision = finalJob.job.revision + 1;
+      }
+      if (finalJob) {
+        const nextJob = {
+            ...finalJob.job,
+            ...(finalJob.job.schemaVersion === 2 ? { revision: finalJob.job.revision + 1 } : {}),
+            status: response.success ? 'xlsx_response_ready' : 'failed',
+            artifacts: {
+              ...finalJob.job.artifacts,
+              xlsx: { status: 'confirmed', fileId: xlsxResult.id, sha256: finalJob.job.xlsxSha256 },
+              aggregate: response.success ? { status: 'confirmed', fileId: aggregateResult.fileId } : { status: 'failed', error: aggregateResult?.error || 'AGGREGATE_UNCONFIRMED' },
+              kakao: kakaoSent ? { status: 'confirmed' } : { status: 'failed', error: kakaoError || 'KAKAO_UNCONFIRMED' },
+            },
+            response,
+          };
+        if (finalJob.job.schemaVersion === 2) {
+          const written = await writeSubmissionJobIfLockOwned({
+            submissionId,
+            job: nextJob,
+            expectedRevision: finalJob.job.revision,
+            lock: artifactSubmissionLock,
+          });
+          if (!written.written) {
+            const error = new Error(`submission XLSX state write rejected: ${written.reason}`);
+            error.code = 'SUBMISSION_STATE_WRITE_REJECTED';
+            throw error;
+          }
+        } else {
+          await writeSubmissionJob({ submissionId, job: nextJob });
+        }
+        finalJobReserved = false;
+      }
+      return res.status(response.success ? 200 : 502).json(response);
     }
 
     // ── 이미지 업로드
@@ -541,6 +1123,60 @@ export default async function handler(req, res) {
     }
     // ── 낱장 영수증 사진은 담당자 눈에 안 띄는 하위폴더 _원본/ 에 저장 (Drive 복원 기능 전용)
     const originalsId = await getOrCreateFolder(drive, ORIGINALS_FOLDER_NAME, weekId);
+    if (finalImagePreflight && finalJob?.job) {
+      const stillOwned = await renewSubmissionLock(artifactSubmissionLock);
+      if (!stillOwned) {
+        const error = new Error('submission image lock ownership was lost before Drive write');
+        error.code = 'SUBMISSION_LOCK_LOST';
+        throw error;
+      }
+      const result = await resolveFinalImageEvidence(drive, {
+        originalsId,
+        submissionId,
+        evidence: finalImagePreflight,
+      });
+      const confirmed = { ...(finalJob.job.artifacts?.images?.confirmed || {}) };
+      confirmed[finalImagePreflight.key] = {
+        fileId: result.id,
+        sha256: finalImagePreflight.sha256,
+        byteLength: finalImagePreflight.byteLength,
+        mimeType: finalImagePreflight.mimeType,
+      };
+      const imagesComplete = finalJob.job.expected.images.every(item => confirmed[item.key]?.sha256 === item.sha256);
+      const nextJob = {
+        ...finalJob.job,
+        revision: finalJob.job.revision + 1,
+        artifacts: {
+          ...finalJob.job.artifacts,
+          images: { status: imagesComplete ? 'confirmed' : 'processing', confirmed },
+        },
+      };
+      const written = await writeSubmissionJobIfLockOwned({
+        submissionId,
+        job: nextJob,
+        expectedRevision: finalJob.job.revision,
+        lock: artifactSubmissionLock,
+      });
+      if (!written.written) {
+        const error = new Error(`submission image state write rejected: ${written.reason}`);
+        error.code = 'SUBMISSION_STATE_WRITE_REJECTED';
+        throw error;
+      }
+      return res.status(200).json({
+        success: true,
+        type: 'images',
+        submissionId,
+        key: finalImagePreflight.key,
+        fileId: result.id,
+        uploadStatus: result.status,
+        revision: nextJob.revision,
+        imagesComplete,
+        files: [finalImagePreflight.filename],
+        skipped: result.status === 'recovered' ? [finalImagePreflight.filename] : [],
+        details: [{ filename: finalImagePreflight.filename, status: result.status, fileId: result.id }],
+        targetPath,
+      });
+    }
     const uploaded = [];
     const skipped  = [];
     const details = [];
@@ -583,9 +1219,40 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Upload error:', error);
+    // Drive 변경 뒤 응답·집계·저장 중 어느 단계에서 실패해도 예약을 processing으로
+    // 남겨 두면 같은 제출이 14일 동안 재시도되지 못한다. 원래 오류 응답은 유지하고,
+    // 작업 상태 갱신만 최선 노력으로 수행한다.
+    if (finalJobReserved && finalJob?.job?.id && finalJob.job.schemaVersion !== 2) {
+      await writeSubmissionJob({
+        submissionId: finalJob.job.id,
+        job: {
+          ...finalJob.job,
+          status: 'failed',
+          failedAt: new Date().toISOString(),
+          error: { code: error.code || 'SUBMISSION_FAILED', message: error.message || '최종 제출 처리 실패' },
+        },
+      }).catch((jobWriteError) => {
+        console.error('Submission job failure state write failed:', jobWriteError.message);
+      });
+    }
     if (/invalid_grant|token.*expired|revoked|unauthorized/i.test(error.message || '')) {
       return jsonError(res, Errors.unauthorized('Google Drive 인증이 만료되었습니다. 관리자에게 Drive 재연결을 요청하세요.'));
     }
     return jsonError(res, Errors.internalError(error.message));
+  } finally {
+    if (artifactSubmissionLock?.acquired) {
+      try {
+        await releaseSubmissionLock(artifactSubmissionLock);
+      } catch (releaseError) {
+        console.error('Artifact submission lock release failed:', releaseError.message);
+      }
+    }
+    if (submissionLock?.acquired) {
+      try {
+        await releaseSubmissionLock(submissionLock);
+      } catch (releaseError) {
+        console.error('Submission lock release failed:', releaseError.message);
+      }
+    }
   }
 }
