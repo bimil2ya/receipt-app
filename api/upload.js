@@ -170,6 +170,47 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mimeType });
 }
 
+/**
+ * Draft backup operation을 Google Drive에 저장 (Step 3 완성)
+ * Operation의 receiptSnapshot을 기반으로 파일 생성
+ */
+async function handleDraftBackupSync(operation) {
+  if (!operation?.opId || !operation?.receiptId || !operation?.backupRevision) {
+    throw new Error('Invalid operation structure for draft backup sync');
+  }
+
+  const drive = createDrive();
+
+  // Operation JSON 직렬화
+  const operationJson = JSON.stringify(operation, null, 2);
+  const buffer = Buffer.from(operationJson, 'utf-8');
+
+  // 파일명: draft_<receiptId>_rev<backupRevision>.json
+  const fileName = `draft_${operation.receiptId}_rev${operation.backupRevision}.json`;
+
+  // 초안 폴더 ID 또는 기본 루트
+  const DRAFT_BACKUPS_FOLDER_NAME = '_초안백업';
+
+  // Google Drive에 저장
+  const fileMetadata = await uploadFile(
+    drive,
+    buffer,
+    fileName,
+    DRAFT_BACKUPS_FOLDER_NAME, // folderId (폴더 생성도 처리)
+    'application/json'
+  );
+
+  return {
+    type: 'draft-backup-sync',
+    success: true,
+    operationId: operation.opId,
+    receiptId: operation.receiptId,
+    backupRevision: operation.backupRevision,
+    driveFileId: fileMetadata?.id,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
 function sumSafeAmounts(rows) {
   return (rows || []).reduce((total, row) => {
     const amount = Number(row?.amount || 0);
@@ -694,16 +735,9 @@ export default async function handler(req, res) {
           throw error;
         }
 
-        // TODO: Step 3 - Draft backup 동기화 처리
-        // - operation 검증
-        // - Google Drive에 저장 또는 업데이트
-        // - 응답 반환
-        return res.status(501).json({
-          type: 'draft-backup-sync',
-          success: false,
-          error: 'DRAFT_SYNC_NOT_IMPLEMENTED',
-          message: 'Draft backup 동기화는 개발 중입니다.',
-        });
+        // Step 3 완성 - Draft backup 동기화 처리
+        const result = await handleDraftBackupSync(operation);
+        return res.status(200).json(result);
       } catch (err) {
         return jsonError(res, {
           type: 'draft-backup-sync',

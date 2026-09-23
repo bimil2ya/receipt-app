@@ -76,10 +76,11 @@ export default function useReceipts() {
     }
   }, []);
 
-  // 초안 백업 worker - enabled: false (추후 전환 가능)
-  // transport는 준비됨 (operation 전송 함수)
+  // 초안 백업 worker - Step 4 활성화
+  // enabled: true - worker가 operation을 drain하고 transport로 전송
+  // transport: draftBackupTransport - operation을 서버로 전송
   const draftBackupWorker = useDraftBackupWorker({
-    enabled: false,
+    enabled: true,
     transport: draftBackupTransport,
   });
 
