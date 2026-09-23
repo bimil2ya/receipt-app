@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import AdminTeamModal from './AdminTeamModal';
 import { normalizeTeamNames } from '../../utils/teamNames';
+import { getFixedUserName, registerFixedUserName } from '../../utils/deviceIdentity';
+import { teamIncludesRegisteredUser } from './teamMembership';
 
 /**
  * 작업자(조) 선택 모달
@@ -10,6 +12,9 @@ import { normalizeTeamNames } from '../../utils/teamNames';
  */
 export default function WorkerPickerModal({ show, currentNames, teams = [], onSelect, onTeamsUpdated, onClose, isOnboarding = false }) {
   const [showAdmin, setShowAdmin] = useState(false);
+  const [pendingTeam, setPendingTeam] = useState(null);
+  const [membershipError, setMembershipError] = useState('');
+  const fixedUserName = getFixedUserName();
 
   if (!show) return null;
 
@@ -40,13 +45,31 @@ export default function WorkerPickerModal({ show, currentNames, teams = [], onSe
 
         {/* 조 목록 */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-          {teams.map((team) => {
+          {pendingTeam && !fixedUserName ? (
+            <>
+              <p className="text-sm font-black text-slate-300">등록 명단에서 본인 이름을 선택하세요. 이 기기에서는 이후 변경할 수 없습니다.</p>
+              {pendingTeam.names.split(',').map(name => name.trim()).filter(Boolean).map(name => (
+                <button key={name} onClick={() => { registerFixedUserName(name); onSelect(pendingTeam.names); setPendingTeam(null); }} className="w-full min-h-12 rounded-2xl border-2 border-slate-700 bg-slate-800 px-5 text-left font-black text-white active:border-blue-500">
+                  {name}
+                </button>
+              ))}
+              <button onClick={() => setPendingTeam(null)} className="w-full min-h-11 text-sm font-bold text-slate-400">작업조 다시 선택</button>
+            </>
+          ) : teams.map((team) => {
             const isSelected = normalizeTeamNames(team.names) === normalizeTeamNames(currentNames);
             const [leader, member] = team.names.split(', ');
             return (
               <button
                 key={team.id}
-                onClick={() => onSelect(team.names)}
+                onClick={() => {
+                  if (!fixedUserName) { setPendingTeam(team); return; }
+                  if (!teamIncludesRegisteredUser(team.names, fixedUserName)) {
+                    setMembershipError(`${fixedUserName}님은 선택한 작업조 명단에 없습니다. 사무실 담당자에게 명단 확인을 요청해 주세요.`);
+                    return;
+                  }
+                  setMembershipError('');
+                  onSelect(team.names);
+                }}
                 className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl border-2 text-left transition-all active:scale-[0.98] ${
                   isSelected
                     ? 'bg-blue-600/20 border-blue-500 text-white'
@@ -72,6 +95,7 @@ export default function WorkerPickerModal({ show, currentNames, teams = [], onSe
               </button>
             );
           })}
+          {membershipError && <p role="alert" className="rounded-xl border border-amber-500/60 bg-amber-950/40 p-3 text-sm font-bold text-amber-100">{membershipError}</p>}
         </div>
 
         {/* 하단 */}

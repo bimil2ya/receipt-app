@@ -31,12 +31,62 @@ async function waitForAppReady(page) {
   await page.waitForTimeout(300);
 }
 
+async function getStoredReceipts(page) {
+  return page.evaluate(async () => {
+    const { openReceiptDb } = await import('/src/utils/receiptDb.js');
+    const db = await openReceiptDb();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('receipts', 'readonly').objectStore('receipts').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  });
+}
+
 // ---------- 테스트 1: 기본 로딩 ----------
 test('앱이 정상적으로 로드된다', async ({ page }) => {
   await page.goto('/');
   await waitForAppReady(page);
   await expect(page.getByRole('button', { name: '업로드' })).toBeVisible();
   await expect(page.getByRole('button', { name: '촬영' })).toBeVisible();
+});
+
+test('등록 사용자 이름은 작업조 명단에 있을 때만 작업조를 바꿀 수 있다', async ({ page }) => {
+  await page.route('**/api/teams', route => route.fulfill({ json: { success: true, teams: [{ id: 1, names: '홍길동, 성춘향' }, { id: 2, names: '강감찬, 이몽룡' }] } }));
+  await page.addInitScript(() => localStorage.clear());
+  await page.goto('/');
+  await page.getByRole('button', { name: /홍길동/ }).click();
+  await page.getByRole('button', { name: '홍길동', exact: true }).click();
+  await page.getByRole('button', { name: '설정' }).click();
+  await page.getByRole('button', { name: /변경/ }).click();
+  await page.getByRole('button', { name: /강감찬/ }).click();
+  await expect(page.getByRole('alert')).toContainText('명단에 없습니다');
+});
+
+test('마감 화면은 선택한 팀의 담당자 검토기록만 표시한다', async ({ page }) => {
+  await page.route('**/api/review**', route => route.fulfill({ json: { success: true, reviews: [{ '영수증 식별값': 'review-1', '팀': '류준, 류수현', '날짜': '2026-09-10', '사용처': '검토식당', '검토 상태': '추가 자료 요청', '담당자 메모': '원본 사진을 확인해 주세요.', '추가 자료 요청': '영수증 원본 사진' }] } }));
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.getByRole('button', { name: '마감' }).click();
+  await expect(page.getByLabel('담당자 검토기록')).toContainText('추가 자료 요청');
+  await expect(page.getByLabel('담당자 검토기록')).toContainText('원본 사진을 확인해 주세요.');
+  await page.evaluate(async () => {
+    const { openReceiptDb } = await import('/src/utils/receiptDb.js');
+    const db = await openReceiptDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('receipts', 'readwrite');
+      tx.objectStore('receipts').put({ id: 'review-1', date: '2026-09-10', storeName: '검토식당', category: '식비', totalAmount: 7000 });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+  await page.reload();
+  await waitForAppReady(page);
+  await expect(page.locator('#receipt-row-review-1')).toContainText('담당자 검토');
+  await expect(page.locator('#receipt-row-review-1')).toContainText('원본 사진을 확인해 주세요.');
+  await page.locator('#receipt-row-review-1').getByRole('button', { name: '요청 자료 직접입력' }).click();
+  await expect(page.getByRole('dialog', { name: '➕ 직접 입력' })).toBeVisible();
 });
 
 // ---------- 테스트 2: 업로드 → 목록 추가 ----------
@@ -63,6 +113,90 @@ test('영수증 업로드 후 목록에 추가된다', async ({ page }) => {
   });
 
   await expect(page.getByText('테스트마트')).toBeVisible({ timeout: 15000 });
+});
+
+test('수기 금액 오류는 저장하지 않고 쉼표 금액은 한 번만 저장한다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.getByRole('button', { name: '직접입력' }).click();
+  await page.getByPlaceholder('🏢 사용처').fill('수기 검증');
+  const amount = page.getByPlaceholder('💰 금액');
+
+  for (const invalidValue of ['', '   ', '0', '-100', '12원', '1.5', '9,007,199,254,740,992']) {
+    await amount.fill(invalidValue);
+    await page.getByRole('button', { name: '추가' }).click();
+    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(amount).toBeFocused();
+    expect(await getStoredReceipts(page)).toHaveLength(0);
+  }
+
+  await amount.fill('12,345');
+  await page.getByRole('button', { name: '추가' }).dblclick();
+  await expect(page.getByText('수기 검증', { exact: true })).toBeVisible();
+  await expect(page.getByText('12,345', { exact: true })).toBeVisible();
+  await expect.poll(() => getStoredReceipts(page)).toHaveLength(1);
+  expect((await getStoredReceipts(page))[0].totalAmount).toBe(12345);
+
+  await page.getByRole('button', { name: '수정' }).click();
+  const editAmount = page.locator('#edit-receipt-amount');
+  await editAmount.fill('-5');
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(editAmount).toBeFocused();
+  expect((await getStoredReceipts(page))[0].totalAmount).toBe(12345);
+  await editAmount.fill('20,000');
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await expect.poll(async () => (await getStoredReceipts(page))[0].totalAmount).toBe(20000);
+  expect((await getStoredReceipts(page))[0].revision).toBe(2);
+  await expect(page.getByText('20,000', { exact: true })).toBeVisible();
+});
+
+test('사진 OCR의 0원 결과는 저장하지 않고 금액 확인 안내를 표시한다', async ({ page }) => {
+  await mockAnalyze(page, [{ date: '2026-07-02', storeName: '금액없는사진', totalAmount: 0, suggestedCategory: '식비' }]);
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.locator('#file-i').setInputFiles({ name: 'receipt.jpg', mimeType: 'image/jpeg', buffer: FAKE_IMAGE });
+  await expect(page.getByText('금액 확인 필요', { exact: false })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('금액없는사진', { exact: true })).toHaveCount(0);
+  expect(await getStoredReceipts(page)).toHaveLength(0);
+});
+
+test('빠른 사진 선택은 같은 OCR 결과를 한 번만 저장한다', async ({ page }) => {
+  await mockAnalyze(page, [{ date: '2026-07-02', storeName: '빠른사진', totalAmount: 4000, suggestedCategory: '식비' }]);
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  const file = { name: 'receipt.jpg', mimeType: 'image/jpeg', buffer: FAKE_IMAGE };
+  await Promise.all([
+    page.locator('#file-i').setInputFiles(file),
+    page.locator('#file-i').setInputFiles(file),
+  ]);
+  await expect.poll(() => getStoredReceipts(page)).toHaveLength(1);
+  expect((await getStoredReceipts(page))[0]).toMatchObject({ storeName: '빠른사진', totalAmount: 4000 });
+});
+
+test('합산이 안전한 정수 범위를 넘으면 목록과 예산에 반올림 금액을 표시하지 않는다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.evaluate(async () => {
+    const { openReceiptDb } = await import('/src/utils/receiptDb.js');
+    const db = await openReceiptDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('receipts', 'readwrite');
+      tx.objectStore('receipts').put({ id: 'safe-limit', date: '2026-09-09', storeName: '한도 금액', category: '식비', totalAmount: Number.MAX_SAFE_INTEGER });
+      tx.objectStore('receipts').put({ id: 'overflow', date: '2026-09-09', storeName: '초과 금액', category: '숙박비', totalAmount: 1 });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+  await page.reload();
+  await waitForAppReady(page);
+
+  await expect(page.getByText('집계 금액이 안전한 정수 범위를 넘었습니다. 정확한 금액을 표시하지 않았습니다.')).toHaveCount(2);
+  await expect(page.getByText('9,007,199,254,740,992원', { exact: true })).toHaveCount(0);
 });
 
 // ---------- 테스트 3: 날짜 불일치 경고 토스트 ----------

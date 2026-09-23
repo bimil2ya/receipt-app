@@ -7,6 +7,7 @@ import ReceiptListControls from '../receipts/ReceiptListControls';
 import ReceiptTableHeader from '../receipts/ReceiptTableHeader';
 import ReceiptRow from '../receipts/ReceiptRow';
 import DuplicateReportNotice from '../receipts/DuplicateReportNotice';
+import { useMemo } from 'react';
 
 export default function ReceiptWorkspace({
   listPanel,
@@ -21,6 +22,7 @@ export default function ReceiptWorkspace({
   driveUploading,
   uploadProgress,
   lastUploadFailures,
+  submissionNeedsResend,
   duplicateReport,
   onOpenDuplicateReport,
   onKakaoShare,
@@ -28,6 +30,7 @@ export default function ReceiptWorkspace({
   onRetryFailedUploads,
   onSaveBackup,
   onLoadBackup,
+  officeReviews,
   backupFileRef,
   cameraRef,
   receiptFileRef,
@@ -56,7 +59,11 @@ export default function ReceiptWorkspace({
   onEdit,
   onViewImage,
   onDelete,
+  onAddSupportingMaterial,
 }) {
+  const officeReviewsByReceiptId = useMemo(() => new Map(
+    (officeReviews?.reviews || []).filter(review => review['영수증 식별값']).map(review => [String(review['영수증 식별값']), review]),
+  ), [officeReviews?.reviews]);
   return (
     <div className="space-y-3">
       <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 space-y-2 shadow-lg">
@@ -79,12 +86,14 @@ export default function ReceiptWorkspace({
             driveUploading={driveUploading}
             uploadProgress={uploadProgress}
             lastUploadFailures={lastUploadFailures}
+            submissionNeedsResend={submissionNeedsResend}
             duplicateReportSlot={<DuplicateReportNotice report={duplicateReport} onOpen={onOpenDuplicateReport} />}
             onKakaoShare={onKakaoShare}
             onUpload={onDriveUpload}
             onRetryFailed={onRetryFailedUploads}
             onSaveBackup={onSaveBackup}
             onLoadBackup={onLoadBackup}
+            officeReviews={officeReviews}
           />
         )}
         <ReceiptHiddenInputs
@@ -133,6 +142,7 @@ export default function ReceiptWorkspace({
             <ReceiptRow
               key={receipt.id}
               receipt={receipt}
+              officeReview={officeReviewsByReceiptId.get(String(receipt.id))}
               rowIndex={index}
               isSelected={detailId === receipt.id}
               isNew={pinnedNewIds?.includes(receipt.id)}
@@ -141,6 +151,7 @@ export default function ReceiptWorkspace({
               onEdit={onEdit}
               onViewImage={onViewImage}
               onDelete={onDelete}
+              onAddSupportingMaterial={onAddSupportingMaterial}
             />
           ))
         )}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { readStorageItem, writeStorageItem } from '../utils/storage';
 import { normalizeTeamNames } from '../utils/teamNames';
+import { recordTeamAssignmentChange } from '../utils/teamAssignmentHistory';
 
 export default function useStoredTeamNames(teams = [], fallbackKey = 'receipt_names') {
   const [names, setNames] = useState(() => readStorageItem(fallbackKey, ''));
@@ -28,6 +29,7 @@ export default function useStoredTeamNames(teams = [], fallbackKey = 'receipt_na
 
   const handleNamesChange = (value) => {
     const next = normalizeTeamNames(value);
+    recordTeamAssignmentChange(canonicalNames, next);
     setNames(next);
     writeStorageItem(fallbackKey, next);
   };

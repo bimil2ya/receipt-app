@@ -5,7 +5,77 @@ import {
   buildPivotRows,
   groupPersonFolders,
   parseXlsxRow,
+  buildReviewRows,
+  buildTeamReviewSummary,
+  buildReviewLedgerRows,
 } from './_aggregateUtils.js'
+import { sumSafeAmounts } from './_aggregateUtils.js'
+
+it('rejects aggregate totals outside the safe integer range', () => {
+  expect(() => sumSafeAmounts([{ amount: Number.MAX_SAFE_INTEGER }, { amount: 1 }]))
+    .toThrow('안전한 정수 범위')
+})
+
+it('preserves office-entered review columns by receipt id without deleting removed source rows', () => {
+  const rows = buildReviewLedgerRows(
+    [{ id: 'current', person: '검증팀', date: '2026-09-10', storeName: '식당', category: '식비', amount: 7000, approvalNum: '1234' }],
+    [
+      { '영수증 식별값': 'current', '검토 상태': '추가 자료 요청', '담당자 메모': '원본 재확인', '검토 담당자': '사무실' },
+      { '영수증 식별값': 'past', '검토 상태': '보관' },
+    ],
+  )
+  expect(rows).toEqual(expect.arrayContaining([
+    expect.objectContaining({ '영수증 식별값': 'current', '검토 상태': '추가 자료 요청', '담당자 메모': '원본 재확인', '검토 담당자': '사무실' }),
+    expect.objectContaining({ '영수증 식별값': 'past', '검토 상태': '보관' }),
+  ]))
+})
+
+it('preserves custom review headers even when the previous sheet had no data rows', () => {
+  const [row] = buildReviewLedgerRows(
+    [{ id: 'current', person: '검증팀', amount: 7000 }],
+    [],
+    ['영수증 식별값', '검토 상태', '사내 관리번호'],
+  )
+  expect(row).toMatchObject({ '영수증 식별값': 'current', '사내 관리번호': '' })
+})
+
+it('shows the prior submission revision when a receipt is corrected and re-aggregated', () => {
+  const [row] = buildReviewLedgerRows(
+    [{ id: 'corrected', person: '검증팀', amount: 7000, revision: 2 }],
+    [{ '영수증 식별값': 'corrected', '수정 버전': 1, '검토 상태': '확인 필요' }],
+  )
+  expect(row).toMatchObject({ '수정 버전': 2, '직전 수정 버전': 1, '검토 상태': '확인 필요' })
+})
+
+it('shows submitted supporting material on the originally reviewed receipt row', () => {
+  const rows = buildReviewLedgerRows([
+    { id: 'requested', person: '검증팀', amount: 7000 },
+    { id: 'support-photo', person: '검증팀', amount: 0, revision: 2, relatedReviewReceiptId: 'requested' },
+  ])
+  expect(rows.find(row => row['영수증 식별값'] === 'requested')).toMatchObject({
+    '연결 추가 자료': 'support-photo (v2)',
+  })
+})
+
+it('builds office review rows without changing source rows', () => {
+  const rows = [
+    { person: '검증팀', date: '', storeName: '수기교통', category: '', amount: 3000, approvalNum: '' },
+    { person: '검증팀', date: '2026-09-01', storeName: '식당', category: '식비', amount: 7000, approvalNum: '1234' },
+    { person: '현장팀', date: '2026-09-02', storeName: '식당', category: '식비', amount: 7000, approvalNum: '1234' },
+  ]
+  expect(buildReviewRows(rows)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ '확인 사유': '날짜 없음 · 분류 없음 · 승인번호 없음' }),
+    expect.objectContaining({ '확인 사유': '승인번호 중복 후보' }),
+  ]))
+})
+
+it('summarizes office review candidates by team without calling them complete', () => {
+  const rows = [{ person: '검증팀', amount: 3000 }, { person: '검증팀', amount: 7000 }, { person: '현장팀', amount: 5000 }]
+  const summary = buildTeamReviewSummary(rows, [{ '팀': '검증팀' }])
+  expect(summary).toEqual(expect.arrayContaining([
+    expect.objectContaining({ '팀': '검증팀', '영수증 건수': 2, '사용액(원)': 10000, '확인 필요 건수': 1, '검수 상태': '담당자 확인 필요' }),
+  ]))
+})
 
 describe('parseXlsxRow', () => {
   it('xlsx 행을 내부 포맷으로 변환한다', () => {
@@ -21,7 +91,7 @@ describe('parseXlsxRow', () => {
       '비고': '메모',
     }
     const result = parseXlsxRow(r, '홍길동')
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       date: '2024-01-15',
       useTime: '14:30',
       storeName: '스타벅스',
@@ -33,6 +103,7 @@ describe('parseXlsxRow', () => {
       note: '메모',
       person: '홍길동',
     })
+    expect(result).toMatchObject({ id: '', assignmentTeamName: '', createdByName: '', deviceId: '', createdAt: 0, updatedAt: 0 })
   })
 
   it('누락된 필드는 빈 문자열/0으로 채운다', () => {

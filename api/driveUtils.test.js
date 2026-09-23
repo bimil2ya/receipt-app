@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   driveQueryString,
   getKstWeekRange,
@@ -39,9 +39,9 @@ describe('Query Sanitization (driveQueryString / sanitizeDriveQuery)', () => {
 
     for (const attempt of injectionAttempts) {
       const sanitized = driveQueryString(attempt)
-      // 검증: 모든 특수문자가 이스케이프됨
-      expect(sanitized).not.toContain("'")  // 모든 ' 는 \'로 변환됨
-      expect(sanitized.includes('\\"')).toBe(attempt.includes('"'))
+      // 검증: 모든 Drive 쿼리용 따옴표가 백슬래시로 이스케이프됨
+      expect(sanitized).not.toMatch(/(^|[^\\])'/)
+      expect(sanitized).not.toMatch(/(^|[^\\])"/)
     }
   })
 
@@ -50,7 +50,7 @@ describe('Query Sanitization (driveQueryString / sanitizeDriveQuery)', () => {
       { input: "2026'08'31", expected: "2026\\'08\\'31" },
       { input: 'folder"with"quotes', expected: 'folder\\"with\\"quotes' },
       { input: 'path\\to\\folder', expected: 'path\\\\to\\\\folder' },
-      { input: "mix'both\"chars\\end", expected: "mix\\'both\\"chars\\\\end" }
+      { input: "mix'both\"chars\\end", expected: "mix\\'both\\\"chars\\\\end" }
     ]
 
     for (const tc of testCases) {

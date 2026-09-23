@@ -21,7 +21,8 @@ export default function ReceiptListControls({
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
           placeholder="🔎 사용처/승인번호 검색"
-          className="flex-1 h-11 bg-slate-800 border border-slate-700 rounded-xl px-3 text-white font-bold text-sm"
+          aria-label="사용처 또는 승인번호 검색"
+          className="min-w-0 flex-1 h-11 bg-slate-800 border border-slate-700 rounded-xl px-3 text-white font-bold text-sm"
         />
         {searchQuery && (
           <button
@@ -33,7 +34,7 @@ export default function ReceiptListControls({
           </button>
         )}
       </div>
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+      <div className="flex flex-wrap gap-1.5 pb-1">
         {filterOptions.map(([value, label]) => {
           const active = filterValue === value;
           return (
@@ -41,7 +42,8 @@ export default function ReceiptListControls({
               key={value}
               type="button"
               onClick={() => onFilterChange(value)}
-              className={`shrink-0 px-3 py-2 rounded-full border text-xs font-black transition-colors ${active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+              aria-pressed={active}
+              className={`min-h-11 max-w-full break-words px-3 py-2 rounded-full border text-xs font-black transition-colors ${active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
             >
               {label}
             </button>
@@ -49,7 +51,9 @@ export default function ReceiptListControls({
         })}
       </div>
       <div className="text-center text-sm text-slate-400 px-1 font-bold">
-        {visibleCount === totalCount
+        {grandTotal === null
+          ? '집계 금액이 안전한 정수 범위를 넘었습니다. 정확한 금액을 표시하지 않았습니다.'
+          : visibleCount === totalCount
           ? `${totalCount}건 • ${formatCurrency(grandTotal)}`
           : `${visibleCount}건 표시 / 전체 ${totalCount}건`}
       </div>

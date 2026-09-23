@@ -1,4 +1,5 @@
 import { decodeHtmlEntities, formatDateKorean } from './formatter';
+import { addReceiptAmounts, sumReceiptAmounts } from './receiptAmount';
 import { summaryCategories, summaryNonBudgetCategories } from '../components/summary/summaryUtils';
 
 const CATEGORY_ORDER = [...summaryCategories, ...summaryNonBudgetCategories];
@@ -48,8 +49,8 @@ export function buildCategoryTotals(receipts) {
     if (!totals.has(category)) totals.set(category, { count: 0, amount: 0 });
     const entry = totals.get(category);
     entry.count += 1;
-    entry.amount += amount;
-    grandTotal += amount;
+    entry.amount = addReceiptAmounts(entry.amount, amount);
+    grandTotal = addReceiptAmounts(grandTotal, amount);
   }
 
   const known = CATEGORY_ORDER.filter((c) => totals.has(c));
@@ -89,7 +90,7 @@ export function buildImageCaption(image) {
   if (items.length === 1) {
     caption = `${date} · ${store} · ${(first.totalAmount || 0).toLocaleString()}원`;
   } else {
-    const sum = items.reduce((s, r) => s + (r.totalAmount || 0), 0);
+    const sum = sumReceiptAmounts(items);
     caption = `${date} · ${store} 외 ${items.length - 1}건 · 합계 ${sum.toLocaleString()}원`;
   }
 

@@ -1,7 +1,7 @@
 import { Readable } from 'stream';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
-import { jsonError, Errors } from './_errorHandler.js';
+import { jsonError, Errors, createError } from './_errorHandler.js';
 import { safeCompare } from './_auth.js';
 
 const TEAMS_FILENAME = 'receipt-app-teams.json';

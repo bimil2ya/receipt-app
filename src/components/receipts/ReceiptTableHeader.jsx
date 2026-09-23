@@ -18,7 +18,6 @@ export default function ReceiptTableHeader({ sortField, sortDir, onSort }) {
           {label} {sortField === field && (sortDir === 'asc' ? '↑' : '↓')}
         </button>
       ))}
-      <div className="w-16 shrink-0 ml-1"></div>
     </div>
   );
 }

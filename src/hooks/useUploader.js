@@ -1,6 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { compressToBase64 } from '../utils/compressor';
 import { getToday, mergeCardNumbers, decodeHtmlEntities } from '../utils/formatter';
+import { parseReceiptAmount } from '../utils/receiptAmount';
+import { buildReceiptAudit } from '../utils/deviceIdentity';
 
 import { normalizeApprovalNum } from '../../shared/approvalReportCore.js';
 
@@ -56,13 +58,18 @@ function normalizeReceiptDate(value, context) {
 export default function useUploader({ onUploadSuccess, onUploadError }) {
   const [processing, setProcessing] = useState(false);
   const [procMsg, setProcMsg] = useState('');
+  const inFlightRef = useRef(false);
   const isAndroid = /Android/i.test(navigator.userAgent);
 
   const handleFiles = useCallback(async (files, existingReceipts = [], dateOptions = {}) => {
+    if (inFlightRef.current) return { skipped: true, totalImages: 0, successCount: 0, duplicateCount: 0, invalidCount: 0 };
+    inFlightRef.current = true;
     // API 키는 모두 서버(Vercel env)에서 처리. 사용자(노인)는 키 입력 안 함.
     setProcessing(true);
+    try {
     const added = [];
     const failedFiles = [];
+    const invalidReceipts = [];
     let duplicateCount = 0;
     let completedCount = 0;
     const totalImages = files.length;
@@ -147,6 +154,11 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
         }
 
         for (const r of fileResult.receipts) {
+          const amount = parseReceiptAmount(r.totalAmount);
+          if (!amount.ok) {
+            invalidReceipts.push({ fileName: fileResult.fileName, storeName: decodeHtmlEntities(r.storeName) || '사용처 미상', error: amount.error });
+            continue;
+          }
           // 중복 판단은 승인번호가 양쪽에 있고 정규화 값이 완전히 같을 때만 자동 처리한다.
           // 날짜/시간/금액/상호명만 같은 경우는 실제 다른 결제일 수 있으므로 자동 중복으로 보지 않는다.
           const isDuplicate = [...existingReceipts, ...added].some(ex => {
@@ -169,12 +181,13 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
 
           added.push({
             id: crypto.randomUUID(),
+            revision: 1,
             imageId: fileResult.imageId,
             imageUrl: fileResult.imageBase64,
             date: normalizeReceiptDate(r.date, dateContext),
             useTime: (r.useTime || '').toString().trim(),
             storeName: decodeHtmlEntities(r.storeName) || '미상',
-            totalAmount: r.totalAmount || 0,
+            totalAmount: amount.value,
             category: r.suggestedCategory || '기타',
             bizNum: r.bizNum || '',
             approvalNum: r.approvalNum || '',
@@ -182,6 +195,10 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
             note: decodeHtmlEntities(r.note) || '',
             rotation: 0,
             createdAt: Date.now(),
+            assignmentTeamId: dateOptions.assignmentTeamId || null,
+            assignmentTeamName: dateOptions.assignmentTeamName || '',
+            relatedReviewReceiptId: dateOptions.relatedReviewReceiptId || '',
+            createdBy: buildReceiptAudit({ action: 'created' }),
           });
         }
 
@@ -192,12 +209,16 @@ export default function useUploader({ onUploadSuccess, onUploadError }) {
     }
 
     if (added.length > 0) await onUploadSuccess(added);
-    setProcessing(false); setProcMsg('');
 
-    if ((failedFiles.length > 0 || duplicateCount > 0) && onUploadError) {
-      onUploadError({ failedFiles, duplicateCount });
+    if ((failedFiles.length > 0 || invalidReceipts.length > 0 || duplicateCount > 0) && onUploadError) {
+      onUploadError({ failedFiles, invalidReceipts, duplicateCount });
     }
-    return { totalImages, successCount: added.length, duplicateCount };
+    return { totalImages, successCount: added.length, duplicateCount, invalidCount: invalidReceipts.length };
+    } finally {
+      inFlightRef.current = false;
+      setProcessing(false);
+      setProcMsg('');
+    }
   }, [onUploadSuccess, onUploadError, isAndroid]);
 
   return { handleFiles, processing, procMsg };

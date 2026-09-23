@@ -9,10 +9,30 @@ export const STORE_IMAGES = 'receipt_images';
 export const STORE_SYNC_QUEUE = 'sync_queue';
 export const STORE_SYNC_EVENTS = 'sync_events';
 export const STORE_SYNC_DAILY = 'sync_daily';
-export const DB_VERSION = 8;
+export const STORE_SUBMISSION_ARTIFACTS = 'receipt_submission_artifacts';
+export const STORE_DRAFT_BACKUP_OUTBOX = 'draft_backup_outbox';
+export const DB_VERSION = 10;
 
 let dbCache = null;
 const imageUrlCache = new Map();
+
+export function ensureReceiptDbStores(db) {
+  if (!db.objectStoreNames.contains(STORE_RECEIPTS)) db.createObjectStore(STORE_RECEIPTS, { keyPath: 'id' });
+  if (!db.objectStoreNames.contains(STORE_HISTORY)) {
+    const hs = db.createObjectStore(STORE_HISTORY, { keyPath: 'historyId', autoIncrement: true });
+    hs.createIndex('receiptId', 'receiptId', { unique: false });
+  }
+  if (!db.objectStoreNames.contains(STORE_TEAMS)) db.createObjectStore(STORE_TEAMS, { keyPath: 'teamId' });
+  if (!db.objectStoreNames.contains(STORE_CARDS)) db.createObjectStore(STORE_CARDS, { keyPath: 'cardNumber' });
+  if (!db.objectStoreNames.contains(STORE_IMAGES)) db.createObjectStore(STORE_IMAGES, { keyPath: 'imageId' });
+  if (!db.objectStoreNames.contains(STORE_SYNC_QUEUE)) db.createObjectStore(STORE_SYNC_QUEUE, { keyPath: 'queueId' });
+  if (!db.objectStoreNames.contains(STORE_SYNC_EVENTS)) db.createObjectStore(STORE_SYNC_EVENTS, { keyPath: 'id' });
+  if (!db.objectStoreNames.contains(STORE_SYNC_DAILY)) db.createObjectStore(STORE_SYNC_DAILY, { keyPath: 'date' });
+  if (!db.objectStoreNames.contains(STORE_SUBMISSION_ARTIFACTS)) db.createObjectStore(STORE_SUBMISSION_ARTIFACTS, { keyPath: 'reportId' });
+  // Additive only: pending silent Drive backups must survive receipt/image
+  // edits and device resets until a future worker receives a strict ACK.
+  if (!db.objectStoreNames.contains(STORE_DRAFT_BACKUP_OUTBOX)) db.createObjectStore(STORE_DRAFT_BACKUP_OUTBOX, { keyPath: 'opId' });
+}
 
 export function revokeReceiptImageUrl(imageId) {
   if (!imageId || !imageUrlCache.has(imageId)) return;
@@ -33,18 +53,7 @@ export async function openReceiptDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = e => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(STORE_RECEIPTS)) db.createObjectStore(STORE_RECEIPTS, { keyPath: 'id' });
-      if (!db.objectStoreNames.contains(STORE_HISTORY)) {
-        const hs = db.createObjectStore(STORE_HISTORY, { keyPath: 'historyId', autoIncrement: true });
-        hs.createIndex('receiptId', 'receiptId', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(STORE_TEAMS)) db.createObjectStore(STORE_TEAMS, { keyPath: 'teamId' });
-      if (!db.objectStoreNames.contains(STORE_CARDS)) db.createObjectStore(STORE_CARDS, { keyPath: 'cardNumber' });
-      if (!db.objectStoreNames.contains(STORE_IMAGES)) db.createObjectStore(STORE_IMAGES, { keyPath: 'imageId' });
-      if (!db.objectStoreNames.contains(STORE_SYNC_QUEUE)) db.createObjectStore(STORE_SYNC_QUEUE, { keyPath: 'queueId' });
-      if (!db.objectStoreNames.contains(STORE_SYNC_EVENTS)) db.createObjectStore(STORE_SYNC_EVENTS, { keyPath: 'id' });
-      if (!db.objectStoreNames.contains(STORE_SYNC_DAILY)) db.createObjectStore(STORE_SYNC_DAILY, { keyPath: 'date' });
+      ensureReceiptDbStores(e.target.result);
     };
     request.onsuccess = e => {
       dbCache = e.target.result;

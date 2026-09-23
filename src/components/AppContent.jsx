@@ -12,6 +12,7 @@ export default function AppContent({
   remainingBudget,
   fuelTotal,
   medTotal,
+  amountOverflow,
   showBudgetDetails,
   onToggleBudgetDetails,
   listPanel,
@@ -26,6 +27,7 @@ export default function AppContent({
   driveUploading,
   uploadProgress,
   lastUploadFailures,
+  submissionNeedsResend,
   duplicateReport,
   onOpenDuplicateReport,
   onKakaoShare,
@@ -33,6 +35,7 @@ export default function AppContent({
   onRetryFailedUploads,
   onSaveBackup,
   onLoadBackup,
+  officeReviews,
   backupFileRef,
   cameraRef,
   receiptFileRef,
@@ -59,6 +62,7 @@ export default function AppContent({
   onEdit,
   onViewImage,
   onDelete,
+  onAddSupportingMaterial,
   receipts,
   getImageUrl,
   onUpdateRotation,
@@ -84,6 +88,7 @@ export default function AppContent({
             remainingBudget={remainingBudget}
             fuelTotal={fuelTotal}
             medTotal={medTotal}
+            amountOverflow={amountOverflow}
             showDetails={showBudgetDetails}
             onToggleDetails={onToggleBudgetDetails}
           />
@@ -103,6 +108,7 @@ export default function AppContent({
             driveUploading={driveUploading}
             uploadProgress={uploadProgress}
             lastUploadFailures={lastUploadFailures}
+            submissionNeedsResend={submissionNeedsResend}
             duplicateReport={duplicateReport}
             onOpenDuplicateReport={onOpenDuplicateReport}
             onKakaoShare={onKakaoShare}
@@ -110,6 +116,7 @@ export default function AppContent({
             onRetryFailedUploads={onRetryFailedUploads}
             onSaveBackup={onSaveBackup}
             onLoadBackup={onLoadBackup}
+            officeReviews={officeReviews}
             backupFileRef={backupFileRef}
             cameraRef={cameraRef}
             receiptFileRef={receiptFileRef}
@@ -138,6 +145,7 @@ export default function AppContent({
             onEdit={onEdit}
             onViewImage={onViewImage}
             onDelete={onDelete}
+            onAddSupportingMaterial={onAddSupportingMaterial}
           />
         )}
 

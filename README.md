@@ -17,6 +17,14 @@ npm test
 npm run build
 ```
 
+Google Drive 통합 테스트는 실제 Drive에 테스트 폴더와 파일을 만들 수 있으므로 기본 테스트에 포함하지 않습니다. 테스트 전용 Drive 폴더를 설정하고 아래 명령으로만 실행하세요.
+
+```bash
+npm run test:integration
+```
+
+필수 환경변수는 `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN`, `GDRIVE_MAIN_FOLDER_ID`, `GDRIVE_INTEGRATION_FOLDER_ID`입니다. `GDRIVE_INTEGRATION_FOLDER_ID`는 운영 루트와 다른 테스트 전용 폴더여야 합니다. 자격 증명이 없거나 두 폴더 ID가 같으면 이 명령은 실패하며, 기본 `npm test`는 이를 성공으로 처리하지 않고 실행 대상에서만 제외합니다.
+
 ## 핵심 기능
 
 - 영수증 촬영, 업로드, 직접 입력

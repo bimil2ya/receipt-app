@@ -7,6 +7,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createDrive, getOrCreateFolder, listAllFiles, MAIN_FOLDER_ID } from './driveUtils.js';
 import { createFileMetadata, validateMetadata, detectDuplicate, saveMetadataToGoogleDrive, loadMetadataFromGoogleDrive } from './metadata.js';
 import { FolderCache, folderCache } from './cache.js';
+import { requireIntegrationFolderId } from './_integrationTestConfig.js';
 
 describe('Phase A Integration Tests (Day 20-21)', () => {
   let drive;
@@ -16,7 +17,10 @@ describe('Phase A Integration Tests (Day 20-21)', () => {
   beforeAll(async () => {
     try {
       drive = createDrive();
-      testRootFolderId = MAIN_FOLDER_ID;
+      testRootFolderId = requireIntegrationFolderId({
+        integrationFolderId: process.env.GDRIVE_INTEGRATION_FOLDER_ID,
+        mainFolderId: MAIN_FOLDER_ID,
+      });
       console.log('\n✅ Google Drive 인증 완료');
       console.log(`📂 테스트 루트 폴더: ${testRootFolderId}`);
     } catch (error) {

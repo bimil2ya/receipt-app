@@ -40,6 +40,13 @@ describe('buildCategoryTotals', () => {
     expect(grandTotal).toBe(0);
     expect(totalCount).toBe(0);
   });
+
+  it('rejects a total beyond the safe integer range instead of rounding it', () => {
+    expect(() => buildCategoryTotals([
+      { category: '식비', totalAmount: Number.MAX_SAFE_INTEGER },
+      { category: '식비', totalAmount: 1 },
+    ])).toThrow('안전한 정수 범위');
+  });
 });
 
 describe('groupImagesByCategory', () => {

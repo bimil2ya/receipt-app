@@ -1,4 +1,7 @@
+import { getFixedUserName } from '../../utils/deviceIdentity';
+
 export default function SettingsIdentitySection({ matchedTeam, names, onOpenWorkerPicker, onOpenHelp }) {
+  const registeredUserName = getFixedUserName() || '등록 전';
   return (
     <>
       <div className="border-b border-slate-800 pb-4 space-y-3">
@@ -13,6 +16,16 @@ export default function SettingsIdentitySection({ matchedTeam, names, onOpenWork
             </span>
             <span className="text-slate-400 text-sm shrink-0">변경 ›</span>
           </button>
+        </div>
+      </div>
+
+      <div className="border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-slate-400 font-black w-12 shrink-0">사용자</span>
+          <div className="flex-1 min-h-[52px] bg-slate-900 border-2 border-slate-700 rounded-xl px-4 flex items-center justify-between gap-2">
+            <span className="font-black text-base text-white">{registeredUserName}</span>
+            <span className="text-xs font-bold text-slate-400 shrink-0">이 기기에 고정</span>
+          </div>
         </div>
       </div>
 

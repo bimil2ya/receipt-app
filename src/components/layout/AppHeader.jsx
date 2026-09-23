@@ -28,17 +28,20 @@ export default function AppHeader({
   onSettingsOpen,
   onTabChange,
 }) {
+  const saveStateLabel = saveStatus === 'saving' ? '저장 중' : saveStatus === 'error' ? '저장 실패' : '저장됨';
+  const syncStateLabel = syncStatus === 'syncing' ? '동기화 중' : syncStatus === 'error' ? '동기화 실패' : '동기화됨';
+
   return (
     <div className="shrink-0 shadow-lg">
       <header className="bg-slate-800 border-b border-slate-700 px-3 py-3 flex items-center justify-between" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <h1 className="text-xl font-black truncate">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
+        <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+          <h1 className="min-w-0 break-words text-xl font-black">{`${names} - ${formatDateKorean(tripStartDate || getToday())}`}</h1>
           <div ref={statusRef} className="flex items-center gap-1 relative">
             <button
               type="button"
               onClick={() => onStatusPopoverChange(statusPopover === 'save' ? null : 'save')}
-              className="flex items-center gap-0.5 shrink-0 active:scale-95 p-2 -m-2"
-              aria-label="저장 상태"
+              className="flex items-center justify-center gap-0.5 shrink-0 active:scale-95 p-2"
+              aria-label={`저장 상태: ${saveStateLabel}`}
             >
               {saveStatus === 'saving' ? (
                 <Loader2 size={14} className="animate-spin text-blue-300" />
@@ -55,8 +58,8 @@ export default function AppHeader({
               <button
                 type="button"
                 onClick={() => onStatusPopoverChange(statusPopover === 'sync' ? null : 'sync')}
-                className="flex items-center gap-0.5 shrink-0 active:scale-95 p-2 -m-2"
-                aria-label="동기화 상태"
+                className="flex items-center justify-center gap-0.5 shrink-0 active:scale-95 p-2"
+                aria-label={`동기화 상태: ${syncStateLabel}`}
               >
                 {syncStatus === 'syncing' ? (
                   <Loader2 size={14} className="animate-spin text-cyan-300" />
@@ -71,7 +74,7 @@ export default function AppHeader({
             )}
 
             {statusPopover && (
-              <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 whitespace-nowrap shadow-2xl">
+              <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] break-words bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 shadow-2xl">
                 {statusPopover === 'save' && (
                   saveStatus === 'saving' ? <span className="font-black text-blue-300">저장 중…</span>
                   : saveStatus === 'error' ? <><span className="font-black text-red-300">저장 실패</span> — 자료관리에서 백업해 보세요</>
@@ -90,6 +93,9 @@ export default function AppHeader({
                 보류 {pendingSyncCount}
               </span>
             )}
+            <div className="sr-only" role="status" aria-live="polite">
+              저장 상태: {saveStateLabel}. {syncStatus !== 'offline' ? `동기화 상태: ${syncStateLabel}.` : '동기화 안 함.'}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -106,7 +112,7 @@ export default function AppHeader({
               ? 'bg-slate-700 text-slate-50 shadow-sm'
               : 'text-slate-500 hover:text-slate-300';
             return (
-              <button key={id} onClick={() => onTabChange(id)} className={`flex-1 py-2.5 text-xs font-bold transition-all rounded-xl flex items-center justify-center gap-1.5 ${tabClass}`}>
+              <button key={id} aria-pressed={isActive} onClick={() => onTabChange(id)} className={`flex-1 min-h-11 py-2.5 text-xs font-bold transition-all rounded-xl flex items-center justify-center gap-1.5 ${tabClass}`}>
                 <Icon size={14} />
                 <span>{label}</span>
               </button>

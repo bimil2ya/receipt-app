@@ -8,10 +8,10 @@ import {
   safeCategory,
   safeDateLabel,
   summaryCategories,
-  summaryNonBudgetCategories,
 } from './summaryUtils';
+import { ReceiptAmountOverflowError } from '../../utils/receiptAmount';
 
-const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate, visible = true, onShareComplete, onCaptureStart, onCaptureEnd, onError }, ref) {
+const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate, visible = true, onShareComplete, onCaptureStart, onCaptureEnd, onError, shareRecipientGuidance = '공유 화면에서 업무에 사용하는 대화방이나 담당자를 선택해 주세요.' }, ref) {
   const [summaryMode, setSummaryMode] = useState('category');
   const [expandedItems, setExpandedItems] = useState([]);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -80,10 +80,10 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
   // 카톡 공유용 — 용도별 + 일자별 합친 이미지 생성
   const prepareKakaoShare = async () => {
     if (!summaryRef.current) return;
-    onCaptureStart?.();
-    setIsCapturing(true);
     const origMode = summaryMode;
     try {
+      await onCaptureStart?.();
+      setIsCapturing(true);
       const html2canvas = (await import('html2canvas')).default;
 
       // 용도별 캡처
@@ -170,9 +170,18 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
     }
   };
 
-  const grandTotal = getReceiptGrandTotal(receipts);
-  const categorySummary = buildCategorySummary(receipts);
-  const dateSummary = buildDateSummary(receipts);
+  let grandTotal;
+  let categorySummary;
+  let dateSummary;
+  let summaryError = null;
+  try {
+    grandTotal = getReceiptGrandTotal(receipts);
+    categorySummary = buildCategorySummary(receipts);
+    dateSummary = buildDateSummary(receipts);
+  } catch (error) {
+    if (!(error instanceof ReceiptAmountOverflowError)) throw error;
+    summaryError = error;
+  }
   const categoryTabClass = summaryMode === 'category' ? 'bg-blue-600 text-white' : 'text-slate-200';
   const dateTabClass = summaryMode === 'date' ? 'bg-blue-600 text-white' : 'text-slate-200';
 
@@ -180,26 +189,35 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
     return <div ref={summaryRef} className="fixed left-[-200vw] top-0 w-screen pointer-events-none" aria-hidden="true" />;
   }
 
+  if (summaryError) {
+    return (
+      <div className="receipt-summary rounded-2xl border border-red-500/60 bg-red-950/40 p-4" role="alert">
+        <p className="font-black text-red-100">집계 금액을 정확하게 표시할 수 없습니다.</p>
+        <p className="mt-2 text-sm font-bold text-red-200">합계가 이 기기에서 안전하게 계산할 수 있는 범위를 넘었습니다. 금액을 나누어 확인한 뒤 다시 집계해 주세요.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="receipt-summary space-y-3">
       {/* 탭 + 버튼 행 */}
-      <div className="flex justify-between items-center gap-2 px-1">
-        <div className="flex bg-slate-800 rounded-xl p-1 gap-1 shrink-0">
-          <button onClick={() => setSummaryMode('category')} className={`px-4 py-3 rounded-lg text-sm font-black transition-all ${categoryTabClass}`}>용도별</button>
-          <button onClick={() => setSummaryMode('date')} className={`px-4 py-3 rounded-lg text-sm font-black transition-all ${dateTabClass}`}>일자별</button>
+      <div className="flex flex-col gap-2 px-1 min-[390px]:flex-row min-[390px]:items-center min-[390px]:justify-between">
+        <div className="grid grid-cols-2 bg-slate-800 rounded-xl p-1 gap-1 min-[390px]:flex min-[390px]:shrink-0">
+          <button aria-pressed={summaryMode === 'category'} onClick={() => setSummaryMode('category')} className={`min-h-11 px-3 py-2.5 rounded-lg text-sm font-black transition-all ${categoryTabClass}`}>용도별</button>
+          <button aria-pressed={summaryMode === 'date'} onClick={() => setSummaryMode('date')} className={`min-h-11 px-3 py-2.5 rounded-lg text-sm font-black transition-all ${dateTabClass}`}>일자별</button>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 min-[390px]:flex">
           <button
             onClick={captureImage}
             disabled={isCapturing}
-            className="bg-green-600 px-3 py-3 rounded-xl text-sm font-black disabled:opacity-50 whitespace-nowrap"
+            className="min-h-11 bg-green-600 px-3 py-2.5 rounded-xl text-sm font-black disabled:opacity-50 whitespace-nowrap"
           >
             📸 저장
           </button>
           <button
             onClick={prepareKakaoShare}
             disabled={isCapturing}
-            className="bg-yellow-500 px-3 py-3 rounded-xl text-sm font-black text-slate-900 disabled:opacity-50 whitespace-nowrap"
+            className="min-h-11 bg-yellow-500 px-3 py-2.5 rounded-xl text-sm font-black text-slate-900 disabled:opacity-50 whitespace-nowrap"
           >
             {isCapturing ? '준비중…' : '💬 카톡'}
           </button>
@@ -210,7 +228,7 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
       <div ref={summaryRef} className="bg-slate-900 rounded-2xl p-5 border-2 border-slate-800 space-y-5">
         <div className="text-center pb-4 border-b border-slate-800">
           <p className="text-slate-400 text-sm mb-1 font-black">(주)미래생태공간</p>
-          <h3 className="text-2xl font-black text-slate-50">{names}</h3>
+          <h3 className="break-words text-2xl font-black text-slate-50">{names}</h3>
           <p className="text-slate-300 text-sm mt-1 font-medium">{reportDate ? formatDateKorean(reportDate) : formatDateKorean(getToday())} 기준</p>
         </div>
 
@@ -223,15 +241,15 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
                   const isExp = isCapturing || expandedItems.includes(key);
                   return (
                     <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                      <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
-                        <span className="font-black text-slate-100 text-lg">{category}</span>
-                        <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
+                      <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full min-w-0 justify-between items-center gap-3 p-4 text-left min-h-[44px]">
+                        <span className="min-w-0 break-words font-black text-slate-100 text-lg">{category}</span>
+                        <span className="shrink-0 font-black text-white text-xl">{formatCurrency(total)}</span>
                       </button>
                       {isExp && (
                         <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                           {items.map(r => (
-                            <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                              <span className="text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
+                            <div key={r.id} className="flex min-w-0 justify-between items-start gap-3 text-sm">
+                              <span className="min-w-0 break-words text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
                               <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                             </div>
                           ))}
@@ -247,20 +265,20 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
                 </div>
               )}
               {categorySummary.sections
-                .filter(({ category }) => summaryNonBudgetCategories.includes(category))
+                .filter(({ category }) => !summaryCategories.includes(category))
                 .map(({ key, category, total, items }) => {
                 const isExp = isCapturing || expandedItems.includes(key);
                 return (
                   <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
-                      <span className="font-black text-slate-100 text-lg">{category}</span>
-                      <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
+                    <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full min-w-0 justify-between items-center gap-3 p-4 text-left min-h-[44px]">
+                      <span className="min-w-0 break-words font-black text-slate-100 text-lg">{category}</span>
+                      <span className="shrink-0 font-black text-white text-xl">{formatCurrency(total)}</span>
                     </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {items.map(r => (
-                          <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                            <span className="text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
+                          <div key={r.id} className="flex min-w-0 justify-between items-start gap-3 text-sm">
+                            <span className="min-w-0 break-words text-slate-300 font-bold leading-6">{safeDateLabel(r.date)} {decodeHtmlEntities(r.storeName) || '사용처 없음'}</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                           </div>
                         ))}
@@ -276,15 +294,15 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
                 const isExp = isCapturing || expandedItems.includes(key);
                 return (
                   <div key={key} className="bg-slate-800/50 border-2 border-slate-700/70 rounded-2xl overflow-hidden">
-                    <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full justify-between items-center p-4 text-left min-h-[44px]">
-                      <span className="font-black text-slate-100 text-lg">{displayDate || safeDateLabel(date)}</span>
-                      <span className="font-black text-white text-xl">{formatCurrency(total)}</span>
+                  <button type="button" onClick={() => toggleExpand(key)} aria-expanded={isExp} className="flex w-full min-w-0 justify-between items-center gap-3 p-4 text-left min-h-[44px]">
+                    <span className="min-w-0 break-words font-black text-slate-100 text-lg">{displayDate || safeDateLabel(date)}</span>
+                    <span className="shrink-0 font-black text-white text-xl">{formatCurrency(total)}</span>
                     </button>
                     {isExp && (
                       <div className="px-4 pb-4 space-y-3 border-t border-slate-700/50 pt-3 bg-slate-900/30">
                         {items.map(r => (
-                          <div key={r.id} className="flex justify-between items-start gap-3 text-sm">
-                            <span className="text-slate-300 font-bold leading-6">{decodeHtmlEntities(r.storeName) || '사용처 없음'} ({safeCategory(r.category)})</span>
+                        <div key={r.id} className="flex min-w-0 justify-between items-start gap-3 text-sm">
+                          <span className="min-w-0 break-words text-slate-300 font-bold leading-6">{decodeHtmlEntities(r.storeName) || '사용처 없음'} ({safeCategory(r.category)})</span>
                             <span className="text-slate-100 font-black whitespace-nowrap">{formatCurrency(r.totalAmount)}</span>
                           </div>
                         ))}
@@ -297,9 +315,9 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
           )}
         </div>
 
-        <div className="border-t-2 border-slate-700 pt-5 pb-1 flex justify-between items-center px-1">
+        <div className="border-t-2 border-slate-700 pt-5 pb-1 flex min-w-0 justify-between items-end gap-3 px-1">
           <span className="text-slate-100 font-black text-lg">총 합계</span>
-          <span className="text-3xl font-black text-green-400">{formatCurrency(grandTotal)}</span>
+          <span className="shrink-0 text-right text-2xl font-black text-green-400 min-[390px]:text-3xl">{formatCurrency(grandTotal)}</span>
         </div>
       </div>
 
@@ -310,9 +328,7 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
             <p className="text-white font-black text-lg text-center">💬 카카오톡으로 전송</p>
             <div className="bg-yellow-500/10 border border-yellow-500/40 rounded-2xl p-4">
               <p className="text-yellow-200 font-bold text-sm text-center leading-7">
-                공유 화면에서 <span className="text-white font-black">카카오톡</span>을 선택한 후<br />
-                <span className="text-white font-black">단체톡방(2026년 산림물지도 제작)</span>에서<br />
-                <span className="text-yellow-300 font-black">유수림씨</span>를 선택하세요
+                {shareRecipientGuidance}
               </p>
             </div>
             <p className="text-slate-500 text-xs text-center">용도별 + 일자별 집계가 한 장 이미지로 전송됩니다</p>

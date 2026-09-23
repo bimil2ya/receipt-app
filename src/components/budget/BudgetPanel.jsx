@@ -8,22 +8,26 @@ export default function BudgetPanel({
   remainingBudget,
   fuelTotal,
   medTotal,
+  amountOverflow = false,
   showDetails,
   onToggleDetails,
 }) {
+  if (amountOverflow) {
+    return <div className="rounded-2xl border border-red-500/60 bg-red-950/40 p-4 text-sm font-bold text-red-100" role="alert">집계 금액이 안전한 정수 범위를 넘었습니다. 정확한 금액을 표시하지 않았습니다.</div>;
+  }
   const isOver = remainingBudget < 0;
   const overAmount = Math.abs(remainingBudget);
 
   return (
-    <div className={`border rounded-2xl p-3.5 shadow-md ${isOver ? 'bg-red-950/40 border-red-700/60' : 'bg-slate-800 border-slate-700'}`}>
-      <div className="flex justify-between items-end mb-1.5 gap-2">
+    <div className={`receipt-budget border rounded-2xl p-3.5 shadow-md ${isOver ? 'bg-red-950/40 border-red-700/60' : 'bg-slate-800 border-slate-700'}`}>
+      <div className="flex flex-col items-start justify-between gap-1.5 mb-1.5 min-[390px]:flex-row min-[390px]:items-end">
         <div className="flex flex-col min-w-0">
           <span className={`text-base font-black whitespace-nowrap ${isOver ? 'text-red-300' : 'text-slate-200'}`}>
             {isOver ? '⚠️ 예산 초과' : '남은 예산'}
           </span>
           <span className="text-xs text-blue-300 font-bold whitespace-nowrap">유류비·의료비등 제외</span>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0 shrink-0">
           {isOver ? (
             <span className="text-xl font-black whitespace-nowrap text-red-400">
               -{formatCurrency(overAmount)}
@@ -34,15 +38,15 @@ export default function BudgetPanel({
           <span className="text-xs text-slate-400 whitespace-nowrap">/ {formatCurrency(weeklyBudget)}</span>
         </div>
       </div>
-      <div className="flex items-start justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">
-        <div className="flex flex-col">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-start gap-2 rounded-xl border border-slate-700 bg-slate-900/50 px-3 py-2.5">
+        <div className="min-w-0 flex flex-col">
           <span className="text-sm font-black text-slate-300">총예산</span>
-          <span className="text-base font-black text-slate-100">{formatCurrency(weeklyBudget)}</span>
+          <span className="break-all text-base font-black text-slate-100">{formatCurrency(weeklyBudget)}</span>
         </div>
-        <div className="flex flex-col items-end">
+        <div className="min-w-0 flex flex-col items-end">
           <span className="text-sm font-black text-slate-300">사용액</span>
           <span className={`text-base font-black ${isOver ? 'text-red-300' : 'text-blue-300'}`}>
-            {formatCurrency(budgetTotal)}
+            <span className="break-all text-right">{formatCurrency(budgetTotal)}</span>
           </span>
         </div>
         <button

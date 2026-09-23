@@ -33,6 +33,9 @@ import {
   safeText,
   shorten,
 } from './_uploadUtils.js';
+// Draft backup (Step 2B)
+import { buildDraftBackupUpsert, prepareDraftBackupImageSnapshot } from './draftBackupOutbox.js';
+import { getOrCreateDeviceId } from '../src/utils/storage.js';
 
 // 정산서 PDF 조립은 이 프로젝트에서 가장 무거운 엔드포인트다(청크 다운로드 전량 + 최종 PDF 업로드).
 export const config = { maxDuration: 60 };
@@ -86,6 +89,85 @@ function validateFinalSubmissionRequest(body) {
     throw error;
   }
   // 기존 검증은 handler 내에서 계속 진행
+}
+
+/**
+ * Draft backup 요청 처리 (Step 2B)
+ * receiptSummary → operation 빌드
+ * 클라이언트가 IndexedDB에 저장
+ */
+async function handleDraftBackupRequest(reqBody) {
+  const {
+    receiptSummary,
+    images = [],
+    surveyorName = '',
+    teamId = null,
+    teamNames = [],
+  } = reqBody;
+
+  // 1. receiptSummary → receipt 객체로 변환
+  const receipt = {
+    id: receiptSummary?.receiptId || crypto.randomUUID(),
+    ...receiptSummary,
+    surveyorName,
+    teamAssignmentId: teamId,
+    teamAssignmentName: teamNames[0] || '',
+    updatedAt: new Date().toISOString(),
+    status: 'draft',
+    backupRevision: 1,
+  };
+
+  // 2. 첫 번째 이미지만 snapshot으로 준비
+  let imageSnapshot = null;
+  if (images?.length > 0) {
+    const firstImage = images[0];
+    // dataUrl 또는 base64 string → Blob 변환
+    let blob;
+    if (typeof firstImage.dataUrl === 'string') {
+      blob = dataUrlToBlob(firstImage.dataUrl);
+    } else {
+      blob = firstImage.dataUrl; // 이미 Blob이면 그대로 사용
+    }
+    imageSnapshot = await prepareDraftBackupImageSnapshot(blob);
+  }
+
+  // 3. Draft backup operation 빌드
+  const deviceId = getOrCreateDeviceId();
+  const operation = buildDraftBackupUpsert({
+    receipt,
+    imageSnapshot,
+    deviceId,
+    teamSnapshot: teamId ? { id: teamId, name: teamNames[0] || '' } : null,
+  });
+
+  // 4. 응답 (클라이언트가 IndexedDB에 저장)
+  return {
+    type: 'draft-backup',
+    success: true,
+    operationId: operation.opId,
+    receiptId: receipt.id,
+    backupRevision: receipt.backupRevision,
+    operation,
+  };
+}
+
+/**
+ * Data URL (또는 base64 string)을 Blob으로 변환
+ * 예: "data:image/jpeg;base64,/9j/4AAQSkZJRgABA..." → Blob
+ */
+function dataUrlToBlob(dataUrl) {
+  // data:image/jpeg;base64,... 형식 또는 그냥 base64 string
+  const parts = dataUrl.split(',');
+  const data = parts.length > 1 ? parts[1] : parts[0];
+  const mimeMatch = dataUrl.match(/^data:([^;]+)/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+
+  const binaryString = atob(data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
 }
 
 function sumSafeAmounts(rows) {
@@ -589,18 +671,13 @@ export default async function handler(req, res) {
     if (isDraftBackup === true) {
       try {
         validateDraftBackupRequest(req.body);
-        // TODO: Step 2B - Draft backup 처리 로직
-        return res.status(501).json({
-          type: 'draft-backup',
-          success: false,
-          error: 'DRAFT_BACKUP_NOT_IMPLEMENTED',
-          message: '초안 백업 기능은 개발 중입니다.',
-        });
+        const result = await handleDraftBackupRequest(req.body);
+        return res.status(200).json(result);
       } catch (err) {
         return jsonError(res, {
           type: 'draft-backup',
           status: 400,
-          error: err.code || 'DRAFT_BACKUP_VALIDATION_FAILED',
+          error: err.code || 'DRAFT_BACKUP_FAILED',
           message: err.message,
         });
       }

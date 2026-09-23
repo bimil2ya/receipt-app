@@ -61,3 +61,34 @@ html, body {
   overflow-x: hidden;
   width: 100%;
 }
+
+/* Reflow long receipt text and full won amounts; never hide their digits. */
+.receipt-summary, .receipt-row, .receipt-budget, [role="dialog"], [role="status"] {
+  overflow-wrap: anywhere;
+}
+.receipt-summary .justify-between,
+.receipt-budget > .flex {
+  flex-wrap: wrap;
+}
+.receipt-summary .justify-between > span,
+.receipt-budget span {
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  flex-shrink: 1;
+}
+.receipt-budget > .flex > div { max-width: 100%; }
+[role="dialog"] input { min-width: 0; max-width: 100%; }
+[role="dialog"] button[aria-label="닫기"] { flex-shrink: 0; }
+button[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 4px; }
+@media (max-width: 768px) {
+  button, input:not([type="hidden"]), select { min-height: 44px; }
+  button { min-width: 44px; }
+  .receipt-row > .grid { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  .receipt-row > .grid > :nth-child(3) { grid-column: 2; justify-content: flex-start; }
+  .receipt-row > .grid > :nth-child(3) span { white-space: normal; }
+  .receipt-row > .grid > :nth-child(4) { grid-column: 1 / -1; flex-wrap: wrap; }
+  .receipt-row .whitespace-nowrap { white-space: normal; }
+  .receipt-row .truncate { white-space: normal; overflow: visible; }
+}

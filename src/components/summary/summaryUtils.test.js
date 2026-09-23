@@ -32,4 +32,29 @@ describe('summary utils', () => {
     expect(safeCategory(undefined)).toBe('기타');
     expect(safeDateLabel('2026-06-28')).toBe('26.06.28');
   });
+
+  it('rejects a total beyond the safe integer range instead of rounding it', () => {
+    const overflow = [{ totalAmount: Number.MAX_SAFE_INTEGER }, { totalAmount: 1 }];
+    expect(() => getReceiptGrandTotal(overflow)).toThrow('안전한 정수 범위');
+    expect(() => buildCategorySummary(overflow)).toThrow('안전한 정수 범위');
+    expect(() => buildDateSummary(overflow)).toThrow('안전한 정수 범위');
+  });
+});
+
+describe('legacy and incomplete receipts remain visible', () => {
+  const receipts = [
+    { id: 'manual', totalAmount: 3000, category: '교통비', date: '' },
+    { id: 'photo', totalAmount: 7000, category: '', date: '2026-09-01', imageId: 'img' },
+    { id: 'legacy', totalAmount: -1000, date: undefined },
+  ];
+  it('includes every receipt exactly once in both modes without changing stored data', () => {
+    const before = JSON.stringify(receipts);
+    for (const groups of [buildCategorySummary(receipts).sections, buildDateSummary(receipts)]) {
+      expect(groups.flatMap(group => group.items.map(item => item.id)).sort()).toEqual(['legacy', 'manual', 'photo']);
+      expect(groups.reduce((sum, group) => sum + group.total, 0)).toBe(getReceiptGrandTotal(receipts));
+    }
+    expect(JSON.stringify(receipts)).toBe(before);
+    expect(buildDateSummary(receipts).at(-1).displayDate).toBe('날짜 없음');
+    expect(buildCategorySummary(receipts).sections.map(group => group.category)).toContain('교통비');
+  });
 });

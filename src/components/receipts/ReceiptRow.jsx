@@ -18,7 +18,7 @@ function isDateOutOfRange(date, tripStartDate, tripEndDate) {
   return d < s || d > e;
 }
 
-function ReceiptRow({ receipt, isSelected, isNew, onEdit, onViewImage, onDelete, rowIndex = 0, tripStartDate, tripEndDate }) {
+function ReceiptRow({ receipt, officeReview, isSelected, isNew, onEdit, onViewImage, onDelete, onAddSupportingMaterial, rowIndex = 0, tripStartDate, tripEndDate }) {
   const category = receipt.category || '기타';
   const cs = CAT_STYLE[category] || CAT_STYLE['기타'];
   const zebra = rowIndex % 2 === 0 ? 'bg-white/[0.03]' : 'bg-white/[0.12]';
@@ -29,7 +29,7 @@ function ReceiptRow({ receipt, isSelected, isNew, onEdit, onViewImage, onDelete,
   return (
     <div
       id={`receipt-row-${receipt.id}`}
-      className={`active:bg-slate-700/30 select-none transition-colors px-4 py-2 ${
+      className={`receipt-row active:bg-slate-700/30 select-none transition-colors px-4 py-2 ${
         isNew ? 'bg-emerald-500/10 border-l-4 border-emerald-400' :
         isSelected ? 'bg-blue-500/10' : zebra
       }`}
@@ -54,6 +54,16 @@ function ReceiptRow({ receipt, isSelected, isNew, onEdit, onViewImage, onDelete,
           {receipt.note && (
             <span className="text-sm text-slate-400 truncate block mt-0.5 leading-tight">{decodeHtmlEntities(receipt.note)}</span>
           )}
+          {officeReview && (
+            <div className="mt-1 rounded-lg border border-blue-500/45 bg-blue-950/30 px-2 py-1 text-[10px] font-bold text-blue-100">
+              <span className="font-black text-blue-200">담당자 검토{officeReview['검토 상태'] ? ` · ${officeReview['검토 상태']}` : ''}</span>
+              {officeReview['담당자 메모'] && <span className="block mt-0.5 whitespace-pre-wrap">{officeReview['담당자 메모']}</span>}
+              {officeReview['추가 자료 요청'] && <span className="block mt-0.5 text-amber-200">추가 자료: {officeReview['추가 자료 요청']}</span>}
+              {officeReview['추가 자료 요청'] && <button type="button" onClick={() => onAddSupportingMaterial?.(receipt.id)} className="mt-1 min-h-8 rounded-lg border border-amber-400/60 px-2 text-[10px] font-black text-amber-100">요청 자료 사진 추가</button>}
+              {officeReview['추가 자료 요청'] && <button type="button" onClick={() => onAddSupportingMaterial?.(receipt.id, 'manual')} className="ml-1 mt-1 min-h-8 rounded-lg border border-slate-500/70 px-2 text-[10px] font-black text-slate-200">요청 자료 직접입력</button>}
+            </div>
+          )}
+          {Number(receipt.revision) > 1 && <span className="mt-1 block text-[10px] font-bold text-slate-400">수정 버전 {receipt.revision}</span>}
         </div>
 
         {/* 용도 */}
@@ -78,21 +88,21 @@ function ReceiptRow({ receipt, isSelected, isNew, onEdit, onViewImage, onDelete,
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               onClick={() => onDelete(receipt.id)}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-amber-300"
+              className="w-11 h-11 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-amber-300"
               aria-label="삭제"
             >
               <Trash2 size={12} />
             </button>
             <button
               onClick={() => onEdit(receipt.id, 'detail')}
-              className="w-10 h-10 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-slate-300"
+              className="w-11 h-11 flex items-center justify-center rounded-xl border bg-slate-800 border-slate-700 text-slate-300"
               aria-label="수정"
             >
               <Pencil size={12} />
             </button>
             <button
               onClick={() => onViewImage(receipt.id)}
-              className={`w-10 h-10 flex items-center justify-center rounded-xl border ${isSelected ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+              className={`w-11 h-11 flex items-center justify-center rounded-xl border ${isSelected ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
               aria-label="이미지 보기"
             >
               <ImageIcon size={12} />

@@ -74,6 +74,17 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
   }
 
   return (
+    <>
+    <div className="space-y-3 min-[480px]:hidden">
+      <label className="block">출장 시작일
+        <input className="block w-full rounded-xl bg-slate-900 p-3" type="date" value={startDate} onChange={e => onChange(e.target.value, endDate && endDate >= e.target.value ? endDate : '')} />
+      </label>
+      <label className="block">출장 종료일
+        <input className="block w-full rounded-xl bg-slate-900 p-3" type="date" min={startDate} value={endDate} onChange={e => onChange(startDate, e.target.value)} />
+      </label>
+      <p className="text-sm">{hint.text}</p>
+    </div>
+    <div className="hidden min-[480px]:block">
     <div className="bg-slate-900 rounded-2xl border border-slate-700 p-3">
       {/* 안내 텍스트 */}
       <p className={`text-sm font-bold mb-2 text-center ${hint.color}`}>{hint.text}</p>
@@ -82,6 +93,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
       <div className="flex items-center justify-between mb-2 px-1">
         <button
           onClick={prevMonth}
+          aria-label="이전 달"
           className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
         >‹</button>
         <span className="text-lg font-black text-white">
@@ -89,6 +101,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
         </span>
         <button
           onClick={nextMonth}
+          aria-label="다음 달"
           className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 text-slate-200 font-black active:scale-95"
         >›</button>
       </div>
@@ -139,12 +152,14 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
           return (
             <div
               key={day}
-              className={`relative h-9 flex items-center justify-center ${cellBg}`}
+              className={`relative min-h-11 flex items-center justify-center ${cellBg}`}
             >
               {halfRangeBg && <div className={`absolute top-0 bottom-0 ${halfRangeBg}`} />}
               <button
                 onClick={() => handleDayClick(dateStr)}
-                className={`relative w-9 h-9 flex flex-col items-center justify-center text-sm font-bold ${circleStyle} ${!circleStyle ? textColor : ''}`}
+                aria-label={dateStr}
+                aria-pressed={Boolean(isStart || isEnd || isInRange)}
+                className={`relative w-11 h-11 flex flex-col items-center justify-center text-sm font-bold ${circleStyle} ${!circleStyle ? textColor : ''}`}
               >
                 <span>{day}</span>
                 {isToday && !isStart && !isEnd && (
@@ -156,5 +171,7 @@ export default function DateRangePicker({ startDate, endDate, onChange }) {
         })}
       </div>
     </div>
+    </div>
+    </>
   );
 }

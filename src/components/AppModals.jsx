@@ -34,6 +34,8 @@ export default function AppModals({
   onCloseWorkerPicker,
   isOnboarding,
   editState,
+  editErrors,
+  editAmountRef,
   categories,
   onEditChange,
   onEditClose,
@@ -46,7 +48,9 @@ export default function AppModals({
   onCloseDuplicateReport,
   showManualModal,
   manualReceipt,
+  manualErrors,
   manualStoreRef,
+  manualAmountRef,
   onManualChange,
   onManualClose,
   onManualSubmit,
@@ -98,6 +102,8 @@ export default function AppModals({
 
       <ReceiptEditModal
         editState={editState}
+        errors={editErrors}
+        amountRef={editAmountRef}
         categories={categories}
         onChange={onEditChange}
         onClose={onEditClose}
@@ -119,8 +125,10 @@ export default function AppModals({
       <ManualReceiptModal
         show={showManualModal}
         value={manualReceipt}
+        errors={manualErrors}
         categories={categories}
         initialFocusRef={manualStoreRef}
+        amountRef={manualAmountRef}
         onChange={onManualChange}
         onClose={onManualClose}
         onSubmit={onManualSubmit}
