@@ -51,37 +51,10 @@ export default function useReceipts() {
     resetSyncQueue,
   });
 
-  // Draft backup transport: operation을 서버로 전송
-  // operation은 이미 클라이언트/서버가 합의한 구조 (opId, receiptId, backupRevision 등)
-  const draftBackupTransport = useCallback(async (operation) => {
-    try {
-      const response = await fetch('/api/upload?isDraftBackup=sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          isDraftBackup: 'sync',
-          operation,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(`Draft backup sync failed: ${error.error || response.statusText}`);
-      }
-
-      return await response.json();
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('[useReceipts] Draft backup transport failed:', err);
-      throw err;
-    }
-  }, []);
-
-  // 초안 백업 worker - Step 4 활성화
-  // enabled: true - worker가 operation을 drain하고 transport로 전송
-  // transport: draftBackupTransport - operation을 서버로 전송
+  // 초안 백업 worker - enabled: false (향후 자동 저장 기능에서 활용)
   const draftBackupWorker = useDraftBackupWorker({
-    enabled: true,
-    transport: draftBackupTransport,
+    enabled: false,
+    transport: undefined,
   });
 
   // saveReceipts/deleteReceipt 완료 후 자동으로 draft backup drain
