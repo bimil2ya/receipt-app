@@ -683,6 +683,37 @@ export default async function handler(req, res) {
       }
     }
 
+    // ── Draft Backup 동기화 (Step 3)
+    // Worker가 offline에서 작성한 operation을 다시 전송
+    if (isDraftBackup === 'sync') {
+      try {
+        const { operation } = req.body;
+        if (!operation?.opId || !operation?.receiptId || !operation?.backupRevision) {
+          const error = new Error('operation이 유효하지 않습니다.');
+          error.code = 'DRAFT_SYNC_INVALID_OPERATION';
+          throw error;
+        }
+
+        // TODO: Step 3 - Draft backup 동기화 처리
+        // - operation 검증
+        // - Google Drive에 저장 또는 업데이트
+        // - 응답 반환
+        return res.status(501).json({
+          type: 'draft-backup-sync',
+          success: false,
+          error: 'DRAFT_SYNC_NOT_IMPLEMENTED',
+          message: 'Draft backup 동기화는 개발 중입니다.',
+        });
+      } catch (err) {
+        return jsonError(res, {
+          type: 'draft-backup-sync',
+          status: 400,
+          error: err.code || 'DRAFT_SYNC_FAILED',
+          message: err.message,
+        });
+      }
+    }
+
     // ── Final Submission 요청 (기존 로직)
     validateFinalSubmissionRequest(req.body);
 
