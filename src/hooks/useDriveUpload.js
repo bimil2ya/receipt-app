@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { decodeHtmlEntities, getToday } from '../utils/formatter';
 import { ReceiptAmountOverflowError, sumReceiptAmounts } from '../utils/receiptAmount';
 import { readTeamAssignmentHistory } from '../utils/teamAssignmentHistory';
+import { getFixedUserName, getOrCreateDeviceId } from '../utils/deviceIdentity';
 import { buildImageArtifactContract, buildPdfArtifactContract } from '../utils/submissionArtifactContract';
 import { deleteSubmissionPdfArtifact, readSubmissionPdfArtifact, saveSubmissionPdfArtifact } from '../utils/submissionArtifactCache';
 import {
@@ -520,6 +521,8 @@ export default function useDriveUpload({
       };
 
       const authHeaders = { 'Content-Type': 'application/json' };
+      // 같은 조원이 각자 폰으로 제출해도 서로의 명세를 덮지 않도록 제출 기기를 알린다.
+      const submitter = { submitterName: getFixedUserName(), submitterDeviceId: getOrCreateDeviceId() };
 
       // ── 1. 엑셀 명세서 (서버가 이 요청에서 전체집계 재생성 + 카카오 알림)
       let xlsxData = {};
@@ -528,7 +531,7 @@ export default function useDriveUpload({
         const xlsxRes = await fetchWithTimeout('/api/upload', {
           method: 'POST',
           headers: authHeaders,
-          body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary, expected, submissionId: submissionAttempt.submissionId, submissionKind: 'final', ...uploadContext }),
+          body: JSON.stringify({ surveyorName, reportDate: tripStartDate || getToday(), xlsxBase64, isImageOnly: false, receiptSummary, expected, submissionId: submissionAttempt.submissionId, submissionKind: 'final', ...uploadContext, ...submitter }),
         }, 60_000);
         if (!xlsxRes.ok) {
           console.warn('명세 업로드 실패:', xlsxRes.status);
@@ -596,6 +599,7 @@ export default function useDriveUpload({
               submissionId: submissionAttempt.submissionId,
               submissionKind: 'final',
               ...uploadContext,
+              ...submitter,
             }),
           }, isLast ? 120_000 : 60_000);
 

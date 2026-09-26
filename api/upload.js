@@ -57,6 +57,7 @@ function readReceiptRowsFromXlsx(buffer) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   return rows.map((row) => ({
+    id: safeText(row['영수증식별값']),
     date: safeText(row['날짜']),
     useTime: safeText(row['사용시간']),
     storeName: safeText(row['사용처']),
@@ -109,7 +110,7 @@ export function preflightXlsxSubmission({ xlsxBase64 }) {
   }
 }
 
-function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, imageCount }) {
+function buildReceiptKakaoMessages({ fileName, surveyorName, submitterName = '', mmdd, hhmm, rows, imageCount }) {
   const totalAmount = sumSafeAmounts(rows);
   const categoryTotals = rows.reduce((acc, row) => {
     const category = row.category || '기타';
@@ -121,6 +122,7 @@ function buildReceiptKakaoMessages({ fileName, surveyorName, mmdd, hhmm, rows, i
     '📤 Drive 업로드',
     `파일: ${fileName}`,
     `작업자: ${surveyorName}`,
+    ...(submitterName ? [`제출자: ${submitterName}`] : []),
     `${mmdd} ${hhmm} KST`,
     `합계: ${rows.length}건 / ${formatWon(totalAmount)}`,
   ];
@@ -210,6 +212,25 @@ const FINAL_XLSX_PROPERTIES = Object.freeze({
   submissionKind: 'receiptSubmissionKind',
   sha256: 'receiptXlsxSha256',
 })
+
+// 같은 조원이 각자 폰으로 제출하므로, 출장(주) 폴더에는 기기별 최신 XLSX가 하나씩 남는다.
+// 이 속성으로 "같은 기기의 이전 제출분"만 골라 보관한다.
+const SUBMITTER_DEVICE_PROPERTY = 'receiptSubmitterDevice'
+const SUBMITTER_DEVICE_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+export function isValidSubmitterDeviceId(value) {
+  return typeof value === 'string' && SUBMITTER_DEVICE_RE.test(value)
+}
+
+export function isValidSubmitterName(value) {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 40
+    && !/[\\/:*?"<>|]/.test(value) && !hasControlChars(value)
+}
+
+// 파일 이름에 붙일 제출자 표시. 없으면 예전 이름 규칙을 그대로 쓴다.
+export function submitterFileLabel(submitterName) {
+  return isValidSubmitterName(submitterName) ? `_${submitterName.trim()}` : ''
+}
 
 export function buildFinalXlsxAppProperties({ submissionId, sha256 }) {
   return {
@@ -339,11 +360,14 @@ export async function findFinalXlsxEvidence(drive, { weekId, submissionId, sha25
   return verified[0] || null
 }
 
-async function createFinalXlsxEvidence(drive, { buffer, fileName, weekId, submissionId, sha256 }) {
+async function createFinalXlsxEvidence(drive, { buffer, fileName, weekId, submissionId, sha256, submitterDeviceId = '' }) {
   const expectedProperties = buildFinalXlsxAppProperties({ submissionId, sha256 })
   const md5 = md5ForBuffer(buffer)
+  const appProperties = submitterDeviceId
+    ? { ...expectedProperties, [SUBMITTER_DEVICE_PROPERTY]: submitterDeviceId }
+    : expectedProperties
   const created = await drive.files.create({
-    requestBody: { name: fileName, parents: [weekId], appProperties: expectedProperties },
+    requestBody: { name: fileName, parents: [weekId], appProperties },
     media: { mimeType: FINAL_XLSX_MIME, body: Readable.from(buffer) },
     fields: 'id,name,mimeType,parents,appProperties',
   })
@@ -419,21 +443,56 @@ async function verifyCompletedReplayEvidence(drive, { job, weekId, monthId, subm
   }
 }
 
-async function archivePreviousXlsxFiles(drive, weekId, archiveId, newFileId) {
+async function listActiveWeekXlsx(drive, weekId) {
   const files = []
   let pageToken
   do {
-    const oldFiles = await drive.files.list({
+    const response = await drive.files.list({
       q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-      fields: 'nextPageToken,files(id,name)',
+      fields: 'nextPageToken,files(id,name,appProperties)',
       pageSize: 1000,
       pageToken,
     })
-    files.push(...(oldFiles.data.files || []))
-    pageToken = oldFiles.data.nextPageToken
+    files.push(...(response.data.files || []))
+    pageToken = response.data.nextPageToken
   } while (pageToken)
+  return files
+}
+
+async function readXlsxReceiptIds(drive, fileId, newFileId) {
+  try {
+    const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'arraybuffer' })
+    return new Set(readReceiptRowsFromXlsx(Buffer.from(res.data)).map(row => row.id).filter(Boolean))
+  } catch (cause) {
+    const error = new Error('기존 XLSX의 제출자를 확인하지 못해 월집계를 중단했습니다.')
+    error.code = 'XLSX_ARCHIVE_UNCONFIRMED'
+    error.details = { uploadedXlsxId: newFileId, unreadableFileId: fileId, cause: cause?.message || String(cause) }
+    throw error
+  }
+}
+
+// 새 XLSX가 대체하는 파일인가:
+// - 같은 기기가 올린 파일 → 대체(이전 제출분)
+// - 다른 기기로 표시된 파일 → 다른 조원 제출분이므로 유지
+// - 기기 표시가 없는 파일(업데이트 전 앱·이전 형식) → 같은 영수증을 담고 있을 때만 대체
+async function isSupersededXlsx(drive, file, { newFileId, submitterDeviceId, newReceiptIds }) {
+  const device = file.appProperties?.[SUBMITTER_DEVICE_PROPERTY] || ''
+  if (submitterDeviceId && device) return device === submitterDeviceId
+  if (device && !submitterDeviceId) return false
+  const ids = await readXlsxReceiptIds(drive, file.id, newFileId)
+  return [...ids].some(id => newReceiptIds.has(id))
+}
+
+async function archivePreviousXlsxFiles(drive, weekId, archiveId, newFileId, { submitterDeviceId = '', newReceiptIds = [] } = {}) {
+  const files = await listActiveWeekXlsx(drive, weekId)
+  const receiptIds = new Set(newReceiptIds)
+  const keptIds = []
   for (const file of files) {
     if (file.id === newFileId) continue
+    if (!await isSupersededXlsx(drive, file, { newFileId, submitterDeviceId, newReceiptIds: receiptIds })) {
+      keptIds.push(file.id)
+      continue
+    }
     let moved
     try {
       moved = await moveFileToParent(drive, file.id, weekId, archiveId)
@@ -451,25 +510,17 @@ async function archivePreviousXlsxFiles(drive, weekId, archiveId, newFileId) {
       throw error
     }
   }
+  return keptIds
 }
 
-async function assertOnlyUploadedXlsxIsActive(drive, weekId, newFileId) {
-  const activeIds = []
-  let pageToken
-  do {
-    const response = await drive.files.list({
-      q: `'${weekId}' in parents and name contains '출장비' and name contains '.xlsx' and trashed = false`,
-      fields: 'nextPageToken,files(id,name)',
-      pageSize: 1000,
-      pageToken,
-    })
-    activeIds.push(...(response.data.files || []).map(file => file.id))
-    pageToken = response.data.nextPageToken
-  } while (pageToken)
-  if (activeIds.length !== 1 || activeIds[0] !== newFileId) {
+// 보관 직후 활성 XLSX가 정확히 "새 파일 + 유지하기로 한 다른 조원 파일"인지 확인한다.
+async function assertOnlyUploadedXlsxIsActive(drive, weekId, newFileId, keptIds = []) {
+  const activeIds = (await listActiveWeekXlsx(drive, weekId)).map(file => file.id)
+  const expected = new Set([newFileId, ...keptIds])
+  if (activeIds.length !== expected.size || !activeIds.every(id => expected.has(id))) {
     const error = new Error('월집계 직전 활성 XLSX가 변경되어 집계를 중단했습니다.')
     error.code = 'XLSX_SOURCE_SET_CHANGED'
-    error.details = { uploadedXlsxId: newFileId, activeXlsxIds: activeIds }
+    error.details = { uploadedXlsxId: newFileId, expectedXlsxIds: [...expected], activeXlsxIds: activeIds }
     throw error
   }
 }
@@ -553,6 +604,9 @@ export default async function handler(req, res) {
       submissionId, submissionKind, expected,
       isFinalizeOnly,
     } = req.body;
+    // 부가 정보라서 형식이 맞지 않으면 제출을 막지 않고 이전 방식(표시 없음)으로 처리한다.
+    const submitterName = isValidSubmitterName(req.body?.submitterName) ? req.body.submitterName.trim() : '';
+    const submitterDeviceId = isValidSubmitterDeviceId(req.body?.submitterDeviceId) ? req.body.submitterDeviceId : '';
 
     // Finalization is read-only with respect to Drive. Reject mixed payloads
     // before the default XLSX branch can reserve or mutate anything.
@@ -824,7 +878,7 @@ export default async function handler(req, res) {
         if (data?.id !== fileId || data.trashed !== false || data.mimeType !== 'application/vnd.google-apps.folder'
           || data.parents?.length !== 1 || data.parents[0] !== parentId) throw new Error('PDF_DESTINATION_CONFLICT');
       }
-      const pdfName = `정산서_${surveyorName}_${weekFolderName}.pdf`;
+      const pdfName = `정산서_${surveyorName}_${weekFolderName}${submitterFileLabel(submitterName)}.pdf`;
       const result = await processPdfEvidence(drive, {
         submissionId, expected: job.expected.pdf, chunkIndex, buffer: pdfChunkBuffer, weekId, pdfName, assertOwned,
         expectedFileId: job.artifacts?.pdf?.fileId,
@@ -899,7 +953,7 @@ export default async function handler(req, res) {
       // ── XLSX 업로드
       const { buffer: xlsxBuffer, rows: parsedRows, receiptDuplicateReport } = xlsxPreflight;
 
-      const xlsxName   = `출장비_${today}.xlsx`;
+      const xlsxName   = `출장비_${today}${submitterFileLabel(submitterName)}.xlsx`;
 
       const xlsxResult = await resolveFinalXlsxEvidence(drive, {
         buffer: xlsxBuffer,
@@ -907,6 +961,7 @@ export default async function handler(req, res) {
         weekId,
         submissionId,
         sha256: xlsxPreflight.sha256,
+        submitterDeviceId,
       });
 
       // 새 증거가 읽기 확인된 뒤에만 기존 person 루트 자료를 보관한다.
@@ -915,9 +970,13 @@ export default async function handler(req, res) {
         await archiveLegacyPersonRootItems(drive, { personId, weekId, archiveId });
       }
 
-      // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일은 보관함으로 이동
-      await archivePreviousXlsxFiles(drive, weekId, archiveId, xlsxResult.id)
-      await assertOnlyUploadedXlsxIsActive(drive, weekId, xlsxResult.id)
+      // ── 새 출장비 파일이 안전하게 존재한 뒤, 같은 기기의 예전 출장비 파일만 보관함으로 이동
+      // (같은 조의 다른 조원이 각자 제출한 파일은 월집계에 함께 들어가야 하므로 유지)
+      const keptXlsxIds = await archivePreviousXlsxFiles(drive, weekId, archiveId, xlsxResult.id, {
+        submitterDeviceId,
+        newReceiptIds: parsedRows.map(row => row.id).filter(Boolean),
+      })
+      await assertOnlyUploadedXlsxIsActive(drive, weekId, xlsxResult.id, keptXlsxIds)
 
       // ── 월별 전체집계 자동 업데이트
       // skipped도 이전 요청의 집계 성공을 보장하지 않으므로 실제 집계를 다시 확인한다.
@@ -941,6 +1000,7 @@ export default async function handler(req, res) {
           const kakaoMessages = buildReceiptKakaoMessages({
             fileName: xlsxName,
             surveyorName,
+            submitterName,
             mmdd,
             hhmm,
             rows: parsedRows,
