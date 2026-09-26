@@ -137,6 +137,47 @@ test('검토기록 새로고침 버튼과 앱 복귀 시 자동 새로고침으�
   expect(calls).toBeGreaterThan(before);
 });
 
+test('검색창 옆 드롭다운으로 용도·확인 항목을 거르고, 확인할 항목이 있으면 노란 테두리를 켠다', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.evaluate(async () => {
+    const { openReceiptDb } = await import('/src/utils/receiptDb.js');
+    const db = await openReceiptDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('receipts', 'readwrite');
+      const store = tx.objectStore('receipts');
+      store.put({ id: 'f-food', date: '2026-09-10', storeName: '필터식당', category: '식비', totalAmount: 9000, approvalNum: '12345678' });
+      store.put({ id: 'f-etc', date: '2026-09-11', storeName: '필터문구', category: '기타', totalAmount: 3000, approvalNum: '' });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+  await page.reload();
+  await waitForAppReady(page);
+
+  const filter = page.getByRole('combobox', { name: '영수증 거르기' });
+  await expect(filter).toHaveClass(/border-amber-400/);
+  const labels = await filter.locator('option').allTextContents();
+  expect(labels[0]).toBe('전체');
+  expect(labels.indexOf('식비')).toBeLessThan(labels.indexOf('승인번호 없음 1'));
+  await expect(page.getByRole('button', { name: '승인번호 없음' })).toHaveCount(0);
+
+  await filter.selectOption('식비');
+  await expect(page.locator('#receipt-row-f-food')).toBeVisible();
+  await expect(page.locator('#receipt-row-f-etc')).toHaveCount(0);
+
+  await filter.selectOption('missingApproval');
+  await expect(page.locator('#receipt-row-f-etc')).toBeVisible();
+  await expect(page.locator('#receipt-row-f-food')).toHaveCount(0);
+
+  await filter.selectOption('all');
+  await page.getByRole('textbox', { name: '사용처 또는 승인번호 검색' }).fill('문구');
+  await expect(page.locator('#receipt-row-f-food')).toHaveCount(0);
+  await page.getByRole('button', { name: '검색어 지우기' }).click();
+  await expect(page.locator('#receipt-row-f-food')).toBeVisible();
+});
+
 // ---------- 테스트 2: 업로드 → 목록 추가 ----------
 test('영수증 업로드 후 목록에 추가된다', async ({ page }) => {
   await setTripDates(page, '2026-07-01', '2026-07-05');

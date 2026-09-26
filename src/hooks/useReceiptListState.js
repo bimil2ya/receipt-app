@@ -24,12 +24,13 @@ export default function useReceiptListState({ receipts, categories }) {
     const duplicateCount = duplicateApprovalIds.size;
     const reviewCount = reviewApprovalIds.size;
     const withCount = (label, count) => count > 0 ? `${label} ${count}` : label;
+    // [값, 표시 이름, { group, count }] — group으로 드롭다운 안의 묶음을 나누고, 확인 항목 건수로 경고 테두리를 켠다.
     return [
-      ['all', '전체'],
-      ['missingApproval', withCount('승인번호 없음', missingCount)],
-      ['duplicateApproval', withCount('중복 후보', duplicateCount)],
-      ['reviewApproval', withCount('확인 필요', reviewCount)],
-      ...categories.map(category => [category, category]),
+      ['all', '전체', { group: 'category', count: 0 }],
+      ...categories.map(category => [category, category, { group: 'category', count: 0 }]),
+      ['missingApproval', withCount('승인번호 없음', missingCount), { group: 'check', count: missingCount }],
+      ['duplicateApproval', withCount('중복 후보', duplicateCount), { group: 'check', count: duplicateCount }],
+      ['reviewApproval', withCount('확인 필요', reviewCount), { group: 'check', count: reviewCount }],
     ];
   }, [categories, localApprovalReport, duplicateApprovalIds, reviewApprovalIds]);
 

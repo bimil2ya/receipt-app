@@ -13,42 +13,50 @@ export default function ReceiptListControls({
 }) {
   if (totalCount <= 0) return null;
 
+  const categoryOptions = filterOptions.filter(([, , meta]) => meta?.group !== 'check');
+  const checkOptions = filterOptions.filter(([, , meta]) => meta?.group === 'check');
+  // 승인번호 없음·중복 후보·확인 필요 중 하나라도 있으면 드롭다운을 노란 테두리로 알린다.
+  const needsAttention = checkOptions.some(([, , meta]) => meta.count > 0);
+  const filtered = filterValue !== 'all';
+  const selectClass = [
+    'min-w-0 flex-[2] h-11 rounded-xl border px-2 text-sm font-black',
+    filtered ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-100',
+    needsAttention ? 'border-amber-400 ring-1 ring-amber-400/70' : filtered ? 'border-blue-500' : 'border-slate-700',
+  ].join(' ');
+  const renderOption = ([value, label]) => <option key={value} value={value}>{label}</option>;
+
   return (
     <>
       <div className="flex gap-2 items-center">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={e => onSearchChange(e.target.value)}
-          placeholder="🔎 사용처/승인번호 검색"
-          aria-label="사용처 또는 승인번호 검색"
-          className="min-w-0 flex-1 h-11 bg-slate-800 border border-slate-700 rounded-xl px-3 text-white font-bold text-sm"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={onSearchClear}
-            className="h-11 px-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-black text-sm active:scale-95"
-          >
-            지우기
-          </button>
-        )}
-      </div>
-      <div className="flex flex-wrap gap-1.5 pb-1">
-        {filterOptions.map(([value, label]) => {
-          const active = filterValue === value;
-          return (
+        <div className="relative min-w-0 flex-[3]">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => onSearchChange(e.target.value)}
+            placeholder="🔎 사용처/승인번호"
+            aria-label="사용처 또는 승인번호 검색"
+            className={`w-full h-11 bg-slate-800 border border-slate-700 rounded-xl pl-3 text-white font-bold text-sm ${searchQuery ? 'pr-10' : 'pr-3'}`}
+          />
+          {searchQuery && (
             <button
-              key={value}
               type="button"
-              onClick={() => onFilterChange(value)}
-              aria-pressed={active}
-              className={`min-h-11 max-w-full break-words px-3 py-2 rounded-full border text-xs font-black transition-colors ${active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+              onClick={onSearchClear}
+              aria-label="검색어 지우기"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 rounded-lg text-slate-300 font-black text-base active:scale-95"
             >
-              {label}
+              ✕
             </button>
-          );
-        })}
+          )}
+        </div>
+        <select
+          value={filterValue}
+          onChange={e => onFilterChange(e.target.value)}
+          aria-label="영수증 거르기"
+          className={selectClass}
+        >
+          <optgroup label="용도">{categoryOptions.map(renderOption)}</optgroup>
+          {checkOptions.length > 0 && <optgroup label="확인할 항목">{checkOptions.map(renderOption)}</optgroup>}
+        </select>
       </div>
       <div className="text-center text-sm text-slate-400 px-1 font-bold">
         {grandTotal === null
