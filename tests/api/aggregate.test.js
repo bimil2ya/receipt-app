@@ -66,6 +66,77 @@ describe('month aggregate source integrity', () => {
   });
 });
 
+describe('month aggregate archived trip recovery', () => {
+  const FOLDER = 'application/vnd.google-apps.folder';
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const xlsx = rows => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '영수증내역');
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  };
+  const receipt = (id, amount, date = '2026-09-02') => ({ 날짜: date, 영수증식별값: id, 사용처: '검증', 금액: amount, 용도: '교통' });
+
+  // month / 검증팀 / {현재 출장 폴더, 보관함 / {이전 출장 폴더, 옛 XLSX, 현재와 같은 이름의 폴더}}
+  function driveWithTree({ tree, contents, unreadable = new Set() }) {
+    let createdBuffer;
+    let renamed = false;
+    const drive = { files: {
+      list: async ({ q }) => {
+        if (q.includes("name = '전체집계_2026년09월'")) {
+          return { data: { files: renamed ? [{ id: 'new', name: '전체집계_2026년09월', mimeType: 'application/vnd.google-apps.spreadsheet', modifiedTime: '2026-09-20T00:00:00.000Z', version: '1', trashed: false }] : [] } };
+        }
+        const parent = q.match(/'([^']+)' in parents/)?.[1];
+        return { data: { files: tree[parent] || [] } };
+      },
+      get: async ({ fileId }) => {
+        if (unreadable.has(fileId)) throw new Error('download failed');
+        return { data: contents[fileId] };
+      },
+      create: async ({ media, requestBody }) => { for await (const part of media.body) createdBuffer = Buffer.from(part); return { data: { id: 'new', name: requestBody.name } }; },
+      export: async () => ({ data: createdBuffer }),
+      update: async ({ fileId, requestBody }) => { if (requestBody.name === '전체집계_2026년09월') renamed = true; return { data: { id: fileId, name: requestBody.name } }; },
+    } };
+    return { drive, detail: () => XLSX.utils.sheet_to_json(XLSX.read(createdBuffer, { type: 'buffer' }).Sheets['전체내역']) };
+  }
+
+  const tree = {
+    month: [{ id: 'person', name: '검증팀', mimeType: FOLDER }],
+    person: [
+      { id: 'week-2', name: '2026-09-14~2026-09-20', mimeType: FOLDER },
+      { id: 'archive', name: '보관함', mimeType: FOLDER },
+    ],
+    'week-2': [{ id: 'x-week-2', name: '출장비_20260918.xlsx', mimeType: XLSX_MIME }],
+    archive: [
+      { id: 'week-1', name: '2026-09-01~2026-09-07', mimeType: FOLDER, createdTime: '2026-09-03T00:00:00Z' },
+      { id: 'week-2-old', name: '2026-09-14~2026-09-20', mimeType: FOLDER, createdTime: '2026-09-15T00:00:00Z' },
+      { id: 'x-superseded', name: '출장비_20260902.xlsx', mimeType: XLSX_MIME },
+    ],
+    'week-1': [{ id: 'x-week-1', name: '출장비_20260905.xlsx', mimeType: XLSX_MIME }],
+    'week-2-old': [{ id: 'x-week-2-old', name: '출장비_20260916.xlsx', mimeType: XLSX_MIME }],
+  };
+  const contents = {
+    'x-week-2': xlsx([receipt('r-2', 2000, '2026-09-18'), receipt('r-moved', 500, '2026-09-18')]),
+    'x-week-1': xlsx([receipt('r-1', 1000), receipt('r-moved', 500)]),
+    'x-week-2-old': xlsx([receipt('r-2', 9999, '2026-09-18')]),
+    'x-superseded': xlsx([receipt('r-1', 7777)]),
+  };
+
+  it('counts an earlier trip that was wrongly moved into the archive, once, without superseded files', async () => {
+    const { drive, detail } = driveWithTree({ tree, contents });
+    const result = await runMonthAggregate(drive, 'month', '2026년09월');
+    const rows = detail();
+    expect(rows.map(row => row['영수증 식별값']).sort()).toEqual(['r-1', 'r-2', 'r-moved']);
+    expect(rows.reduce((sum, row) => sum + row['금액(원)'], 0)).toBe(3500);
+    expect(result).toMatchObject({ success: true, count: 3 });
+  });
+
+  it('does not block the current month aggregate when an archived trip file is unreadable', async () => {
+    const { drive, detail } = driveWithTree({ tree, contents, unreadable: new Set(['x-week-1']) });
+    await runMonthAggregate(drive, 'month', '2026년09월');
+    expect(detail().map(row => row['영수증 식별값']).sort()).toEqual(['r-2', 'r-moved']);
+  });
+});
+
 describe('month aggregate replacement acknowledgements', () => {
   function sourceBuffer(rows = [{ 날짜: '2026-09-01', 영수증식별값: 'receipt-1', 사용처: '검증', 금액: 1000, 용도: '교통' }]) {
     const workbook = XLSX.utils.book_new();

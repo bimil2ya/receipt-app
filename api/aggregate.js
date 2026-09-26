@@ -1,6 +1,6 @@
 import { Readable } from 'stream'
 import * as XLSX from 'xlsx'
-import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
+import { ARCHIVE_FOLDER_NAME, createDrive, getOrCreateFolder, isTripWeekFolderName, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js'
 import { buildApprovalDuplicateReport } from './approvalReport.js'
 import { ALLOWED_ORIGINS } from './_cors.js'
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js'
@@ -313,20 +313,67 @@ async function deleteFiles(drive, files, keepId = null) {
 async function listChildEntries(drive, parentId) {
   const res = await drive.files.list({
     q: `'${parentId}' in parents and trashed = false`,
-    fields: 'files(id,name,mimeType)',
+    fields: 'files(id,name,mimeType,createdTime)',
     pageSize: 200,
   })
   return res.data.files || []
 }
 
-async function collectXlsxFilesRecursive(drive, folderId, personName, seenFileIds = new Set()) {
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+// 보관함에서 되살린 출장의 영수증이 현재 출장에도 있으면(출장일을 고쳐 다시 제출한 경우 등)
+// 현재 쪽만 센다. 그러지 않으면 금액이 두 번 잡히거나 식별값 중복으로 집계가 중단된다.
+export function dropArchivedDuplicateRows(sources) {
+  const activeIds = new Set(sources
+    .filter(source => !source.archived)
+    .flatMap(source => source.rows.map(row => row.id).filter(Boolean)))
+  const seenArchivedIds = new Set()
+  return sources.flatMap(source => {
+    if (!source.archived) return source.rows
+    return source.rows.filter(row => {
+      if (!row.id) return true
+      if (activeIds.has(row.id) || seenArchivedIds.has(row.id)) return false
+      seenArchivedIds.add(row.id)
+      return true
+    })
+  })
+}
+
+// 2026-06-30~09 사이 Drive 저장이 같은 달의 다른 출장(주) 폴더까지 보관함으로 옮겼다.
+// 담당자 폴더에 같은 이름의 출장 폴더가 없을 때만 보관함 속 출장 폴더를 월집계에 되살린다.
+// 같은 이름이 보관함에 여럿이면 가장 나중에 만든 폴더(최신 제출)를 쓴다.
+async function collectArchivedTripFiles(drive, archiveFolderId, activeTripNames, personName, seenFileIds) {
+  const newestByName = new Map()
+  for (const entry of await listChildEntries(drive, archiveFolderId)) {
+    if (entry.mimeType !== FOLDER_MIME || !isTripWeekFolderName(entry.name)) continue
+    const name = normalizeDriveName(entry.name)
+    if (activeTripNames.has(name)) continue
+    const current = newestByName.get(name)
+    if (!current || String(entry.createdTime || '') > String(current.createdTime || '')) newestByName.set(name, entry)
+  }
+  const files = []
+  for (const trip of newestByName.values()) {
+    const nested = await collectXlsxFilesRecursive(drive, trip.id, personName, seenFileIds)
+    files.push(...nested.map(file => ({ ...file, archived: true })))
+  }
+  return files
+}
+
+async function collectXlsxFilesRecursive(drive, folderId, personName, seenFileIds = new Set(), { includeArchivedTrips = false } = {}) {
   const entries = await listChildEntries(drive, folderId)
+  const activeTripNames = new Set(entries
+    .filter(entry => entry.mimeType === FOLDER_MIME && isTripWeekFolderName(entry.name))
+    .map(entry => normalizeDriveName(entry.name)))
   const files = []
   for (const entry of entries) {
-    if (entry.mimeType === 'application/vnd.google-apps.folder') {
+    if (entry.mimeType === FOLDER_MIME) {
       const folderName = normalizeDriveName(entry.name)
       // 보관함 / 낱장 사진 폴더(_원본) / PDF 조립 임시 폴더(_정산서조립_*)는 xlsx가 없으므로 재귀 생략.
-      if (folderName === ARCHIVE_FOLDER_NAME) continue
+      // 단, 담당자 폴더의 보관함에 잘못 옮겨진 출장 폴더는 되살린다(보관함의 낱개 옛 XLSX는 제외).
+      if (folderName === ARCHIVE_FOLDER_NAME) {
+        if (includeArchivedTrips) files.push(...await collectArchivedTripFiles(drive, entry.id, activeTripNames, personName, seenFileIds))
+        continue
+      }
       if (folderName === '_원본') continue
       if (folderName.startsWith('_정산서조립_')) continue
       const nested = await collectXlsxFilesRecursive(drive, entry.id, personName, seenFileIds)
@@ -432,13 +479,14 @@ export async function runAggregate(drive) {
       fields: 'files(id,name)',
     })
     const personGroups = groupPersonFolders(personRes.data.files || [])
+    const monthSources = []
 
     for (const personGroup of personGroups) {
       const personName = personGroup.name
       if (!personOrder.includes(personName)) personOrder.push(personName)
 
       for (const personFolder of personGroup.folders) {
-        const xlsxFiles = await collectXlsxFilesRecursive(drive, personFolder.id, personName)
+        const xlsxFiles = await collectXlsxFilesRecursive(drive, personFolder.id, personName, new Set(), { includeArchivedTrips: true })
 
         for (const file of xlsxFiles) {
           if (seenFileIds.has(file.id)) continue
@@ -450,17 +498,15 @@ export async function runAggregate(drive) {
             )
             const wb = XLSX.read(Buffer.from(fileRes.data), { type: 'buffer' })
             const ws = wb.Sheets[wb.SheetNames[0]]
-            const rows = XLSX.utils.sheet_to_json(ws)
-
-            for (const r of rows) {
-              allRows.push(parseXlsxRow(r, personName))
-            }
+            const rows = XLSX.utils.sheet_to_json(ws).map(r => parseXlsxRow(r, personName))
+            monthSources.push({ archived: file.archived === true, rows })
           } catch (e) {
             console.warn(`파일 읽기 실패: ${file.name}`, e.message)
           }
         }
       }
     }
+    allRows.push(...dropArchivedDuplicateRows(monthSources))
   }
 
   if (allRows.length === 0) {
@@ -517,7 +563,7 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
   const xlsxLists = await Promise.all(personGroups.map(async pg => {
     const files = [];
     for (const pf of pg.folders) {
-      files.push(...await collectXlsxFilesRecursive(drive, pf.id, pg.name, seenFileIds));
+      files.push(...await collectXlsxFilesRecursive(drive, pf.id, pg.name, seenFileIds, { includeArchivedTrips: true }));
     }
     return { personName: pg.name, files };
   }))
@@ -535,9 +581,11 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
           const ws = wb.Sheets[wb.SheetNames[0]]
           const assignmentWs = wb.Sheets['작업조변경이력']
           const assignmentHistory = assignmentWs ? XLSX.utils.sheet_to_json(assignmentWs).map(row => ({ ...row, '팀': row['새작업조'] || personName })) : []
-          return { rows: XLSX.utils.sheet_to_json(ws).map(r => parseXlsxRow(r, personName)), assignmentHistory, error: null }
+          return { archived: file.archived === true, rows: XLSX.utils.sheet_to_json(ws).map(r => parseXlsxRow(r, personName)), assignmentHistory, error: null }
         } catch (e) {
           console.warn(`월집계: 파일 읽기 실패 ${file.name}`, e.message)
+          // 보관함에서 되살린 과거 출장이 읽히지 않는다고 현재 제출의 월집계까지 막지 않는다.
+          if (file.archived === true) return { archived: true, rows: [], assignmentHistory: [], error: null }
           return { rows: [], assignmentHistory: [], error: { fileId: file.id, fileName: file.name, message: e.message } }
         }
       })
@@ -550,7 +598,7 @@ export async function runMonthAggregate(drive, monthFolderId, yearMonth) {
     error.failures = readFailures
     throw error
   }
-  const allRows = sourceResults.flatMap(result => result.rows)
+  const allRows = dropArchivedDuplicateRows(sourceResults)
   const assignmentHistory = sourceResults.flatMap(result => result.assignmentHistory || [])
 
   if (allRows.length === 0) return { count: 0 }
