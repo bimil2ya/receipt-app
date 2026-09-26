@@ -2,7 +2,25 @@ import { useEffect } from 'react';
 import { supabase } from '../utils/supabase';
 import { formatFailureDetail } from '../utils/errorCopy';
 import { base64ToBlob, getOrCreateDeviceId } from '../utils/storage';
-import { STORE_IMAGES, STORE_RECEIPTS, STORE_SYNC_QUEUE } from '../utils/receiptDb';
+import { STORE_DRAFT_BACKUP_OUTBOX, STORE_IMAGES, STORE_RECEIPTS, STORE_SYNC_QUEUE } from '../utils/receiptDb';
+
+// The retired draft-backup outbox held only duplicate image blobs that no
+// server ever received. The store itself stays because removing it would need
+// a DB version bump; emptying it frees the space on devices that filled it.
+function clearRetiredDraftBackupOutbox(db) {
+  return new Promise(resolve => {
+    if (!db.objectStoreNames.contains(STORE_DRAFT_BACKUP_OUTBOX)) { resolve(); return; }
+    try {
+      const tx = db.transaction(STORE_DRAFT_BACKUP_OUTBOX, 'readwrite');
+      tx.objectStore(STORE_DRAFT_BACKUP_OUTBOX).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
 
 export default function useReceiptBootstrap({
   dbOpen,
@@ -16,6 +34,7 @@ export default function useReceiptBootstrap({
     (async () => {
       try {
         const db = await dbOpen();
+        await clearRetiredDraftBackupOutbox(db);
 
         const allReceipts = await new Promise(res => {
           const tx = db.transaction(STORE_RECEIPTS, 'readonly');
