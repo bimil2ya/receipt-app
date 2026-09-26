@@ -89,6 +89,54 @@ test('마감 화면은 선택한 팀의 담당자 검토기록만 표시한다',
   await expect(page.getByRole('dialog', { name: '➕ 직접 입력' })).toBeVisible();
 });
 
+test('검토기록 새로고침 버튼과 앱 복귀 시 자동 새로고침으로 사무실 코멘트를 다시 가져온다', async ({ page }) => {
+  let reviews = [];
+  let calls = 0;
+  await page.route('**/api/review**', route => { calls += 1; return route.fulfill({ json: { success: true, reviews } }); });
+  await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.getByRole('button', { name: '마감' }).click();
+  const notice = page.getByLabel('담당자 검토기록');
+  await expect(notice).toContainText('담당자 검토기록이 없습니다');
+
+  // 사무실이 시트에 코멘트를 적은 상황 → 버튼으로 즉시 반영
+  reviews = [{ '영수증 식별값': 'r-1', '팀': '류준, 류수현', '날짜': '2026-09-24', '사용처': '동은청과(주)', '검토 상태': '검토중', '담당자 메모': '금액확인', '추가 자료 요청': '영수증추가' }];
+  await notice.getByRole('button', { name: '검토기록 새로고침' }).click();
+  await expect(notice).toContainText('담당자 검토기록 1건');
+  await expect(notice).toContainText('금액확인');
+
+  // 새로고침 실패 시 이미 보이던 코멘트는 남는다
+  await page.unroute('**/api/review**');
+  await page.route('**/api/review**', route => { calls += 1; return route.fulfill({ status: 500, json: { success: false } }); });
+  await notice.getByRole('button', { name: '검토기록 새로고침' }).click();
+  await expect(notice).toContainText('검토기록을 불러오지 못했습니다.');
+  await expect(notice).toContainText('금액확인');
+
+  // 다른 앱에서 돌아오면(30초 이상 지난 뒤) 자동으로 다시 읽는다
+  await page.unroute('**/api/review**');
+  reviews = [{ ...reviews[0], '검토 상태': '승인', '담당자 메모': '확인 완료' }];
+  await page.route('**/api/review**', route => { calls += 1; return route.fulfill({ json: { success: true, reviews } }); });
+  // 방금 읽은 직후(예: 사진 촬영 후 복귀)에는 다시 부르지 않는다
+  const beforeQuickReturn = calls;
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(500);
+  expect(calls).toBe(beforeQuickReturn);
+
+  const before = calls;
+  await page.evaluate(() => {
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60_000;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(notice).toContainText('확인 완료');
+  expect(calls).toBeGreaterThan(before);
+});
+
 // ---------- 테스트 2: 업로드 → 목록 추가 ----------
 test('영수증 업로드 후 목록에 추가된다', async ({ page }) => {
   await setTripDates(page, '2026-07-01', '2026-07-05');

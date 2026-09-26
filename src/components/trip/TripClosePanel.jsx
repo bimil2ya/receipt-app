@@ -96,7 +96,7 @@ export default function TripClosePanel({
 
       {duplicateReportSlot}
 
-      <OfficeReviewNotice {...officeReviews} />
+      <OfficeReviewNotice {...officeReviews} onRefresh={officeReviews?.reload} />
 
       {lastUploadFailures.length > 0 && !driveUploading && (
         <button
