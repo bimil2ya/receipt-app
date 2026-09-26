@@ -178,6 +178,55 @@ test('검색창 옆 드롭다운으로 용도·확인 항목을 거르고, 확�
   await expect(page.locator('#receipt-row-f-food')).toBeVisible();
 });
 
+test('앱이 켜진 채 1분 이상 조작이 없으면 목록(사진·카드번호 제외)을 사무실 진행현황으로 조용히 공유한다', async ({ page }) => {
+  await page.clock.install();
+  const posts = [];
+  await page.route('**/api/review**', route => {
+    if (route.request().method() === 'POST') {
+      posts.push(route.request().postDataJSON());
+      return route.fulfill({ json: { success: true, sharedAt: '2026-09-26T05:00:00.000Z', sheetUpdated: true } });
+    }
+    return route.fulfill({ json: { success: true, reviews: [] } });
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('receipt_names', '류준, 류수현');
+    localStorage.setItem('receipt_user_name', '류준');
+  });
+  await page.goto('/');
+  await waitForAppReady(page);
+  await page.evaluate(async () => {
+    const { openReceiptDb } = await import('/src/utils/receiptDb.js');
+    const db = await openReceiptDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('receipts', 'readwrite');
+      tx.objectStore('receipts').put({ id: 'p-1', date: '2026-09-21', storeName: '공유식당', category: '식비', totalAmount: 8000, approvalNum: '4321', cardNumber: '1234-5678-9999', imageId: 'img-1' });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+  await page.reload();
+  await waitForAppReady(page);
+
+  // 조작 직후에는 보내지 않는다
+  await page.clock.runFor(30_000);
+  expect(posts).toHaveLength(0);
+
+  // 1분 넘게 조작이 없으면 한 번 보낸다
+  await page.clock.runFor(60_000);
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0]).toMatchObject({ teamNames: '류준, 류수현', submitterName: '류준', submitted: false });
+  expect(posts[0].receipts).toEqual([expect.objectContaining({ id: 'p-1', storeName: '공유식당', totalAmount: 8000, approvalNum: '4321' })]);
+  expect(JSON.stringify(posts[0])).not.toContain('1234-5678-9999');
+  expect(JSON.stringify(posts[0])).not.toContain('img-1');
+
+  // 목록이 그대로면 다시 보내지 않는다
+  await page.clock.runFor(10 * 60_000);
+  expect(posts).toHaveLength(1);
+
+  await page.getByRole('button', { name: '마감' }).click();
+  await expect(page.getByLabel('사무실 진행 공유')).toContainText('14:00');
+});
+
 // ---------- 테스트 2: 업로드 → 목록 추가 ----------
 test('영수증 업로드 후 목록에 추가된다', async ({ page }) => {
   await setTripDates(page, '2026-07-01', '2026-07-05');

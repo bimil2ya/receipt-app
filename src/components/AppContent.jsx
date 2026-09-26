@@ -36,6 +36,7 @@ export default function AppContent({
   onSaveBackup,
   onLoadBackup,
   officeReviews,
+  progressSharedAt,
   backupFileRef,
   cameraRef,
   receiptFileRef,
@@ -117,6 +118,7 @@ export default function AppContent({
             onSaveBackup={onSaveBackup}
             onLoadBackup={onLoadBackup}
             officeReviews={officeReviews}
+            progressSharedAt={progressSharedAt}
             backupFileRef={backupFileRef}
             cameraRef={cameraRef}
             receiptFileRef={receiptFileRef}

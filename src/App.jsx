@@ -19,6 +19,7 @@ import useAppUiState from './hooks/useAppUiState';
 import useToastMessage from './hooks/useToastMessage';
 import useStoredTeamNames from './hooks/useStoredTeamNames';
 import useOfficeReviews from './hooks/useOfficeReviews';
+import useProgressShare from './hooks/useProgressShare';
 import useConfirmModal from './hooks/useConfirmModal';
 import ConfirmModal from './components/layout/ConfirmModal';
 
@@ -234,6 +235,14 @@ export default function App() {
     showToast,
     showConfirm,
   });
+  const { lastSharedAt: progressSharedAt } = useProgressShare({
+    receipts,
+    teamNames: canonicalNames,
+    tripStartDate,
+    tripEndDate,
+    submitted: receipts.length > 0 && !submissionNeedsResend,
+    busy: driveUploading || loading,
+  });
   const { restoreProgress, restoreFromDrive } = useDriveRestore({
     canonicalNames,
     tripStartDate,
@@ -387,6 +396,7 @@ export default function App() {
         onSaveBackup={saveToJSON}
         onLoadBackup={() => backupFileRef.current?.click()}
         officeReviews={officeReviews}
+        progressSharedAt={progressSharedAt}
         backupFileRef={backupFileRef}
         cameraRef={cameraRef}
         receiptFileRef={receiptFileRef}

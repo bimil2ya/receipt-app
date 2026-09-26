@@ -31,6 +31,7 @@ export default function ReceiptWorkspace({
   onSaveBackup,
   onLoadBackup,
   officeReviews,
+  progressSharedAt,
   backupFileRef,
   cameraRef,
   receiptFileRef,
@@ -94,6 +95,7 @@ export default function ReceiptWorkspace({
             onSaveBackup={onSaveBackup}
             onLoadBackup={onLoadBackup}
             officeReviews={officeReviews}
+            progressSharedAt={progressSharedAt}
           />
         )}
         <ReceiptHiddenInputs

@@ -1,5 +1,6 @@
 import { CheckCircle2, CloudUpload, FolderOpen, Loader2, Save, Send } from 'lucide-react';
 import OfficeReviewNotice from './OfficeReviewNotice';
+import { progressShareLabel } from '../../hooks/useProgressShare';
 
 // '담당자에게 보내기'(집계 이미지 공유)는 현재 쓰지 않는다. 다시 쓰려면 true로 바꾼다.
 const SHOW_MANAGER_SHARE = false;
@@ -33,6 +34,7 @@ export default function TripClosePanel({
   onSaveBackup,
   onLoadBackup,
   officeReviews,
+  progressSharedAt = '',
 }) {
   // 담당자 공유를 숨긴 동안에는 Drive 저장이 첫 단계이므로 이미 준비된 것으로 본다.
   const kakaoDone = SHOW_MANAGER_SHARE ? kakaoSendCount > 0 : true;
@@ -116,7 +118,11 @@ export default function TripClosePanel({
         </button>
       )}
 
-      <div className="flex justify-end gap-2 pt-0.5">
+      <div className="flex items-center justify-between gap-2 pt-0.5">
+        <p className="min-w-0 text-[11px] font-bold text-slate-500" aria-label="사무실 진행 공유">
+          {progressShareLabel(progressSharedAt)}
+        </p>
+        <div className="flex shrink-0 gap-2">
         <button
           onClick={onSaveBackup}
           className="w-11 h-11 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-lg active:scale-95"
@@ -134,6 +140,7 @@ export default function TripClosePanel({
         >
           <FolderOpen size={17} />
         </button>
+        </div>
       </div>
     </div>
   );
