@@ -1,5 +1,4 @@
 api/kakao-token.js
-api/lookup-biz.js
 *.test.js
 test/
 node_modules/
@@ -10,6 +9,5 @@ node_modules/
 
 # 배포 제외 이유
 # kakao-token.js: 카카오 토큰 재발급용 1회성 셋업 라우트. 필요할 때만 이 줄을 빼고 배포.
-# lookup-biz.js: 함수 개수 제한 대응으로 2026-08-31부터 제외. 앱(useUploader)은 계속 호출하지만 404를 무시한다.
 # metadata.js: 라이브러리 파일(export default 없음). api/integration.test.js만 사용.
 api/metadata.js
