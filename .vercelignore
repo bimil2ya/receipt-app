@@ -1,5 +1,5 @@
 api/kakao-token.js
-*.test.js
+api/**/*.test.js
 test/
 node_modules/
 .git/
@@ -8,6 +8,8 @@ node_modules/
 .impeccable/
 
 # 배포 제외 이유
+# api/**/*.test.js: api/ 안의 파일은 모두 서버 함수로 잡히므로 테스트는 올리지 않는다.
+#   src·shared·tests의 테스트는 올려서 Vercel 빌드 관문(npm test)에서 실행한다.
 # kakao-token.js: 카카오 토큰 재발급용 1회성 셋업 라우트. 필요할 때만 이 줄을 빼고 배포.
 # metadata.js: 라이브러리 파일(export default 없음). api/integration.test.js만 사용.
 api/metadata.js
