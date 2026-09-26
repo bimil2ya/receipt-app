@@ -1,150 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
 import Modal from '../layout/Modal';
 
 export default function ReceiptEditModal({ editState, categories, errors = {}, amountRef, onChange, onClose, onSubmit }) {
-  const [autoSaveStatus, setAutoSaveStatus] = useState('editing');
-  const [autoSaveError, setAutoSaveError] = useState(null);
-  const autoSaveTimerRef = useRef(null);
-  const previousValueRef = useRef(null);
+  if (!editState.id) return null;
 
   const updateDetail = (patch) => {
     onChange(prev => ({ ...prev, value: { ...prev.value, ...patch } }));
   };
 
-  // 필드 변경 감지 (detail field인 경우만)
-  const fieldsChanged = () => {
-    if (editState.field !== 'detail' || !previousValueRef.current) return true;
-    return (
-      previousValueRef.current.storeName !== editState.value.storeName ||
-      previousValueRef.current.totalAmount !== editState.value.totalAmount ||
-      previousValueRef.current.date !== editState.value.date ||
-      previousValueRef.current.category !== editState.value.category
-    );
-  };
-
-  // 자동 저장 타이머 로직
-  useEffect(() => {
-    if (!editState.id || editState.field !== 'detail' || !fieldsChanged()) return;
-
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
-
-    setAutoSaveStatus('editing');
-    setAutoSaveError(null);
-
-    autoSaveTimerRef.current = setTimeout(async () => {
-      if (!editState.value?.storeName?.trim() || !editState.value?.totalAmount) {
-        setAutoSaveStatus('editing');
-        previousValueRef.current = editState.value;
-        return;
-      }
-
-      try {
-        setAutoSaveStatus('saving');
-        const response = await fetch('/api/auto-save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            storeName: editState.value.storeName,
-            totalAmount: editState.value.totalAmount,
-            date: editState.value.date || null,
-            category: editState.value.category || null,
-            useTime: editState.value.useTime || null,
-            approvalNum: editState.value.approvalNum || null,
-            bizNum: editState.value.bizNum || null,
-            cardNumber: editState.value.cardNumber || null,
-            note: editState.value.note || null,
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || '자동 저장 실패');
-        }
-
-        setAutoSaveStatus('saved');
-        setAutoSaveError(null);
-        previousValueRef.current = editState.value;
-
-        setTimeout(() => {
-          if (editState.id) setAutoSaveStatus('editing');
-        }, 3000);
-      } catch (err) {
-        console.error('[ReceiptEditModal auto-save] Error:', err);
-        setAutoSaveStatus('error');
-        setAutoSaveError(err.message);
-      }
-    }, 3000);
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editState]);
-
-  const autoSaveStatusText = {
-    editing: '작성 중... 💭',
-    saving: '저장 중...',
-    saved: '저장됨 ✅',
-    error: '저장 실패 ❌',
-  };
-
-  const autoSaveStatusColor = {
-    editing: 'text-slate-400',
-    saving: 'text-blue-400 animate-pulse',
-    saved: 'text-green-400',
-    error: 'text-red-400',
-  };
-
-  if (!editState.id) return null;
-
   return (
     <Modal title="📝 수정" onClose={onClose}>
       <div className="p-1">
-        {/* 자동 저장 상태 표시 (detail field인 경우) */}
-        {editState.field === 'detail' && (
-          <div className={`text-sm font-bold mb-3 ${autoSaveStatusColor[autoSaveStatus]}`}>
-            {autoSaveStatusText[autoSaveStatus]}
-            {autoSaveError && <div className="text-xs text-red-300 mt-1">{autoSaveError}</div>}
-            {autoSaveStatus === 'error' && (
-              <button
-                onClick={async () => {
-                  if (!editState.value?.storeName?.trim() || !editState.value?.totalAmount) return;
-                  try {
-                    setAutoSaveStatus('saving');
-                    const response = await fetch('/api/auto-save', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        storeName: editState.value.storeName,
-                        totalAmount: editState.value.totalAmount,
-                        date: editState.value.date || null,
-                        category: editState.value.category || null,
-                        useTime: editState.value.useTime || null,
-                        approvalNum: editState.value.approvalNum || null,
-                        bizNum: editState.value.bizNum || null,
-                        cardNumber: editState.value.cardNumber || null,
-                        note: editState.value.note || null,
-                      }),
-                    });
-                    if (!response.ok) throw new Error('재시도 실패');
-                    setAutoSaveStatus('saved');
-                    previousValueRef.current = editState.value;
-                  } catch (err) {
-                    setAutoSaveStatus('error');
-                    setAutoSaveError(err.message);
-                  }
-                }}
-                className="ml-2 text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-              >
-                [다시 시도]
-              </button>
-            )}
-          </div>
-        )}
         {editState.field === 'detail' ? (
           <div className="space-y-4">
             <label className="block text-sm font-bold text-slate-300" htmlFor="edit-receipt-date">날짜</label>

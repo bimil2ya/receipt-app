@@ -51,26 +51,10 @@ export default function useReceipts() {
     resetSyncQueue,
   });
 
-  // 초안 백업 worker - 자동 저장 기능 활용
+  // 초안 백업 worker - enabled: false (향후 자동 저장 기능에서 활용)
   const draftBackupWorker = useDraftBackupWorker({
-    enabled: true,
-    transport: async (operation) => {
-      try {
-        const response = await fetch('/api/auto-save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(operation),
-        });
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'Auto-save failed');
-        }
-        return response.json();
-      } catch (err) {
-        console.error('[auto-save transport] Error:', err);
-        throw err;
-      }
-    },
+    enabled: false,
+    transport: undefined,
   });
 
   // saveReceipts/deleteReceipt 완료 후 자동으로 draft backup drain
