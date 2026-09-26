@@ -14,6 +14,7 @@ import {
   getOrCreateFolderByNormalizedName,
   getWeekFolderName,
   getYearMonth,
+  isTripWeekFolderName,
   MAIN_FOLDER_ID,
   moveFileToParent,
 } from './driveUtils.js';
@@ -473,7 +474,28 @@ async function assertOnlyUploadedXlsxIsActive(drive, weekId, newFileId) {
   }
 }
 
-export { archivePreviousXlsxFiles, assertOnlyUploadedXlsxIsActive }
+const FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+// 주 폴더 구조 이전에 담당자 폴더에 직접 올라간 옛 자료만 보관함으로 옮긴다.
+// 다른 주의 출장 폴더는 같은 달 월집계 대상이므로 절대 옮기지 않는다
+// (옮기면 aggregate가 보관함을 건너뛰어 그 출장 금액이 월집계에서 빠진다).
+async function archiveLegacyPersonRootItems(drive, { personId, weekId, archiveId }) {
+  const legacyRes = await drive.files.list({
+    q: `'${personId}' in parents and trashed = false`,
+    fields: 'files(id,name,mimeType)',
+    pageSize: 200,
+  })
+  const moved = []
+  for (const item of legacyRes.data.files || []) {
+    if (item.id === weekId || item.id === archiveId) continue
+    if (item.mimeType === FOLDER_MIME && isTripWeekFolderName(item.name)) continue
+    await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {})
+    moved.push(item.id)
+  }
+  return moved
+}
+
+export { archiveLegacyPersonRootItems, archivePreviousXlsxFiles, assertOnlyUploadedXlsxIsActive }
 
 /**
  * POST /api/upload
@@ -890,15 +912,7 @@ export default async function handler(req, res) {
       // 새 증거가 읽기 확인된 뒤에만 기존 person 루트 자료를 보관한다.
       // 응답 유실 복구(recovered)는 과거 제출을 다시 정리하지 않아야 한다.
       if (xlsxResult.status !== 'recovered') {
-        const legacyRes = await drive.files.list({
-          q: `'${personId}' in parents and trashed = false`,
-          fields: 'files(id,name,mimeType)',
-          pageSize: 200,
-        });
-        for (const item of legacyRes.data.files || []) {
-          if (item.id === weekId || item.id === archiveId) continue;
-          await moveFileToParent(drive, item.id, personId, archiveId).catch(() => {});
-        }
+        await archiveLegacyPersonRootItems(drive, { personId, weekId, archiveId });
       }
 
       // ── 새 출장비 파일이 안전하게 존재한 뒤, 예전 출장비 파일은 보관함으로 이동

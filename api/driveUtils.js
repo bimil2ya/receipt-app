@@ -71,6 +71,12 @@ export function getKstWeekRange(dateStr) {
   };
 }
 
+// getWeekFolderName이 만드는 출장(주) 폴더 이름인지 판별한다.
+export function isTripWeekFolderName(name) {
+  const value = String(name ?? '').trim();
+  return value === '주간미상' || /^\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
 export function getWeekFolderName(dateStr) {
   const range = getKstWeekRange(dateStr);
   if (!range) return '주간미상';

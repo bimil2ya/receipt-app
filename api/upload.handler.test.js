@@ -48,6 +48,7 @@ vi.mock('./driveUtils.js', () => ({
   getOrCreateFolderByNormalizedName: state.getNormalizedFolder,
   getWeekFolderName: () => '2026-09-01~2026-09-02',
   getYearMonth: () => '2026년 09월',
+  isTripWeekFolderName: (name) => /^\d{4}-\d{2}-\d{2}~\d{4}-\d{2}-\d{2}$/.test(String(name || '')),
   moveFileToParent: state.moveFile,
 }))
 vi.mock('./_pdfEvidence.js', async importOriginal => ({
