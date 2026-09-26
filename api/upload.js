@@ -2,7 +2,7 @@ import { Readable } from 'stream';
 import crypto from 'crypto';
 import { ALLOWED_ORIGINS } from './_cors.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
-import { uploadRateLimiter } from './_rateLimiter.js';
+import { clientRateKey, uploadRateLimiter } from './_rateLimiter.js';
 import { jsonError, Errors } from './_errorHandler.js';
 import { safeCompare } from './_auth.js';
 import * as XLSX from 'xlsx';
@@ -502,8 +502,7 @@ export default async function handler(req, res) {
   // ── 호출 빈도 제한
   // 정산서 PDF 청크는 xlsx 요청으로 이미 한 번 게이트된 단일 논리 작업의 일부이고 업로드당 ≤20으로 유계라 카운트 제외.
   if (req.body?.isPdfChunk !== true) {
-    const rateKey = origin || 'unknown';
-    const rate = uploadRateLimiter(rateKey);
+    const rate = uploadRateLimiter(clientRateKey(req.headers));
     if (!rate.ok) {
       return jsonError(res, Errors.rateLimit(rate.retryAfterSec));
     }

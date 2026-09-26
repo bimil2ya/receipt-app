@@ -1,7 +1,7 @@
 export const config = { runtime: 'edge' };
 
 import { ALLOWED_ORIGINS, getCorsHeaders, handleCorsPreFlight } from './_cors.js';
-import { analyzeRateLimiter } from './_rateLimiter.js';
+import { analyzeRateLimiter, clientRateKey } from './_rateLimiter.js';
 import { responseError, Errors } from './_errorHandler.js';
 import {
   buildTripDateContext,
@@ -28,9 +28,8 @@ export default async function handler(req) {
     }
   }
 
-  // 분당 호출 제한 (출처 단위)
-  const rateKey = origin || 'unknown';
-  const rate = analyzeRateLimiter(rateKey);
+  // 분당 호출 제한 (기기 단위)
+  const rate = analyzeRateLimiter(clientRateKey(req.headers));
   if (!rate.ok) {
     return new Response(JSON.stringify({
       success: false,

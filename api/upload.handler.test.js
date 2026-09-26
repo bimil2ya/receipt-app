@@ -26,7 +26,7 @@ vi.mock('./_corsNode.js', () => ({
   applyCorsHeaders: () => false,
   checkOriginAllowed: () => true,
 }))
-vi.mock('./_rateLimiter.js', () => ({ uploadRateLimiter: () => ({ ok: true }) }))
+vi.mock('./_rateLimiter.js', () => ({ uploadRateLimiter: () => ({ ok: true }), clientRateKey: () => 'test-client' }))
 vi.mock('./_auth.js', () => ({ safeCompare: () => true }))
 vi.mock('./_errorHandler.js', () => ({
   jsonError: (res, error) => res.status(error.statusCode || 400).json({ success: false, error: error.error, message: error.message }),

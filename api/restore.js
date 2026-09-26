@@ -6,7 +6,7 @@ import {
   MAIN_FOLDER_ID,
 } from './driveUtils.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
-import { restoreRateLimiter } from './_rateLimiter.js';
+import { clientRateKey, restoreRateLimiter } from './_rateLimiter.js';
 import { safeCompare } from './_auth.js';
 import { jsonError, Errors } from './_errorHandler.js';
 
@@ -76,8 +76,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonError(res, Errors.methodNotAllowed());
 
   // ── 호출 빈도 제한
-  const rateKey = origin || 'unknown';
-  const rate = restoreRateLimiter(rateKey);
+  const rate = restoreRateLimiter(clientRateKey(req.headers));
   if (!rate.ok) {
     return jsonError(res, Errors.rateLimit(`10분에 60회 초과. ${rate.retryAfterSec}초 후 재시도.`));
   }
