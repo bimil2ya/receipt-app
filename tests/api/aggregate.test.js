@@ -1,6 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { groupPersonFolders, runMonthAggregate } from '../../api/aggregate.js';
+import { groupPersonFolders, rerunMonthAggregate, runMonthAggregate } from '../../api/aggregate.js';
+
+function fakeRes() {
+  return {
+    statusCode: 200, body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+}
+
+describe('rerunMonthAggregate (past month repair)', () => {
+  const noLock = { acquireLock: async () => ({ acquired: true }), releaseLock: async () => {} };
+
+  it('rejects a malformed yearMonth before touching Drive', async () => {
+    const res = fakeRes();
+    const drive = { files: { list: async () => { throw new Error('must not list'); } } };
+    await rerunMonthAggregate(drive, '2026-07', res, noLock);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('refuses when the month folder is missing or ambiguous', async () => {
+    const res = fakeRes();
+    const drive = { files: { list: async () => ({ data: { files: [] } }) } };
+    await rerunMonthAggregate(drive, '2026년 07월', res, noLock);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('does not run while the same month is locked by a submission', async () => {
+    const res = fakeRes();
+    const drive = { files: { list: async () => ({ data: { files: [{ id: 'm7', name: '2026년 07월' }] } }) } };
+    await rerunMonthAggregate(drive, '2026년 07월', res, { acquireLock: async () => ({ acquired: false, ttlSeconds: 30 }), releaseLock: async () => {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ error: 'SUBMISSION_IN_PROGRESS' });
+  });
+
+  it('re-aggregates only the requested month and always releases the lock', async () => {
+    const res = fakeRes();
+    let released = false;
+    const drive = { files: { list: async ({ q }) => q.includes("name = '2026년 07월'")
+      ? { data: { files: [{ id: 'm7', name: '2026년 07월' }] } }
+      : { data: { files: [] } } } };
+    await rerunMonthAggregate(drive, '2026년 07월', res, { acquireLock: async () => ({ acquired: true }), releaseLock: async () => { released = true; } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ success: true, yearMonth: '2026년 07월', count: 0 });
+    expect(released).toBe(true);
+  });
+});
 
 describe('aggregate folder grouping', () => {
   it('groups folders by normalized person name', () => {

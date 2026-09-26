@@ -6,6 +6,7 @@ import { ALLOWED_ORIGINS } from './_cors.js'
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js'
 import { safeCompare } from './_auth.js'
 import { jsonError, Errors } from './_errorHandler.js'
+import { acquireSubmissionLock, releaseSubmissionLock } from './_submissionLock.js'
 import {
   buildDatePersonMap,
   buildDetailRows,
@@ -716,6 +717,29 @@ export async function cleanupOldSnapshots(drive, archiveFolderId) {
   }
 }
 
+export async function rerunMonthAggregate(drive, yearMonth, res, { acquireLock = acquireSubmissionLock, releaseLock = releaseSubmissionLock } = {}) {
+  if (!/^\d{4}년 \d{2}월$/.test(yearMonth)) {
+    return jsonError(res, Errors.badRequest('yearMonth는 "YYYY년 MM월" 형식이어야 합니다.'))
+  }
+  const monthRes = await drive.files.list({
+    q: `'${MAIN_FOLDER_ID}' in parents and name = '${yearMonth}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id,name)',
+  })
+  const months = monthRes.data.files || []
+  if (months.length !== 1) {
+    return jsonError(res, Errors.notFound(`${yearMonth} 폴더를 하나로 특정하지 못했습니다 (${months.length}개).`))
+  }
+  // 같은 달 제출(upload.js)과 같은 잠금을 써서 동시에 집계 파일을 교체하지 않는다.
+  const lock = await acquireLock({ yearMonth })
+  if (!lock.acquired) return res.status(409).json({ success: false, error: 'SUBMISSION_IN_PROGRESS', retryAfterSec: lock.ttlSeconds })
+  try {
+    const result = await runMonthAggregate(drive, months[0].id, yearMonth)
+    return res.status(200).json({ success: true, yearMonth, ...result })
+  } finally {
+    await releaseLock(lock).catch(() => {})
+  }
+}
+
 export default async function handler(req, res) {
   // CORS 헤더 설정 (OPTIONS 요청 자동 처리)
   const corsResult = applyCorsHeaders(req, res, { methods: 'GET, POST, OPTIONS' })
@@ -737,6 +761,9 @@ export default async function handler(req, res) {
 
   try {
     const drive = createDrive()
+    // ?yearMonth=2026년 07월 → 그 달의 월 전체집계만 다시 만든다(과거 달 복구용).
+    const yearMonth = String(req.query?.yearMonth || req.body?.yearMonth || '').trim()
+    if (yearMonth) return await rerunMonthAggregate(drive, yearMonth, res)
     const result = await runAggregate(drive)
     return res.status(200).json(result)
   } catch (err) {
