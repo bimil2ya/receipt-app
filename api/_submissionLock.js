@@ -35,6 +35,16 @@ export async function acquireSubmissionLock({ yearMonth, redis = getSubmissionRe
   return acquireLock({ key: monthLockKey(yearMonth), redis, ttlSeconds, token })
 }
 
+// 진행 공유는 공식 제출과 다른 키를 써서, 진행현황을 다시 만드는 동안에도 제출이 막히지 않게 한다.
+export function progressLockKey(yearMonth) {
+  const scope = crypto.createHash('sha256').update(String(yearMonth)).digest('hex')
+  return `progress-lock:v1:month:${scope}`
+}
+
+export async function acquireProgressLock({ yearMonth, redis = getSubmissionRedis(), ttlSeconds = 60, token = crypto.randomUUID() }) {
+  return acquireLock({ key: progressLockKey(yearMonth), redis, ttlSeconds, token })
+}
+
 export async function acquireArtifactSubmissionLock({ submissionId, redis = getSubmissionRedis(), ttlSeconds = DEFAULT_TTL_SECONDS, token = crypto.randomUUID() }) {
   if (typeof submissionId !== 'string' || !SUBMISSION_ID_RE.test(submissionId)) throw new TypeError('invalid submissionId')
   return acquireLock({ key: artifactSubmissionLockKey(submissionId), redis, ttlSeconds, token })

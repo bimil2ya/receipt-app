@@ -30,9 +30,12 @@ import {
   buildKakaoChunks,
   formatWon,
   hasControlChars,
+  isValidSubmitterDeviceId,
+  isValidSubmitterName,
   KAKAO_TEXT_LIMIT,
   safeText,
   shorten,
+  submitterFileLabel,
 } from './_uploadUtils.js';
 // 정산서 PDF 조립은 이 프로젝트에서 가장 무거운 엔드포인트다(청크 다운로드 전량 + 최종 PDF 업로드).
 export const config = { maxDuration: 60 };
@@ -216,21 +219,7 @@ const FINAL_XLSX_PROPERTIES = Object.freeze({
 // 같은 조원이 각자 폰으로 제출하므로, 출장(주) 폴더에는 기기별 최신 XLSX가 하나씩 남는다.
 // 이 속성으로 "같은 기기의 이전 제출분"만 골라 보관한다.
 const SUBMITTER_DEVICE_PROPERTY = 'receiptSubmitterDevice'
-const SUBMITTER_DEVICE_RE = /^[A-Za-z0-9_-]{1,64}$/
-
-export function isValidSubmitterDeviceId(value) {
-  return typeof value === 'string' && SUBMITTER_DEVICE_RE.test(value)
-}
-
-export function isValidSubmitterName(value) {
-  return typeof value === 'string' && value.trim().length > 0 && value.length <= 40
-    && !/[\\/:*?"<>|]/.test(value) && !hasControlChars(value)
-}
-
-// 파일 이름에 붙일 제출자 표시. 없으면 예전 이름 규칙을 그대로 쓴다.
-export function submitterFileLabel(submitterName) {
-  return isValidSubmitterName(submitterName) ? `_${submitterName.trim()}` : ''
-}
+export { isValidSubmitterDeviceId, isValidSubmitterName, submitterFileLabel }
 
 export function buildFinalXlsxAppProperties({ submissionId, sha256 }) {
   return {

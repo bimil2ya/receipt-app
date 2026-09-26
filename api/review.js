@@ -2,6 +2,28 @@ import * as XLSX from 'xlsx';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
 import { applyCorsHeaders, checkOriginAllowed } from './_corsNode.js';
 import { jsonError, Errors } from './_errorHandler.js';
+import { clientRateKey, progressRateLimiter } from './_rateLimiter.js';
+import { saveProgressShare, validateProgressPayload } from './_progress.js';
+
+// POST: 현장 폰의 진행 공유(목록만). 검토기록 GET과 완전히 분리해, 이 분기에 문제가 생겨도
+// 앱을 열 때마다 쓰는 검토기록 조회에는 영향이 없게 한다.
+async function handleProgressShare(req, res) {
+  const rate = progressRateLimiter(clientRateKey(req.headers));
+  if (!rate.ok) return jsonError(res, Errors.rateLimit(rate.retryAfterSec));
+  let payload;
+  try {
+    payload = validateProgressPayload(req.body);
+  } catch (error) {
+    return jsonError(res, Errors.badRequest(error.message));
+  }
+  try {
+    const result = await saveProgressShare(createDrive(), payload);
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('progress share error:', error.message);
+    return jsonError(res, Errors.internalError('진행 공유를 저장하지 못했습니다.'));
+  }
+}
 
 export function filterTeamReviewRows(rows, teamNames) {
   const team = normalizeDriveName(teamNames);
@@ -12,6 +34,7 @@ export function filterTeamReviewRows(rows, teamNames) {
 export default async function handler(req, res) {
   if (applyCorsHeaders(req, res) === true) return;
   if (!checkOriginAllowed(req, res)) return;
+  if (req.method === 'POST') return handleProgressShare(req, res);
   if (req.method !== 'GET') return jsonError(res, Errors.methodNotAllowed());
   const reportDate = String(req.query?.reportDate || '');
   const teamNames = normalizeDriveName(req.query?.teamNames || '');

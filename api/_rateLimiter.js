@@ -49,6 +49,13 @@ export const uploadRateLimiter = createRateLimiter(
   'upload'
 );
 
+// 진행 공유: 폰이 목록이 바뀔 때만 최소 5분 간격으로 보내므로 넉넉한 상한이다.
+export const progressRateLimiter = createRateLimiter(
+  10 * 60_000, // 10분
+  30,          // 10분당 최대 30회
+  'progress'
+);
+
 export const restoreRateLimiter = createRateLimiter(
   10 * 60_000, // 10분
   60,          // 10분당 최대 60회
