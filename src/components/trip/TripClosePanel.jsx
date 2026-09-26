@@ -1,6 +1,9 @@
 import { CheckCircle2, CloudUpload, FolderOpen, Loader2, Save, Send } from 'lucide-react';
 import OfficeReviewNotice from './OfficeReviewNotice';
 
+// '담당자에게 보내기'(집계 이미지 공유)는 현재 쓰지 않는다. 다시 쓰려면 true로 바꾼다.
+const SHOW_MANAGER_SHARE = false;
+
 function SendCountBadge({ count }) {
   if (count === 0) {
     return (
@@ -31,7 +34,8 @@ export default function TripClosePanel({
   onLoadBackup,
   officeReviews,
 }) {
-  const kakaoDone = kakaoSendCount > 0;
+  // 담당자 공유를 숨긴 동안에는 Drive 저장이 첫 단계이므로 이미 준비된 것으로 본다.
+  const kakaoDone = SHOW_MANAGER_SHARE ? kakaoSendCount > 0 : true;
   const uploadDone = uploadSendCount > 0;
 
   return (
@@ -49,25 +53,29 @@ export default function TripClosePanel({
         </div>
       )}
 
-      <button
-        onClick={onKakaoShare}
-        className={`w-full min-h-12 flex items-center gap-3 px-3 py-3 rounded-2xl border-2 active:scale-[0.98] transition-all ${
-          kakaoDone
-            ? 'bg-blue-600/15 border-blue-500/60'
-            : 'bg-yellow-400/10 border-yellow-400/50'
-        }`}
-      >
-        <span className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center ${kakaoDone ? 'bg-blue-500 text-white' : 'bg-yellow-400 text-slate-900'}`}>
-          {kakaoDone ? <CheckCircle2 size={18} strokeWidth={2.6} /> : <Send size={16} strokeWidth={2.6} />}
-        </span>
-        <div className="min-w-0 text-left flex-1">
-          <p className={`font-black text-sm leading-tight ${kakaoDone ? 'text-blue-300' : 'text-yellow-300'}`}>담당자에게 보내기</p>
-          <p className={`text-[11px] font-bold mt-0.5 ${kakaoDone ? 'text-blue-200/60' : 'text-yellow-200/60'}`}>집계내역 전송</p>
-        </div>
-        <SendCountBadge count={kakaoSendCount} />
-      </button>
+      {SHOW_MANAGER_SHARE && (
+        <>
+          <button
+            onClick={onKakaoShare}
+            className={`w-full min-h-12 flex items-center gap-3 px-3 py-3 rounded-2xl border-2 active:scale-[0.98] transition-all ${
+              kakaoDone
+                ? 'bg-blue-600/15 border-blue-500/60'
+                : 'bg-yellow-400/10 border-yellow-400/50'
+            }`}
+          >
+            <span className={`shrink-0 w-8 h-8 rounded-xl flex items-center justify-center ${kakaoDone ? 'bg-blue-500 text-white' : 'bg-yellow-400 text-slate-900'}`}>
+              {kakaoDone ? <CheckCircle2 size={18} strokeWidth={2.6} /> : <Send size={16} strokeWidth={2.6} />}
+            </span>
+            <div className="min-w-0 text-left flex-1">
+              <p className={`font-black text-sm leading-tight ${kakaoDone ? 'text-blue-300' : 'text-yellow-300'}`}>담당자에게 보내기</p>
+              <p className={`text-[11px] font-bold mt-0.5 ${kakaoDone ? 'text-blue-200/60' : 'text-yellow-200/60'}`}>집계내역 전송</p>
+            </div>
+            <SendCountBadge count={kakaoSendCount} />
+          </button>
 
-      <div className="flex justify-center text-slate-600 text-lg leading-none">↓</div>
+          <div className="flex justify-center text-slate-600 text-lg leading-none">↓</div>
+        </>
+      )}
 
       <button
         onClick={onUpload}

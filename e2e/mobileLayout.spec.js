@@ -97,7 +97,8 @@ test('320px부터 태블릿까지 긴 데이터가 주요 화면을 가로로 �
 
     await page.getByRole('button', { name: '목록' }).click();
     await page.getByRole('button', { name: '마감' }).click();
-    await expect(page.getByRole('button', { name: '담당자에게 보내기' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Drive 저장/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /담당자에게 보내기/ })).toHaveCount(0);
     await assertNoHorizontalOverflow(page);
     await page.getByRole('button', { name: '1 예산', exact: true }).click();
     await assertNoHorizontalOverflow(page);
