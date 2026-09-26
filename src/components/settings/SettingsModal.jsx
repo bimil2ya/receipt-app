@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import Modal from '../layout/Modal';
 import { formatFailureMessage } from '../../utils/errorCopy';
 import { normalizeTeamNames } from '../../utils/teamNames';
@@ -8,7 +7,7 @@ import SettingsOperationsPanel from './SettingsOperationsPanel';
 import SettingsMaintenancePanel from './SettingsMaintenancePanel';
 import SettingsHelpModal from './SettingsHelpModal';
 import SettingsVersionFooter from './SettingsVersionFooter';
-import { buildSettingsStats, getStatusLabel } from './settingsStats';
+import { getSaveStatusLabel } from './settingsStats';
 import useSettingsUiState from './useSettingsUiState';
 
 export default function SettingsModal({
@@ -19,15 +18,8 @@ export default function SettingsModal({
   teams = [],
   onTeamsUpdated,
   onNamesChange,
-  onReset,
   onResetDeviceData,
-  onResetActivityLogs,
   saveStatus = 'idle',
-  syncStatus = 'idle',
-  pendingSyncCount = 0,
-  syncEvents = [],
-  syncDaily = [],
-  onRetrySync,
   onRestoreFromDrive,
   restoreProgress = null,
 }) {
@@ -35,10 +27,6 @@ export default function SettingsModal({
     healthResult,
     setHealthResult,
     showOpsDetail,
-    showOpsStats,
-    eventFilter,
-    setEventFilter,
-    showLogHistory,
     showDangerZone,
     showDataManage,
     showWorkerPicker,
@@ -48,8 +36,6 @@ export default function SettingsModal({
     closeHelp,
     openHelp,
     toggleOpsDetail,
-    toggleOpsStats,
-    toggleLogHistory,
     toggleDangerZone,
     toggleDataManage,
   } = useSettingsUiState(show);
@@ -63,7 +49,7 @@ export default function SettingsModal({
     try {
       const res = await fetch('/api/health', { cache: 'no-store' });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || `상태 확인 실패 (${res.status})`);
+      if (!res.ok || !data.success) throw new Error(data.message || data.error || `상태 확인 실패 (${res.status})`);
       setHealthResult({ loading: false, data, msg: '' });
     } catch (e) {
       setHealthResult({ loading: false, data: null, msg: formatFailureMessage('시스템 점검 실패', e) });
@@ -74,12 +60,7 @@ export default function SettingsModal({
     onClose();
     showToast('🛡️ 저장 완료');
   };
-  const [saveText, saveClass] = getStatusLabel(saveStatus, 'save');
-  const [syncText, syncClass] = getStatusLabel(syncStatus, 'sync');
-  const { recentEvents, trendDays, trendMax, failureReasons, eventStats } = useMemo(
-    () => buildSettingsStats(syncEvents, syncDaily, eventFilter),
-    [syncEvents, syncDaily, eventFilter]
-  );
+  const [saveText, saveClass] = getSaveStatusLabel(saveStatus);
 
   if (!show) return null;
 
@@ -96,27 +77,12 @@ export default function SettingsModal({
 
         <div className="border-b border-slate-800 pb-4 space-y-3">
           <SettingsOperationsPanel
-            pendingSyncCount={pendingSyncCount}
             saveText={saveText}
             saveClass={saveClass}
-            syncText={syncText}
-            syncClass={syncClass}
             showOpsDetail={showOpsDetail}
             onToggleOpsDetail={toggleOpsDetail}
-            showOpsStats={showOpsStats}
-            onToggleOpsStats={toggleOpsStats}
-            eventStats={eventStats}
-            trendDays={trendDays}
-            trendMax={trendMax}
-            failureReasons={failureReasons}
             healthResult={healthResult}
             onCheckSystemStatus={checkSystemStatus}
-            onRetrySync={onRetrySync}
-            showLogHistory={showLogHistory}
-            onToggleLogHistory={toggleLogHistory}
-            eventFilter={eventFilter}
-            onEventFilterChange={setEventFilter}
-            recentEvents={recentEvents}
           />
         </div>
 
@@ -134,8 +100,6 @@ export default function SettingsModal({
           showDangerZone={showDangerZone}
           onToggleDangerZone={toggleDangerZone}
           onResetDeviceData={onResetDeviceData}
-          onResetActivityLogs={onResetActivityLogs}
-          onReset={onReset}
           onClose={onClose}
         />
 

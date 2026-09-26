@@ -35,7 +35,7 @@ import AppContent from './components/AppContent';
 const ALL_CATS = ['숙박비', '식비', '기타', '유류비', '의료비등'];
 
 export default function App() {
-  const { receipts, loading, saveReceipts, deleteReceipt, resetAll, resetDeviceData, resetActivityLogs, syncStatus, saveStatus, pendingSyncCount, syncEvents, syncDaily, retryPendingSync, getImageUrl } = useReceipts();
+  const { receipts, loading, saveReceipts, deleteReceipt, resetDeviceData, saveStatus, getImageUrl } = useReceipts();
 
   // ── 탭 & 네비게이션
   const {
@@ -347,9 +347,7 @@ export default function App() {
         tripStartDate={tripStartDate}
         tab={tab}
         saveStatus={saveStatus}
-        syncStatus={syncStatus}
         statusPopover={statusPopover}
-        pendingSyncCount={pendingSyncCount}
         statusRef={statusRef}
         onStatusPopoverChange={setStatusPopover}
         onSettingsOpen={openSettings}
@@ -448,15 +446,8 @@ export default function App() {
         teams={teams}
         onTeamsUpdated={refreshTeams}
         onNamesChange={handleNamesChange}
-        onReset={() => { resetAll(); }}
         onResetDeviceData={resetDeviceData}
-        onResetActivityLogs={resetActivityLogs}
         saveStatus={saveStatus}
-        syncStatus={syncStatus}
-        pendingSyncCount={pendingSyncCount}
-        syncEvents={syncEvents}
-        syncDaily={syncDaily}
-        onRetrySync={retryPendingSync}
         onRestoreFromDrive={restoreFromDrive}
         restoreProgress={restoreProgress}
         showWorkerPicker={showWorkerPicker}

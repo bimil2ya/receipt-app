@@ -8,7 +8,6 @@ const rows = [
 async function seed(page, withImage = true) {
   // All service boundaries are mocked; no live Drive writes or notifications.
   await page.route('**/api/**', route => route.fulfill({ json: { success: true, teams: [{ id: 1, names: '검증팀' }] } }));
-  await page.route('https://**.supabase.co/**', route => route.fulfill({ json: [] }));
   await page.addInitScript(() => {
     localStorage.setItem('receipt_names', '검증팀');
     localStorage.setItem('trip_start_date', '2026-09-01');

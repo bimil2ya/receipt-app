@@ -16,15 +16,8 @@ export default function AppModals({
   teams,
   onTeamsUpdated,
   onNamesChange,
-  onReset,
   onResetDeviceData,
-  onResetActivityLogs,
   saveStatus,
-  syncStatus,
-  pendingSyncCount,
-  syncEvents,
-  syncDaily,
-  onRetrySync,
   onRestoreFromDrive,
   restoreProgress,
   showWorkerPicker,
@@ -77,15 +70,8 @@ export default function AppModals({
         teams={teams}
         onTeamsUpdated={onTeamsUpdated}
         onNamesChange={onNamesChange}
-        onReset={onReset}
         onResetDeviceData={onResetDeviceData}
-        onResetActivityLogs={onResetActivityLogs}
         saveStatus={saveStatus}
-        syncStatus={syncStatus}
-        pendingSyncCount={pendingSyncCount}
-        syncEvents={syncEvents}
-        syncDaily={syncDaily}
-        onRetrySync={onRetrySync}
         onRestoreFromDrive={onRestoreFromDrive}
         restoreProgress={restoreProgress}
       />

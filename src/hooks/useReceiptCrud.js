@@ -1,6 +1,4 @@
 import { useCallback } from 'react';
-import { supabase } from '../utils/supabase';
-import { formatFailureDetail } from '../utils/errorCopy';
 import { base64ToBlob, getOrCreateDeviceId } from '../utils/storage';
 import {
   STORE_CARDS,
@@ -17,11 +15,6 @@ export default function useReceiptCrud({
   onReceiptsLoaded,
   onCardsLoaded,
   onSaveStatusChange,
-  onSyncStatusChange,
-  appendSyncOp,
-  retryPendingSync,
-  recordSyncEvent,
-  resetSyncQueue,
 }) {
   const saveReceipts = useCallback(async data => {
     const db = await dbOpen();
@@ -84,7 +77,7 @@ export default function useReceiptCrud({
         request.onerror = () => fail(request.error);
       });
 
-      writeTx.oncomplete = async () => {
+      writeTx.oncomplete = () => {
         onReceiptsLoaded(prev => {
           const next = [...prev];
           preparedItems.forEach(item => {
@@ -95,43 +88,6 @@ export default function useReceiptCrud({
           return next;
         });
         onSaveStatusChange('success');
-
-        if (supabase) {
-          onSyncStatusChange('syncing');
-          try {
-            const { error } = await supabase.from('receipts').upsert(preparedItems);
-            if (error) throw error;
-            onSyncStatusChange('success');
-            recordSyncEvent({
-              kind: 'save',
-              status: 'success',
-              title: '저장 동기화 완료',
-              detail: `${preparedItems.length}건`,
-            });
-          } catch (err) {
-            if (import.meta.env.DEV) console.error('Supabase Upsert Error:', err);
-            onSyncStatusChange('error');
-            recordSyncEvent({
-              kind: 'save',
-              status: 'error',
-              title: '저장 동기화 실패',
-              detail: formatFailureDetail(err),
-            });
-            try {
-              await appendSyncOp({ type: 'upsert', items: preparedItems });
-              retryPendingSync();
-            } catch (queueErr) {
-              if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
-              recordSyncEvent({
-                kind: 'save',
-                status: 'error',
-                title: '보류 큐 적재 실패',
-                detail: formatFailureDetail(queueErr),
-              });
-            }
-          }
-        }
-
         resolve();
       };
       writeTx.onerror = () => {
@@ -143,12 +99,11 @@ export default function useReceiptCrud({
         reject(writeTx.error || new Error('save receipt transaction aborted'));
       };
     });
-  }, [appendSyncOp, dbOpen, onReceiptsLoaded, onSaveStatusChange, onSyncStatusChange, recordSyncEvent, retryPendingSync]);
+  }, [dbOpen, onReceiptsLoaded, onSaveStatusChange]);
 
   const deleteReceipt = useCallback(async id => {
     const db = await dbOpen();
     onSaveStatusChange('saving');
-    const deleteUserId = getOrCreateDeviceId();
     // Reads and removal share one transaction so the shared-image check sees
     // the same receipts that are being deleted from.
     const tx = db.transaction([STORE_RECEIPTS, STORE_IMAGES], 'readwrite');
@@ -180,46 +135,10 @@ export default function useReceiptCrud({
       const allRequest = receiptStore.getAll();
       allRequest.onsuccess = () => { allRecs = allRequest.result || []; allRead = true; commitDelete(); };
       allRequest.onerror = () => fail(allRequest.error);
-      tx.oncomplete = async () => {
+      tx.oncomplete = () => {
         if (deletedImageId) revokeReceiptImageUrl(deletedImageId);
         onReceiptsLoaded(prev => prev.filter(r => r.id !== id));
         onSaveStatusChange('success');
-
-        if (supabase) {
-          onSyncStatusChange('syncing');
-          try {
-            const { error } = await supabase.from('receipts').delete().eq('id', id).eq('userId', deleteUserId);
-            if (error) throw error;
-            onSyncStatusChange('success');
-            recordSyncEvent({
-              kind: 'delete',
-              status: 'success',
-              title: '삭제 동기화 완료',
-              detail: id,
-            });
-          } catch (err) {
-            if (import.meta.env.DEV) console.error('Supabase Delete Error:', err);
-            onSyncStatusChange('error');
-            recordSyncEvent({
-              kind: 'delete',
-              status: 'error',
-              title: '삭제 동기화 실패',
-              detail: formatFailureDetail(err),
-            });
-            try {
-              await appendSyncOp({ type: 'delete', id, userId: deleteUserId });
-              retryPendingSync();
-            } catch (queueErr) {
-              if (import.meta.env.DEV) console.error('Sync queue append failed:', queueErr);
-              recordSyncEvent({
-                kind: 'delete',
-                status: 'error',
-                title: '보류 큐 적재 실패',
-                detail: formatFailureDetail(queueErr),
-              });
-            }
-          }
-        }
         resolve();
       };
       tx.onerror = () => {
@@ -231,7 +150,7 @@ export default function useReceiptCrud({
         reject(tx.error || new Error('delete receipt transaction aborted'));
       };
     });
-  }, [appendSyncOp, dbOpen, onReceiptsLoaded, onSaveStatusChange, onSyncStatusChange, recordSyncEvent, retryPendingSync]);
+  }, [dbOpen, onReceiptsLoaded, onSaveStatusChange]);
 
   const resetDeviceData = useCallback(async () => {
     const db = await dbOpen();
@@ -243,33 +162,16 @@ export default function useReceiptCrud({
     tx.objectStore(STORE_CARDS).clear();
     tx.objectStore(STORE_SYNC_QUEUE).clear();
     return new Promise((resolve, reject) => {
-      tx.oncomplete = async () => {
-        await resetSyncQueue().catch(() => {});
+      tx.oncomplete = () => {
         clearReceiptImageUrlCache();
         onReceiptsLoaded([]);
         onCardsLoaded([]);
-
-        // 원격(Supabase) 데이터도 삭제 — 그러지 않으면 다음 부트스트랩에서 다시 내려와
-        // '새 출장 시작'의 멘탈 모델(완전 초기화)과 어긋남
-        if (supabase) {
-          const deviceId = getOrCreateDeviceId();
-          try {
-            const { error } = await supabase.from('receipts').delete().eq('userId', deviceId);
-            if (error) throw error;
-          } catch (err) {
-            if (import.meta.env.DEV) console.error('Supabase reset delete failed:', err);
-            onSaveStatusChange('error');
-            reject(err);
-            return;
-          }
-        }
-
         onSaveStatusChange('success');
         resolve();
       };
       tx.onerror = () => { onSaveStatusChange('error'); reject(tx.error); };
     });
-  }, [dbOpen, onCardsLoaded, onReceiptsLoaded, onSaveStatusChange, resetSyncQueue]);
+  }, [dbOpen, onCardsLoaded, onReceiptsLoaded, onSaveStatusChange]);
 
   const saveCard = useCallback(async (card) => {
     const db = await dbOpen();

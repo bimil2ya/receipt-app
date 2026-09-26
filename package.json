@@ -15,7 +15,6 @@
     "deploy:prod": "npm run verify:env && vercel deploy --prod --force"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.1",
     "@upstash/redis": "^1.38.4",
     "browser-image-compression": "^2.0.2",
     "googleapis": "^172.0.0",

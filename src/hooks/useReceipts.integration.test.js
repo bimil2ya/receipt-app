@@ -11,23 +11,6 @@ vi.mock('react', () => ({
   useRef: (initial) => ({ current: initial }),
 }));
 
-vi.mock('../utils/supabase', () => ({
-  supabase: null,
-}));
-
-vi.mock('./useReceiptSync', () => ({
-  default: vi.fn(() => ({
-    pendingSyncCount: 0,
-    syncEvents: [],
-    syncDaily: vi.fn(),
-    appendSyncOp: vi.fn(),
-    recordSyncEvent: vi.fn(),
-    retryPendingSync: vi.fn(),
-    resetActivityLogs: vi.fn(),
-    resetSyncQueue: vi.fn(),
-  })),
-}));
-
 vi.mock('./useReceiptBootstrap', () => ({
   default: vi.fn(),
 }));
@@ -60,9 +43,9 @@ describe('useReceipts', () => {
   it('returns the API that App.jsx destructures', () => {
     const api = useReceipts();
     for (const key of [
-      'receipts', 'loading', 'syncStatus', 'saveStatus', 'pendingSyncCount', 'syncEvents', 'syncDaily',
-      'saveReceipts', 'deleteReceipt', 'resetAll', 'resetDeviceData', 'resetActivityLogs',
-      'saveCard', 'getHistory', 'retryPendingSync', 'getImageUrl',
+      'receipts', 'loading', 'saveStatus',
+      'saveReceipts', 'deleteReceipt', 'resetDeviceData',
+      'saveCard', 'getHistory', 'getImageUrl',
     ]) {
       expect(api).toHaveProperty(key);
     }

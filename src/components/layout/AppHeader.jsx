@@ -1,7 +1,6 @@
 import {
   BarChart3,
   ClipboardList,
-  Cloud,
   HardDrive,
   Images,
   Loader2,
@@ -20,16 +19,13 @@ export default function AppHeader({
   tripStartDate,
   tab,
   saveStatus,
-  syncStatus,
   statusPopover,
-  pendingSyncCount,
   statusRef,
   onStatusPopoverChange,
   onSettingsOpen,
   onTabChange,
 }) {
   const saveStateLabel = saveStatus === 'saving' ? '저장 중' : saveStatus === 'error' ? '저장 실패' : '저장됨';
-  const syncStateLabel = syncStatus === 'syncing' ? '동기화 중' : syncStatus === 'error' ? '동기화 실패' : '동기화됨';
 
   return (
     <div className="shrink-0 shadow-lg">
@@ -54,47 +50,16 @@ export default function AppHeader({
               )}
             </button>
 
-            {syncStatus !== 'offline' && (
-              <button
-                type="button"
-                onClick={() => onStatusPopoverChange(statusPopover === 'sync' ? null : 'sync')}
-                className="flex items-center justify-center gap-0.5 shrink-0 active:scale-95 p-2"
-                aria-label={`동기화 상태: ${syncStateLabel}`}
-              >
-                {syncStatus === 'syncing' ? (
-                  <Loader2 size={14} className="animate-spin text-cyan-300" />
-                ) : syncStatus === 'error' ? (
-                  <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-300">
-                    <Cloud size={14} /> 동기화실패
-                  </span>
-                ) : (
-                  <Cloud size={14} className="text-emerald-300" />
-                )}
-              </button>
-            )}
-
-            {statusPopover && (
+            {statusPopover === 'save' && (
               <div className="absolute top-full mt-2 right-0 z-50 max-w-[80vw] break-words bg-slate-700 border border-slate-600 rounded-xl px-3 py-2 text-xs font-bold text-slate-200 shadow-2xl">
-                {statusPopover === 'save' && (
-                  saveStatus === 'saving' ? <span className="font-black text-blue-300">저장 중…</span>
+                {saveStatus === 'saving' ? <span className="font-black text-blue-300">저장 중…</span>
                   : saveStatus === 'error' ? <><span className="font-black text-red-300">저장 실패</span> — 자료관리에서 백업해 보세요</>
-                  : <><span className="font-black text-emerald-300">저장됨</span> · 이 기기에 안전</>
-                )}
-                {statusPopover === 'sync' && (
-                  syncStatus === 'syncing' ? <span className="font-black text-cyan-300">동기화 중…</span>
-                  : syncStatus === 'error' ? <><span className="font-black text-red-300">동기화 실패</span> — 잠시 후 자동 재시도</>
-                  : <><span className="font-black text-emerald-300">동기화됨</span> · 서버 연결 정상</>
-                )}
+                  : <><span className="font-black text-emerald-300">저장됨</span> · 이 기기에 안전</>}
               </div>
             )}
 
-            {pendingSyncCount > 0 && (
-              <span className="ml-1 px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-[11px] font-black text-amber-200 whitespace-nowrap">
-                보류 {pendingSyncCount}
-              </span>
-            )}
             <div className="sr-only" role="status" aria-live="polite">
-              저장 상태: {saveStateLabel}. {syncStatus !== 'offline' ? `동기화 상태: ${syncStateLabel}.` : '동기화 안 함.'}
+              저장 상태: {saveStateLabel}.
             </div>
           </div>
         </div>

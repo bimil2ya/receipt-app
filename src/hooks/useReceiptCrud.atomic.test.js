@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('react', () => ({ useCallback: fn => fn }));
-vi.mock('../utils/supabase', () => ({ supabase: null }));
 
 import useReceiptCrud from './useReceiptCrud';
 import { _resetDeviceIdCacheForTest } from '../utils/storage';
@@ -109,8 +108,7 @@ function useCrudHarness(db) {
   return useReceiptCrud({
     dbOpen: async () => db,
     onReceiptsLoaded: update => { const next = update(receipts); receipts.splice(0, receipts.length, ...next); },
-    onCardsLoaded: () => {}, onSaveStatusChange: () => {}, onSyncStatusChange: () => {},
-    appendSyncOp: async () => {}, retryPendingSync: () => {}, recordSyncEvent: () => {}, resetSyncQueue: async () => {},
+    onCardsLoaded: () => {}, onSaveStatusChange: () => {},
   });
 }
 const receipt = (id, imageId, extra = {}) => ({ id, imageId, totalAmount: 1000, date: '2026-09-23', storeName: '상점', category: '식비', ...extra });

@@ -11,8 +11,6 @@ export default function SettingsMaintenancePanel({
   showDangerZone,
   onToggleDangerZone,
   onResetDeviceData,
-  onResetActivityLogs,
-  onReset,
   onClose,
 }) {
   const { confirmModalProps, showConfirm } = useConfirmModal();
@@ -20,22 +18,12 @@ export default function SettingsMaintenancePanel({
   const handleResetDeviceData = useCallback(async () => {
     const ok = await showConfirm({
       title: '이 기기 초기화',
-      message: '영수증, 이미지, 변경 이력, 보류 전송을\n이 기기에서만 삭제합니다.\n되돌릴 수 없습니다.',
+      message: '영수증, 이미지, 변경 이력을\n이 기기에서만 삭제합니다.\n되돌릴 수 없습니다.',
       confirmLabel: '초기화',
       variant: 'danger',
     });
-    if (ok) { (onResetDeviceData || onReset)(); onClose(); }
-  }, [showConfirm, onResetDeviceData, onReset, onClose]);
-
-  const handleResetActivityLogs = useCallback(async () => {
-    const ok = await showConfirm({
-      title: '운영 로그 초기화',
-      message: '로그와 일별 집계만 삭제합니다.\n영수증 데이터는 유지됩니다.',
-      confirmLabel: '초기화',
-      variant: 'danger',
-    });
-    if (ok) { (onResetActivityLogs || onReset)(); onClose(); }
-  }, [showConfirm, onResetActivityLogs, onReset, onClose]);
+    if (ok) { onResetDeviceData(); onClose(); }
+  }, [showConfirm, onResetDeviceData, onClose]);
 
   return (
     <>
@@ -112,18 +100,7 @@ export default function SettingsMaintenancePanel({
                 🗑️ 이 기기 초기화
               </button>
               <p className="text-xs text-red-200/80 leading-4">
-                영수증, 이미지, 변경 이력, 보류 전송을 이 기기에서만 지웁니다.
-              </p>
-            </div>
-            <div className="space-y-1.5">
-              <button
-                onClick={handleResetActivityLogs}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-100 py-3.5 rounded-xl font-black text-base active:scale-95 transition-transform"
-              >
-                🧾 운영 로그 초기화
-              </button>
-              <p className="text-xs text-slate-400 leading-4">
-                로그와 일별 집계만 지우고, 영수증 데이터는 유지합니다.
+                영수증, 이미지, 변경 이력을 이 기기에서만 지웁니다.
               </p>
             </div>
           </div>
