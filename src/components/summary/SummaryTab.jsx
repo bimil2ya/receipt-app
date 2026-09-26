@@ -206,22 +206,13 @@ const SummaryTab = forwardRef(function SummaryTab({ receipts, names, reportDate,
           <button aria-pressed={summaryMode === 'category'} onClick={() => setSummaryMode('category')} className={`min-h-11 px-3 py-2.5 rounded-lg text-sm font-black transition-all ${categoryTabClass}`}>용도별</button>
           <button aria-pressed={summaryMode === 'date'} onClick={() => setSummaryMode('date')} className={`min-h-11 px-3 py-2.5 rounded-lg text-sm font-black transition-all ${dateTabClass}`}>일자별</button>
         </div>
-        <div className="grid grid-cols-2 gap-2 min-[390px]:flex">
-          <button
-            onClick={captureImage}
-            disabled={isCapturing}
-            className="min-h-11 bg-green-600 px-3 py-2.5 rounded-xl text-sm font-black disabled:opacity-50 whitespace-nowrap"
-          >
-            📸 저장
-          </button>
-          <button
-            onClick={prepareKakaoShare}
-            disabled={isCapturing}
-            className="min-h-11 bg-yellow-500 px-3 py-2.5 rounded-xl text-sm font-black text-slate-900 disabled:opacity-50 whitespace-nowrap"
-          >
-            {isCapturing ? '준비중…' : '💬 카톡'}
-          </button>
-        </div>
+        <button
+          onClick={captureImage}
+          disabled={isCapturing}
+          className="min-h-11 bg-green-600 px-3 py-2.5 rounded-xl text-sm font-black disabled:opacity-50 whitespace-nowrap"
+        >
+          {isCapturing ? '준비중…' : '📸 이미지 저장'}
+        </button>
       </div>
 
       {/* 집계 카드 */}
