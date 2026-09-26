@@ -131,6 +131,21 @@ describe('PDF evidence', () => {
     expect(drive.files.create).toHaveBeenCalledTimes(3)
   })
 
+  it('completes when Drive re-labels a chunk that starts with a PDF header as application/pdf', async () => {
+    const { drive, filesById } = createDrive()
+    const create = drive.files.create
+    drive.files.create = vi.fn(async (request) => {
+      const result = await create(request)
+      const stored = filesById.get(result.data.id)
+      // Real Drive sniffs content: the first chunk begins with "%PDF-".
+      if (stored.bytes.subarray(0, 5).toString() === '%PDF-') stored.mimeType = 'application/pdf'
+      return result
+    })
+    await expect(processPdfEvidence(drive, options(0))).resolves.toMatchObject({ assembled: false, received: 0 })
+    await expect(processPdfEvidence(drive, options(1))).resolves.toMatchObject({ assembled: true, received: 1 })
+    expect(filesById.get('created-1').mimeType).toBe('application/pdf')
+  })
+
   it('recovers a valid final witness globally without any mutation', async () => {
     const final = record({ id: 'final-id', kind: 'pdf', bytes: pdfBytes })
     const { drive } = createDrive([final])

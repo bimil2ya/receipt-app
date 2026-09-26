@@ -4,6 +4,7 @@ import { driveQueryString } from './driveUtils.js'
 
 const PDF_MIME = 'application/pdf'
 const CHUNK_MIME = 'application/octet-stream'
+const CHUNK_STORED_MIMES = [CHUNK_MIME, PDF_MIME]
 const MAX_PDF_BYTES = 20 * 1024 * 1024
 const MAX_PDF_CHUNKS = 20
 const MAX_PDF_CHUNK_BYTES = 4 * 1024 * 1024
@@ -269,7 +270,9 @@ async function verifyChunk(drive, fileId, { submissionId, expected, chunkIndex, 
   const expectedSha = expected.chunkSha256[chunkIndex]
   const metadataValid = file.id === fileId
     && file.trashed === false
-    && file.mimeType === CHUNK_MIME
+    // Drive는 첫 조각이 PDF 머리말로 시작하면 형식을 application/pdf로 바꿔 저장한다.
+    // 조각의 진위는 아래 제출 속성·길이·해시·실제 바이트로 확인한다.
+    && CHUNK_STORED_MIMES.includes(file.mimeType)
     && hasExactParent(file, weekId)
     && Number(file.size) === expectedLength
     && expectedLength <= MAX_PDF_CHUNK_BYTES
@@ -323,6 +326,7 @@ async function createChunk(drive, options) {
     created = await drive.files.create({
       requestBody: {
         name: `_정산서청크_${expected.reportId}_${chunkIndex}.bin`,
+        mimeType: CHUNK_MIME,
         parents: [weekId],
         appProperties: chunkProperties({ submissionId, expected, chunkIndex }),
       },
