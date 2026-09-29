@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 
 import handler from './dashboard.js';
 import { signToken } from './_dashboardToken.js';
@@ -11,7 +12,43 @@ const throwingRedis = () => {
   return { incr: boom, expire: boom, del: boom, get: boom, set: boom };
 };
 import { sendRecoveryEmail } from './_dashboardMail.js';
-import { fetchReportPdf } from './_dashboardReports.js';
+import { buildDashboardPayload } from './_dashboardData.js';
+import { fetchReportPdf, signReportRef } from './_dashboardReports.js';
+
+// Exercise the real byte parser and payload builder while replacing only external
+// sources. Contract tests must never depend on OAuth or return a fabricated payload.
+function monthlyWorkbook(month) {
+  const details = [
+    { '날짜': `${month}-01`, '사용시간': '12:00', '이름': '홍길동, 성춘향', '사용처': '식당', '용도': '식비', '금액(원)': 15000, '승인번호': 'a', '영수증 식별값': 'receipt-food', '수정 버전': 1 },
+    { '날짜': `${month}-02`, '사용시간': '15:00', '이름': '홍길동, 성춘향', '사용처': '주유소', '용도': '유류비', '금액(원)': 50000, '승인번호': 'b', '영수증 식별값': 'receipt-fuel', '수정 버전': 2 },
+    { '날짜': `${month}-03`, '사용시간': '09:00', '이름': '강감찬, 이순신', '사용처': '약국', '용도': '의료비등', '금액(원)': 8000, '승인번호': 'c', '영수증 식별값': 'receipt-medical', '수정 버전': 1 },
+  ];
+  const reviews = details.map(row => ({
+    '영수증 식별값': row['영수증 식별값'], '수정 버전': row['수정 버전'],
+    '검토 상태': row['영수증 식별값'] === 'receipt-fuel' ? '추가 자료 요청' : '',
+    '담당자 메모': '', '추가 자료 요청': '', '검토 담당자': '', '검토 시각': '',
+  }));
+  const workbook = XLSX.utils.book_new();
+  for (const [name, rows] of Object.entries({
+    '전체내역': details, '검토기록': reviews,
+    '날짜별집계': [{ '날짜': '합계', '합계(원)': 73000 }],
+  })) XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), name);
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+vi.mock('./_dashboardData.js', async (importOriginal) => {
+  const real = await importOriginal();
+  return {
+    ...real,
+    buildDashboardPayload: vi.fn(options => real.buildDashboardPayload(options, {
+      loadMonth: async month => ({ bytes: monthlyWorkbook(month), sheetModifiedTime: '2026-09-29T00:00:00Z' }),
+      loadReports: async ({ teamNames, month }) => {
+        const id = teamNames === '홍길동, 성춘향' ? 'fixture-report-team-1' : 'fixture-report-team-2';
+        return [{ id, label: `정산서 · ${teamNames}`, date: `${month}-03`, available: true, ref: signReportRef(id) }];
+      },
+    })),
+  };
+});
 
 vi.mock('./_dashboardMail.js', () => ({
   sendRecoveryEmail: vi.fn(async () => ({ sent: true })),
@@ -19,7 +56,7 @@ vi.mock('./_dashboardMail.js', () => ({
 
 vi.mock('./_dashboardReports.js', async (importOriginal) => {
   const real = await importOriginal();
-  return { ...real, fetchReportPdf: vi.fn(real.fetchReportPdf) };
+  return { ...real, fetchReportPdf: vi.fn(async () => Buffer.from('%PDF-1.4\n% test fixture\n%%EOF', 'latin1')) };
 });
 
 const OWNER_PW = 'owner-secret-123456';
@@ -293,6 +330,9 @@ describe('action=data — role-scoped payload (contract)', () => {
     expect(ledgerSum).toBe(body.totals.spent);
     expect(catSum).toBe(body.totals.spent);
     expect(body.totals.core + body.totals.fuelMed).toBe(body.totals.spent);
+    expect(body.totals).toMatchObject({ spent: 73000, core: 15000, fuelMed: 58000, receiptCount: 3 });
+    expect('stub' in body).toBe(false);
+    expect(body.teams.every(team => team.submitted === false)).toBe(true);
   });
 
   it('never lets a team review count exceed its receipt count', async () => {
@@ -325,11 +365,21 @@ describe('action=data — role-scoped payload (contract)', () => {
       const { body } = await fetchPayload(role);
       for (const t of body.teams) {
         expect(Array.isArray(t.reports)).toBe(true);
+        expect(t.reports.some(report => report.available)).toBe(true);
         for (const r of t.reports) {
           if (r.available) expect(typeof r.ref).toBe('string');
         }
       }
     }
+  });
+
+  it('fails instead of returning an empty successful payload when its source is unavailable', async () => {
+    buildDashboardPayload.mockRejectedValueOnce(new Error('fixture source unavailable'));
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'data', headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(500);
+    expect(res.body.success).toBe(false);
+    expect('totals' in res.body).toBe(false);
   });
 });
 

@@ -1,9 +1,16 @@
 import { useMemo, useState } from 'react';
-import { won, monthLabel, SEVERITY, CATEGORY_COLORS } from './format';
+import { won, monthLabel, SEVERITY, categoryNames, categoryColor } from './format';
 import { HBars, StackBars, DotStrip } from './charts';
 import ReportsPanel from './ReportsPanel';
 
-const CATS = ['숙박비', '식비', '기타', '유류비', '의료비등'];
+function analysisAvailable(data) {
+  return data.analysisStatus === 'complete' && Array.isArray(data.flags) && Array.isArray(data.coDining);
+}
+
+function submissionLabel(team) {
+  if (team.submissionStatus !== 'unverified' && team.submitted === true) return '최종 제출 완료';
+  return team.aggregateReflected === true ? '집계 반영 · 최종 완료 확인 불가' : '최종 완료 확인 불가';
+}
 
 function Kpi({ label, value, sub, accent }) {
   return (
@@ -29,6 +36,7 @@ function Panel({ title, note, children }) {
 
 function OverviewTab({ data, isOwner }) {
   const t = data.totals;
+  const analyzed = analysisAvailable(data);
   return (
     <>
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -44,21 +52,29 @@ function OverviewTab({ data, isOwner }) {
           }
           sub={t.prevMonthSpent ? `전월 ${won(t.prevMonthSpent)}` : '전월 자료 없음'}
         />
-        <Kpi label="숙박·식비·기타" value={won(t.core)} sub={`유류·의료 ${won(t.fuelMed)} 별도`} />
+        <Kpi label="유류·의료 외 지출" value={won(t.core)} sub={`유류·의료 ${won(t.fuelMed)} 별도`} />
         {isOwner ? (
-          <Kpi label="이상 지출" value={String((data.flags || []).length)} accent sub="이상 지출 탭 참고" />
+          <Kpi label="이상 지출" value={analyzed ? String(data.flags.length) : '분석 미실행'} accent sub={analyzed ? '이상 지출 탭 참고' : '분석 결과를 확인할 수 없습니다'} />
         ) : (
           <Kpi
             label="검수 완료"
             value={`${data.teams.reduce((a, x) => a + x.review.ok, 0)} / ${t.receiptCount}`}
-            sub={`요청 ${data.teams.reduce((a, x) => a + x.review.req, 0)} · 미검토 ${data.teams.reduce((a, x) => a + x.review.none, 0)}`}
+            sub={`요청 ${data.teams.reduce((a, x) => a + x.review.req, 0)} · 미검토 ${data.teams.reduce((a, x) => a + x.review.none, 0)} · 대조 불가 ${data.teams.reduce((a, x) => a + (x.review.unknown || 0), 0)}`}
           />
         )}
       </div>
 
       <Panel title="용도별 지출" note="전 조 합계">
-        <HBars rows={CATS.map((c) => ({ label: c, value: data.byCategory[c] || 0, color: CATEGORY_COLORS[c] }))} />
+        <HBars rows={categoryNames(data.byCategory).map((c) => ({ label: c, value: data.byCategory[c] || 0, color: categoryColor(c) }))} />
       </Panel>
+
+      {(data.unmatchedLedgerCount > 0 || data.unmatchedReviewCount > 0) && (
+        <Panel title="검토 대조 안내">
+          <p className="text-sm text-slate-600">
+            현재 내역 대조 불가 {data.unmatchedLedgerCount || 0}건 · 현재 내역에 연결되지 않은 검토기록 {data.unmatchedReviewCount || 0}건
+          </p>
+        </Panel>
+      )}
 
       <Panel title="조 매트릭스" note={isOwner ? '제출 · 지출액 · 검수 · 이상' : '제출 · 지출액 · 검수'}>
         <div className="overflow-x-auto">
@@ -68,26 +84,26 @@ function OverviewTab({ data, isOwner }) {
                 <th className="py-2">조</th>
                 <th>제출</th>
                 <th>지출액</th>
-                <th>검수 (완료/요청/미검토)</th>
+                <th>검수 (완료/요청/미검토/대조 불가)</th>
                 {isOwner && <th>이상</th>}
               </tr>
             </thead>
             <tbody>
               {data.teams.map((team) => {
-                const anom = isOwner
+                const anom = isOwner && analyzed
                   ? (data.flags || []).filter((f) => (f.teams || []).includes(team.names)).length
                   : 0;
                 return (
                   <tr key={team.names} className="border-t border-slate-100">
                     <td className="py-2 font-medium">{team.names}</td>
-                    <td>{team.submitted ? '✓' : '—'}</td>
+                    <td>{submissionLabel(team)}</td>
                     <td className="font-mono">{won(team.spent)}</td>
                     <td className="font-mono text-slate-500">
-                      {team.review.ok} / {team.review.req} / {team.review.none}
+                      {team.review.ok} / {team.review.req} / {team.review.none} / {team.review.unknown || 0}
                     </td>
                     {isOwner && (
                       <td className={anom ? 'font-mono font-semibold text-orange-600' : 'font-mono text-slate-400'}>
-                        {anom}
+                        {analyzed ? anom : '분석 미실행'}
                       </td>
                     )}
                   </tr>
@@ -129,21 +145,23 @@ function TeamTab({ data, token }) {
         <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-sm">
           <span className="font-medium text-slate-500">이번 달 지출</span>
           <span className="font-mono">{won(team.spent)}</span>
-          <span className="font-medium text-slate-500">숙박·식비·기타</span>
+          <span className="font-medium text-slate-500">유류·의료 외 지출</span>
           <span className="font-mono">{won(team.core)}</span>
           <span className="font-medium text-slate-500">유류·의료</span>
           <span className="font-mono">{won(team.spent - team.core)}</span>
           <span className="font-medium text-slate-500">영수증</span>
           <span className="font-mono">{team.receiptCount}건</span>
-          <span className="font-medium text-slate-500">검수 (완료/요청/미검토)</span>
+          <span className="font-medium text-slate-500">제출 확인</span>
+          <span>{submissionLabel(team)}</span>
+          <span className="font-medium text-slate-500">검수 (완료/요청/미검토/대조 불가)</span>
           <span className="font-mono">
-            {team.review.ok} / {team.review.req} / {team.review.none}
+            {team.review.ok} / {team.review.req} / {team.review.none} / {team.review.unknown || 0}
           </span>
         </div>
       </Panel>
 
       <Panel title="용도별 지출">
-        <HBars rows={CATS.map((c) => ({ label: c, value: team.byCategory[c] || 0, color: CATEGORY_COLORS[c] }))} />
+        <HBars rows={categoryNames(team.byCategory).map((c) => ({ label: c, value: team.byCategory[c] || 0, color: categoryColor(c) }))} />
       </Panel>
 
       <Panel title="정산서 · 영수증" note="표지 = 용도별 집계장, 이후 = 영수증 이미지">
@@ -190,6 +208,8 @@ function TrendTab({ data }) {
 }
 
 function AnomalyTab({ data }) {
+  const analyzed = analysisAvailable(data);
+  const cats = useMemo(() => categoryNames(data.byCategory), [data.byCategory]);
   const flags = useMemo(() => data.flags || [], [data.flags]);
   const byRule = useMemo(() => {
     const m = new Map();
@@ -201,19 +221,20 @@ function AnomalyTab({ data }) {
   }, [flags]);
 
   const dotData = useMemo(() => {
-    const byCat = {};
-    CATS.forEach((c) => {
+    const byCat = Object.create(null);
+    cats.forEach((c) => {
       byCat[c] = data.ledger.filter((r) => r.category === c).map((r) => r.amount).filter(Boolean);
     });
     return byCat;
-  }, [data.ledger]);
+  }, [data.ledger, cats]);
 
   return (
     <>
-      <Panel title="이상 지출" note={`${flags.length}건`}>
-        {byRule.length === 0 && <p className="text-sm text-slate-500">지금 표시할 이상 지출이 없습니다.</p>}
+      <Panel title="이상 지출" note={analyzed ? `${flags.length}건` : '분석 미실행'}>
+        {!analyzed && <p className="text-sm text-slate-600">이상 지출 분석이 아직 실행되지 않았습니다.</p>}
+        {analyzed && byRule.length === 0 && <p className="text-sm text-slate-500">지금 표시할 이상 지출이 없습니다.</p>}
         <div className="flex flex-col gap-3">
-          {byRule.map(([rule, items]) => {
+          {analyzed && byRule.map(([rule, items]) => {
             const sev = SEVERITY[items[0].severity] || SEVERITY.info;
             return (
               <div key={rule} className="rounded-lg border border-slate-200">
@@ -238,13 +259,17 @@ function AnomalyTab({ data }) {
 
       <Panel title="용도별 금액 분포" note="점 하나 = 영수증 한 건, 멀리 떨어진 점이 이상치 후보">
         <div className="flex flex-col gap-2">
-          {CATS.map((c) => (
-            <DotStrip key={c} label={c} values={dotData[c] || []} color={CATEGORY_COLORS[c]} />
+          {cats.map((c) => (
+            <DotStrip key={c} label={c} values={dotData[c] || []} color={categoryColor(c)} />
           ))}
         </div>
       </Panel>
 
-      {Array.isArray(data.coDining) && (
+      {!analyzed ? (
+        <Panel title="함께 식사한 조" note="분석 미실행">
+          <p className="text-sm text-slate-600">함께 식사한 조 분석이 아직 실행되지 않았습니다.</p>
+        </Panel>
+      ) : (
         <Panel title="함께 식사한 조" note="참고 · 경고 아님">
           {data.coDining.length === 0 && <p className="text-sm text-slate-500">해당 없음.</p>}
           <div className="flex flex-col gap-2">

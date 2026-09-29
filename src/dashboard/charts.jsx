@@ -1,13 +1,13 @@
 // 대시보드 차트 — 인라인 SVG/CSS, 라이브러리 없음. 착수 키트 §시안.
-import { won, CATEGORY_COLORS } from './format';
+import { won, categoryNames, categoryColor } from './format';
 
 // 가로 막대 — { label, value, color? }[]
 export function HBars({ rows, valueFmt = won }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.value)));
   return (
     <div className="flex flex-col gap-2">
       {rows.map((r) => {
-        const pct = (r.value / max) * 100;
+        const pct = (Math.abs(r.value) / max) * 100;
         const inside = pct >= 45;
         return (
           <div key={r.label} className="grid grid-cols-[6rem_1fr] items-center gap-2 text-sm">
@@ -46,9 +46,10 @@ export function HBars({ rows, valueFmt = won }) {
 
 // 월별 용도 스택 — trend[]: { month, byCategory }
 export function StackBars({ trend }) {
-  const cats = ['숙박비', '식비', '기타', '유류비', '의료비등'];
+  const cats = categoryNames(...trend.map(t => t.byCategory));
   const totals = trend.map((t) => cats.reduce((a, c) => a + (t.byCategory?.[c] || 0), 0));
-  const max = Math.max(1, ...totals);
+  const positiveTotals = trend.map(t => cats.reduce((a, c) => a + Math.max(0, t.byCategory?.[c] || 0), 0));
+  const max = Math.max(1, ...positiveTotals);
   return (
     <div>
       <div className="flex items-end gap-4" style={{ height: 160 }}>
@@ -58,13 +59,13 @@ export function StackBars({ trend }) {
               {Number(t.month.split('-')[1])}월
             </span>
             <span className="absolute left-0 right-0 text-center font-mono text-[10px] text-slate-500"
-              style={{ bottom: (totals[i] / max) * 150 + 6 }}>
+              style={{ bottom: (positiveTotals[i] / max) * 150 + 6 }}>
               {won(totals[i])}
             </span>
             {cats.map((c) => {
               const h = ((t.byCategory?.[c] || 0) / max) * 150;
               return h > 0 ? (
-                <div key={c} style={{ height: h, background: CATEGORY_COLORS[c] }} className="w-full rounded-sm" />
+                <div key={c} style={{ height: h, background: categoryColor(c) }} className="w-full rounded-sm" />
               ) : null;
             })}
           </div>
@@ -73,11 +74,16 @@ export function StackBars({ trend }) {
       <div className="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
         {cats.map((c) => (
           <span key={c} className="flex items-center gap-1.5">
-            <i className="h-2.5 w-2.5 rounded-sm" style={{ background: CATEGORY_COLORS[c] }} />
+            <i className="h-2.5 w-2.5 rounded-sm" style={{ background: categoryColor(c) }} />
             {c}
           </span>
         ))}
       </div>
+      {trend.flatMap(t => cats.filter(c => t.byCategory?.[c] < 0).map(c => (
+        <p key={`${t.month}:${c}`} className="mt-1 text-xs text-slate-600">
+          {t.month} · {c} {won(t.byCategory[c])}원 (음수 조정액, 합계에 포함)
+        </p>
+      )))}
     </div>
   );
 }
@@ -85,7 +91,9 @@ export function StackBars({ trend }) {
 // 용도별 금액 점 플롯 — points: number[], 라벨은 category
 export function DotStrip({ label, values, color = '#2a78d6' }) {
   if (!values.length) return null;
-  const max = Math.max(...values);
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const span = max - min || 1;
   const sorted = [...values].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   return (
@@ -100,7 +108,7 @@ export function DotStrip({ label, values, color = '#2a78d6' }) {
               title={`${won(v)}원`}
               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
               style={{
-                left: `${4 + (v / max) * 92}%`,
+                left: `${4 + ((v - min) / span) * 92}%`,
                 width: outlier ? 11 : 8,
                 height: outlier ? 11 : 8,
                 background: color,

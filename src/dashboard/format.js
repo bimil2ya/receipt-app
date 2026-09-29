@@ -39,3 +39,12 @@ export const CATEGORY_COLORS = {
   유류비: '#eda100',
   의료비등: '#e87ba4',
 };
+
+// Preserve the standard order and every category supplied by the ledger.
+export function categoryNames(...groups) {
+  return [...new Set([...Object.keys(CATEGORY_COLORS), ...groups.flatMap(group => Object.keys(group || {}))])];
+}
+
+export function categoryColor(category) {
+  return Object.hasOwn(CATEGORY_COLORS, category) ? CATEGORY_COLORS[category] : '#64748b';
+}
