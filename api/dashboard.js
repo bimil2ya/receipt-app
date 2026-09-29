@@ -27,6 +27,14 @@ const AUTH_WINDOW_SEC = 600; // 10분
 const TOKEN_TTL_SEC = 4 * 3600;
 // Vercel 서버리스 응답 본문 상한(~4.5MB). 정산서 PDF는 영수증 이미지가 많으면 이걸 넘는다.
 const REPORT_MAX_BYTES = 4 * 1024 * 1024;
+// Only known report failures may choose a public status/message. Drive/OAuth
+// exceptions and arbitrary error.status values remain private server errors.
+const REPORT_ERRORS = {
+  DASHBOARD_REPORT_TOO_LARGE: { status: 413, message: '정산서 PDF가 화면 조회 크기 한도를 넘었습니다.' },
+  DASHBOARD_REPORT_PATH_INVALID: { status: 404, message: '현재 정산서 파일을 확인할 수 없습니다.' },
+  DASHBOARD_REPORT_CHANGED: { status: 409, message: '조회 중 정산서가 변경되었습니다. 다시 조회해 주세요.' },
+  DASHBOARD_REPORT_TIMEOUT: { status: 504, message: '정산서 조회 시간이 초과되었습니다. 다시 조회해 주세요.' },
+};
 // 이 대시보드는 영수증의 카드번호·사업자번호·조원 실명·금액을 노출한다.
 // 6자리 숫자 PIN(100만 조합)으로는 부족 — 최소 12자 패스프레이즈를 권장한다.
 // (부팅 시 진단만 — env 값을 강제로 막으면 의도적으로 정한 값도 잠기므로.)
@@ -79,6 +87,12 @@ export default async function handler(req, res) {
       return res.status(503).json({ success: false, error: '일시적으로 로그인할 수 없습니다' });
     }
     console.error('[dashboard]', action, err);
+    const reportError = action === 'report' && Object.hasOwn(REPORT_ERRORS, err?.code)
+      ? REPORT_ERRORS[err.code] : null;
+    if (reportError) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.status(reportError.status).json({ success: false, error: reportError.message });
+    }
     return res.status(500).json({ success: false, error: 'internal error' });
   }
 }
@@ -175,7 +189,7 @@ async function handleReport(req, res) {
     return res.status(400).json({ success: false, error: 'invalid report ref' });
   }
 
-  const pdf = await fetchReportPdf(id); // 스텁: 최소 PDF / P2: Drive 다운로드
+  const pdf = await fetchReportPdf(id);
   // TODO(P2): 정산서 PDF가 4.5MB를 넘으면 res.end(buffer)로는 못 보낸다.
   //   → 짧은 수명 Drive 서명 URL로 리다이렉트하거나, 청크 스트리밍/외부 스토리지 검토.
   if (pdf.length > REPORT_MAX_BYTES) {

@@ -442,6 +442,30 @@ describe('action=report', () => {
     });
     expect(res.statusCode).toBe(413);
   });
+  it.each([
+    ['DASHBOARD_REPORT_TOO_LARGE', 413],
+    ['DASHBOARD_REPORT_PATH_INVALID', 404],
+    ['DASHBOARD_REPORT_CHANGED', 409],
+    ['DASHBOARD_REPORT_TIMEOUT', 504],
+  ])('maps the real rejected report failure %s to HTTP %i', async (code, status) => {
+    fetchReportPdf.mockRejectedValueOnce(Object.assign(new Error('private Drive detail'), { code, status }));
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'report', query: { ref: signReportRef('fixture-report') },
+      headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(status);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).not.toContain('private Drive detail');
+    expect(res.headers['Cache-Control']).toBe('private, no-store');
+    expect(res.headers['Content-Type']).not.toBe('application/pdf');
+  });
+  it('keeps an unrecognized Drive exception private despite its status property', async () => {
+    fetchReportPdf.mockRejectedValueOnce(Object.assign(new Error('private OAuth token'), { code: 'UNKNOWN', status: 413 }));
+    const token = signToken({ role: 'owner' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'report', query: { ref: signReportRef('fixture-report') },
+      headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ success: false, error: 'internal error' });
+  });
 });
 
 // KvUnavailableError는 공개 계약이므로 import가 유지되는지 가벼운 확인.

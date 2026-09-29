@@ -1,6 +1,7 @@
 // Read-only monthly aggregate adapter. No write, submission or completion-count side effects.
 import * as XLSX from 'xlsx';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
+import { reportsForMonth } from './_dashboardReports.js';
 
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -288,11 +289,30 @@ export async function loadDashboardMonth(month, { drive = createDrive(), mainFol
 }
 
 /** Dependency injection keeps contract tests independent of credentials and live Drive. */
-export async function buildDashboardPayload({ month, role } = {}, { loadMonth = loadDashboardMonth, loadReports = async () => [], reviewPolicy } = {}) {
+export async function buildDashboardPayload({ month, role } = {}, {
+  loadMonth = loadDashboardMonth, loadReports = reportsForMonth, reviewPolicy,
+  drive, mainFolderId = MAIN_FOLDER_ID, deadline = Date.now() + 45000,
+} = {}) {
   const resolvedMonth = resolveDashboardMonth(month);
-  const source = await loadMonth(resolvedMonth);
+  // The function has a 60s budget. Export and all teams share one 45s deadline;
+  // a slow team cannot reset the budget and push later teams past that limit.
+  const context = { deadline, mainFolderId, ...(drive ? { drive } : {}) };
+  const checkDeadline = () => {
+    if (Date.now() >= deadline) fail('DASHBOARD_DRIVE_TIMEOUT', 'Drive 조회 시간이 초과되었습니다.');
+  };
+  const loaderContext = (loader, defaultLoader) => {
+    checkDeadline();
+    if (loader === defaultLoader && !context.drive) context.drive = createDrive();
+    return context;
+  };
+  const source = await loadMonth(resolvedMonth, loaderContext(loadMonth, loadDashboardMonth));
+  checkDeadline();
   const parsed = parseDashboardWorkbook(source?.bytes, { month: resolvedMonth, reviewPolicy });
-  for (const team of parsed.teams) team.reports = await loadReports({ teamNames: team.names, month: resolvedMonth });
+  checkDeadline();
+  for (const team of parsed.teams) {
+    team.reports = await loadReports({ teamNames: team.names, month: resolvedMonth }, loaderContext(loadReports, reportsForMonth));
+    checkDeadline();
+  }
   const payload = { contractVersion: '1.0', month: resolvedMonth, role: role === 'owner' ? 'owner' : 'staff',
     generatedAt: new Date().toISOString(), sheetModifiedTime: source.sheetModifiedTime || null, ...parsed,
     trend: [{ month: resolvedMonth, total: parsed.totals.spent, byCategory: { ...parsed.byCategory } }] };
@@ -302,5 +322,6 @@ export async function buildDashboardPayload({ month, role } = {}, { loadMonth = 
     payload.analysisStatus = 'not_implemented';
   }
   if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_JSON_BYTES) fail('DASHBOARD_RESPONSE_TOO_LARGE', '월집계 자료가 조회 크기 한도를 넘었습니다.');
+  checkDeadline();
   return payload;
 }

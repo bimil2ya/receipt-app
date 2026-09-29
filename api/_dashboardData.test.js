@@ -123,19 +123,58 @@ describe('monthly aggregate byte parser', () => {
 
 describe('dashboard payload contract', () => {
   const loadMonth = async () => ({ bytes: fixture(), sheetModifiedTime: '2026-09-29T00:00:00Z' });
+  const loadReports = async () => [];
   it('removes stub, keeps server role filtering, and does not offer fake reports', async () => {
-    const staff = await buildDashboardPayload({ month, role: 'staff' }, { loadMonth });
+    const staff = await buildDashboardPayload({ month, role: 'staff' }, { loadMonth, loadReports });
     expect(staff).toMatchObject({ contractVersion: '1.0', month, role: 'staff', sheetModifiedTime: '2026-09-29T00:00:00Z' });
     expect('stub' in staff).toBe(false);
     expect('flags' in staff).toBe(false);
     expect('coDining' in staff).toBe(false);
     expect(staff.teams[0].reports).toEqual([]);
-    const owner = await buildDashboardPayload({ month, role: 'owner' }, { loadMonth });
+    const owner = await buildDashboardPayload({ month, role: 'owner' }, { loadMonth, loadReports });
     expect(owner.flags).toEqual([]);
     expect(owner.analysisStatus).toBe('not_implemented');
   });
   it('propagates source errors rather than producing an empty success', async () => {
     await expect(buildDashboardPayload({ month }, { loadMonth: async () => { throw new Error('network'); } })).rejects.toThrow('network');
+  });
+  it('passes one Drive client and deadline through the sheet and every team lookup', async () => {
+    const bytes = fixture({ details: [detail(), detail({ '이름': '강감찬, 이순신', '영수증 식별값': 'r2' })] });
+    const drive = { files: {} };
+    const deadline = Date.now() + 45000;
+    const sourceLoader = vi.fn(async () => ({ bytes }));
+    const reportsLoader = vi.fn(async () => []);
+    const body = await buildDashboardPayload({ month }, {
+      loadMonth: sourceLoader, loadReports: reportsLoader, drive, mainFolderId: 'fixture-main', deadline,
+    });
+    expect(body.teams).toHaveLength(2);
+    const context = sourceLoader.mock.calls[0][1];
+    expect(context).toEqual({ drive, deadline, mainFolderId: 'fixture-main' });
+    expect(reportsLoader).toHaveBeenCalledTimes(2);
+    for (const call of reportsLoader.mock.calls) expect(call[1]).toBe(context);
+  });
+  it('stops before later teams when export and the first team exhaust the shared budget', async () => {
+    const bytes = fixture({ details: [detail(), detail({ '이름': '강감찬, 이순신', '영수증 식별값': 'r2' })] });
+    let now = Date.now();
+    const deadline = now + 45000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const sourceLoader = vi.fn(async () => { now += 20000; return { bytes }; });
+    const reportsLoader = vi.fn(async () => { now += 25001; return []; });
+    try {
+      await expect(buildDashboardPayload({ month }, {
+        loadMonth: sourceLoader, loadReports: reportsLoader, deadline,
+      })).rejects.toMatchObject({ code: 'DASHBOARD_DRIVE_TIMEOUT' });
+      expect(reportsLoader).toHaveBeenCalledTimes(1);
+      expect(sourceLoader.mock.calls[0][1].deadline).toBe(deadline);
+      expect(reportsLoader.mock.calls[0][1].deadline).toBe(deadline);
+    } finally { clock.mockRestore(); }
+  });
+  it('does not begin a source lookup once the total request deadline has elapsed', async () => {
+    const sourceLoader = vi.fn(loadMonth);
+    await expect(buildDashboardPayload({ month }, {
+      loadMonth: sourceLoader, loadReports, deadline: 0,
+    })).rejects.toMatchObject({ code: 'DASHBOARD_DRIVE_TIMEOUT' });
+    expect(sourceLoader).not.toHaveBeenCalled();
   });
   it.each(['2026-00', '2026-13', '2026-1', '0000-09', '', null, 'wrong'])('rejects invalid month %s before loading', async invalid => {
     const load = vi.fn(loadMonth);
@@ -144,7 +183,7 @@ describe('dashboard payload contract', () => {
   });
   it('rejects a large UTF-8 response without silently truncating Korean notes', async () => {
     const bytes = fixture({ reviews: Array.from({ length: 50 }, (_, index) => review({ '영수증 식별값': `past-${index}`, '담당자 메모': '가'.repeat(30000) })) });
-    await expect(buildDashboardPayload({ month }, { loadMonth: async () => ({ bytes }) })).rejects.toThrow(/조회 크기/);
+    await expect(buildDashboardPayload({ month }, { loadMonth: async () => ({ bytes }), loadReports })).rejects.toThrow(/조회 크기/);
   });
 });
 
