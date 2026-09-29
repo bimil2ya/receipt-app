@@ -40,6 +40,7 @@ describe('authenticate', () => {
 });
 
 describe('fetchDashboardData', () => {
+  const payload = { month: '2026-09', role: 'staff', totals: { spent: 100, core: 100, fuelMed: 0, receiptCount: 1 }, byCategory: { 식비: 100 }, teams: [], ledger: [{ amount: 100 }] };
   it('returns reason:error when fetch rejects', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
     await expect(fetchDashboardData('t', '2026-09')).resolves.toEqual({ ok: false, reason: 'error' });
@@ -55,11 +56,16 @@ describe('fetchDashboardData', () => {
     await expect(fetchDashboardData('t')).resolves.toEqual({ ok: false, reason: 'error' });
   });
 
+  it('rejects a partial or internally inconsistent success body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ...payload, totals: { ...payload.totals, spent: 99 } }) }));
+    await expect(fetchDashboardData('t', '2026-09')).resolves.toEqual({ ok: false, reason: 'error' });
+  });
+
   it('passes the token as a Bearer header and returns data', async () => {
-    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ role: 'staff' }) });
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => payload });
     vi.stubGlobal('fetch', f);
     const res = await fetchDashboardData('mytoken', '2026-09');
-    expect(res).toEqual({ ok: true, data: { role: 'staff' } });
+    expect(res).toEqual({ ok: true, data: payload });
     expect(f).toHaveBeenCalledWith(
       expect.stringContaining('action=data&month=2026-09'),
       expect.objectContaining({ headers: { Authorization: 'Bearer mytoken' } }),

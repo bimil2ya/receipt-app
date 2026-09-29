@@ -3,6 +3,19 @@
 
 const TOKEN_KEY = 'dash_token';
 
+// 서버 오류·프록시 캐시·향후 계약 변경으로 일부 JSON만 도착해도 0원 화면으로
+// 렌더링하지 않는다. 세부 행 검증은 서버가 담당하고, 여기서는 화면 핵심 계약만 막는다.
+export function isDashboardPayload(value, requestedMonth) {
+  if (!value || typeof value !== 'object' || value.month !== requestedMonth || !value.totals) return false;
+  if (!Array.isArray(value.teams) || !Array.isArray(value.ledger) || !value.byCategory || typeof value.byCategory !== 'object') return false;
+  const { spent, core, fuelMed, receiptCount } = value.totals;
+  if (![spent, core, fuelMed, receiptCount].every(Number.isSafeInteger)) return false;
+  if (spent !== core + fuelMed || receiptCount !== value.ledger.length) return false;
+  const categories = Object.values(value.byCategory);
+  if (!categories.every(Number.isSafeInteger) || categories.reduce((sum, amount) => sum + amount, 0) !== spent) return false;
+  return value.ledger.every(row => row && Number.isSafeInteger(row.amount));
+}
+
 export function readToken() {
   try {
     return sessionStorage.getItem(TOKEN_KEY) || '';
@@ -83,6 +96,6 @@ export async function fetchDashboardData(token, month) {
   if (res.status === 401) return { ok: false, reason: 'expired' };
   if (!res.ok) return { ok: false, reason: 'error' };
   const body = await res.json().catch(() => null);
-  if (!body || typeof body !== 'object') return { ok: false, reason: 'error' };
+  if (!isDashboardPayload(body, month)) return { ok: false, reason: 'error' };
   return { ok: true, data: body };
 }
