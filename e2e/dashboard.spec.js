@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 
 const payload = {
   contractVersion: '1.0', month: '2026-09', role: 'staff', generatedAt: '2026-09-30T00:00:00Z',
-  totals: { spent: 73000, core: 73000, fuelMed: 0, receiptCount: 3, prevMonthSpent: null },
+  totals: { spent: 73000, core: 73000, fuelMed: 0, receiptCount: 1, prevMonthSpent: null },
   byCategory: { 식비: 43000, 교통비: 30000 },
-  teams: [{ names: '홍길동, 성춘향', spent: 73000, core: 73000, receiptCount: 3, aggregateReflected: true, submissionStatus: 'unverified', submitted: false, byCategory: { 식비: 43000, 교통비: 30000 }, review: { ok: 0, req: 0, none: 2, unknown: 1 }, reports: [{ label: '정산서', date: '2026-09-30', available: true, ref: 'r~s' }] }],
+  teams: [{ names: '홍길동, 성춘향', spent: 73000, core: 73000, receiptCount: 1, aggregateReflected: true, submissionStatus: 'unverified', submitted: false, byCategory: { 식비: 43000, 교통비: 30000 }, review: { ok: 0, req: 0, none: 2, unknown: 1 }, reports: [{ label: '정산서', date: '2026-09-30', available: true, ref: 'r~s' }] }],
   ledger: [{ team: '홍길동, 성춘향', date: '2026-09-01', category: '식비', amount: 43000, store: '테스트식당', reviewStatus: '대조 불가' }], trend: [{ month: '2026-09', total: 73000, byCategory: { 식비: 43000, 교통비: 30000 } }], unmatchedLedgerCount: 1, unmatchedReviewCount: 0,
 };
 
