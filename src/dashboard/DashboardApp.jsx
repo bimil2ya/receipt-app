@@ -22,12 +22,14 @@ export default function DashboardApp() {
   const [updatedAt, setUpdatedAt] = useState('');
   const cache = useRef(new Map()); // key: month → { data, fetchedAt }
   const latestMonth = useRef(month);
+  const sessionGeneration = useRef(0);
   latestMonth.current = month;
 
   const load = useCallback(
     async (force) => {
       if (!token) return;
       const key = month;
+      const generation = sessionGeneration.current;
       const cached = cache.current.get(key);
       if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
         setState({ status: 'ready', data: cached.data, error: '' });
@@ -37,7 +39,7 @@ export default function DashboardApp() {
       setState((s) => ({ ...s, status: 'loading' }));
       const res = await fetchDashboardData(token, month);
       // 월을 빠르게 바꾸면 응답이 뒤섞일 수 있다 — 최신 요청만 반영.
-      if (latestMonth.current !== key) return;
+      if (latestMonth.current !== key || sessionGeneration.current !== generation) return;
       if (res.ok) {
         cache.current.set(key, { data: res.data, fetchedAt: Date.now() });
         setState({ status: 'ready', data: res.data, error: '' });
@@ -59,6 +61,7 @@ export default function DashboardApp() {
   }, [load]);
 
   const logout = () => {
+    sessionGeneration.current += 1;
     writeToken('');
     setToken('');
     cache.current.clear();
@@ -66,7 +69,7 @@ export default function DashboardApp() {
   };
 
   if (!token) {
-    return <PasswordGate onAuthed={() => setToken(readToken())} />;
+    return <PasswordGate onAuthed={() => { sessionGeneration.current += 1; setToken(readToken()); }} />;
   }
 
   if (state.status === 'loading' && !state.data) {
