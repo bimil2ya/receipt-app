@@ -36,7 +36,9 @@ export default function DashboardApp() {
         setUpdatedAt(formatUpdatedAt(cached.data));
         return;
       }
-      setState((s) => ({ ...s, status: 'loading' }));
+      // 새 월을 선택한 직후 이전 월의 원장을 새 월 선택값 아래에 남기면
+      // 담당자가 다른 달 자료를 대조하는 오판이 생긴다. 응답까지 빈 로딩 상태로 둔다.
+      setState({ status: 'loading', data: null, error: '' });
       const res = await fetchDashboardData(token, month);
       // 월을 빠르게 바꾸면 응답이 뒤섞일 수 있다 — 최신 요청만 반영.
       if (latestMonth.current !== key || sessionGeneration.current !== generation) return;
