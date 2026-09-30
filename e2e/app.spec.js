@@ -64,13 +64,14 @@ test('등록 사용자 이름은 작업조 명단에 있을 때만 작업조를 
 });
 
 test('마감 화면은 선택한 팀의 담당자 검토기록만 표시한다', async ({ page }) => {
-  await page.route('**/api/review**', route => route.fulfill({ json: { success: true, reviews: [{ '영수증 식별값': 'review-1', '팀': '류준, 류수현', '날짜': '2026-09-10', '사용처': '검토식당', '검토 상태': '추가 자료 요청', '담당자 메모': '원본 사진을 확인해 주세요.', '추가 자료 요청': '영수증 원본 사진' }] } }));
+  await page.route('**/api/review**', route => route.fulfill({ json: { success: true, reviews: [{ '영수증 식별값': 'review-1', '팀': '류준, 류수현', '날짜': '2026-09-10', '사용처': '검토식당', '검토 상태': '추가 자료 요청', '담당자 메모': '원본 사진을 확인해 주세요.', '추가 자료 요청': '영수증 원본 사진', '검토 담당자': '사무실 담당자', '검토 시각': '2026-09-30 10:00' }] } }));
   await page.addInitScript(() => localStorage.setItem('receipt_names', '류준, 류수현'));
   await page.goto('/');
   await waitForAppReady(page);
   await page.getByRole('button', { name: '마감' }).click();
   await expect(page.getByLabel('담당자 검토기록')).toContainText('추가 자료 요청');
   await expect(page.getByLabel('담당자 검토기록')).toContainText('원본 사진을 확인해 주세요.');
+  await expect(page.getByLabel('담당자 검토기록')).toContainText('사무실 담당자 · 2026-09-30 10:00');
   await page.evaluate(async () => {
     const { openReceiptDb } = await import('/src/utils/receiptDb.js');
     const db = await openReceiptDb();

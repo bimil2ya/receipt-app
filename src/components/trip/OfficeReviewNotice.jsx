@@ -37,6 +37,7 @@ export default function OfficeReviewNotice({ loading, reviews, error, onRefresh 
         {review['검토 상태'] && <p className="mt-1 font-bold text-blue-200">{review['검토 상태']}</p>}
         {review['담당자 메모'] && <p className="mt-1 text-slate-300 whitespace-pre-wrap">{review['담당자 메모']}</p>}
         {review['추가 자료 요청'] && <p className="mt-1 font-bold text-amber-200">추가 자료: {review['추가 자료 요청']}</p>}
+        {(review['검토 담당자'] || review['검토 시각']) && <p className="mt-1 text-slate-400">검토: {[review['검토 담당자'], review['검토 시각']].filter(Boolean).join(' · ')}</p>}
       </article>)}</div>}
     </section>
   );

@@ -135,7 +135,7 @@ async function handleProgressShare(req, res) {
 export function filterTeamReviewRows(rows, teamNames) {
   const team = normalizeDriveName(teamNames);
   return (rows || []).filter(row => normalizeDriveName(row?.['팀']) === team)
-    .filter(row => ['검토 상태', '담당자 메모', '추가 자료 요청'].some(key => String(row?.[key] || '').trim()));
+    .filter(row => ['검토 상태', '담당자 메모', '추가 자료 요청', '검토 담당자', '검토 시각'].some(key => String(row?.[key] || '').trim()));
 }
 
 export default async function handler(req, res) {

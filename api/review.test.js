@@ -11,6 +11,15 @@ describe('filterTeamReviewRows', () => {
     ], '홍길동,성춘향');
     expect(reviews).toEqual([{ '팀': '홍길동, 성춘향', '영수증 식별값': 'a', '검토 상태': '추가 자료 요청' }]);
   });
+
+  it('keeps a team record that contains only office reviewer metadata', () => {
+    expect(filterTeamReviewRows([
+      { '팀': '홍길동, 성춘향', '영수증 식별값': 'a', '검토 담당자': '사무실 담당자', '검토 시각': '2026-09-30 10:00' },
+      { '팀': '다른 팀', '영수증 식별값': 'b', '검토 담당자': '다른 담당자' },
+    ], '홍길동, 성춘향')).toEqual([
+      { '팀': '홍길동, 성춘향', '영수증 식별값': 'a', '검토 담당자': '사무실 담당자', '검토 시각': '2026-09-30 10:00' },
+    ]);
+  });
 });
 
 describe('review source discovery', () => {
