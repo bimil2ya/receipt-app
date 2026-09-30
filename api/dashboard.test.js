@@ -381,6 +381,24 @@ describe('action=data — role-scoped payload (contract)', () => {
     expect(res.body.success).toBe(false);
     expect('totals' in res.body).toBe(false);
   });
+
+  it('maps a confirmed absent official monthly source without exposing Drive details', async () => {
+    buildDashboardPayload.mockRejectedValueOnce(Object.assign(new Error('private file id'), { code: 'DASHBOARD_SOURCE_MISSING' }));
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'data', headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toMatchObject({ success: false, code: 'DASHBOARD_SOURCE_MISSING' });
+    expect(res.body.error).not.toContain('private file id');
+    expect(res.headers['Cache-Control']).toBe('private, no-store');
+  });
+
+  it('keeps unknown data-source failures private', async () => {
+    buildDashboardPayload.mockRejectedValueOnce(Object.assign(new Error('private OAuth detail'), { code: 'UNKNOWN', status: 404 }));
+    const token = signToken({ role: 'staff' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'data', headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ success: false, error: 'internal error' });
+  });
 });
 
 describe('action=report', () => {
