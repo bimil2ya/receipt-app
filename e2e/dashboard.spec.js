@@ -57,3 +57,12 @@ test('월 전환 중에는 이전 월 원장을 새 월로 표시하지 않는�
   await expect(page.getByText('8월 전환 식당')).toBeVisible();
   await expect(page.getByText('9월 기존 식당')).toHaveCount(0);
 });
+
+test('공식 월 집계가 없을 때 자료 없음으로 구분해 표시한다', async ({ page }) => {
+  await page.route('**/api/dashboard?action=auth', route => route.fulfill({ json: { token: 'test-token' } }));
+  await page.route('**/api/dashboard?action=data**', route => route.fulfill({ status: 404, json: { success: false, code: 'DASHBOARD_SOURCE_MISSING' } }));
+  await page.goto('/#/dashboard');
+  await page.getByPlaceholder('비밀번호').fill('fixture');
+  await page.getByRole('button', { name: '들어가기' }).click();
+  await expect(page.getByText('선택한 월의 공식 집계 자료가 아직 없습니다.')).toBeVisible();
+});

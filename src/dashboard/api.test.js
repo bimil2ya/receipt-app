@@ -51,6 +51,11 @@ describe('fetchDashboardData', () => {
     await expect(fetchDashboardData('t')).resolves.toEqual({ ok: false, reason: 'expired' });
   });
 
+  it('keeps a confirmed absent official monthly source distinct from a generic error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({ code: 'DASHBOARD_SOURCE_MISSING' }) }));
+    await expect(fetchDashboardData('t', '2026-09')).resolves.toEqual({ ok: false, reason: 'source_missing' });
+  });
+
   it('returns reason:error when the body is not an object', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => null }));
     await expect(fetchDashboardData('t')).resolves.toEqual({ ok: false, reason: 'error' });

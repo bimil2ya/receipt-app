@@ -35,6 +35,17 @@ const REPORT_ERRORS = {
   DASHBOARD_REPORT_CHANGED: { status: 409, message: '조회 중 정산서가 변경되었습니다. 다시 조회해 주세요.' },
   DASHBOARD_REPORT_TIMEOUT: { status: 504, message: '정산서 조회 시간이 초과되었습니다. 다시 조회해 주세요.' },
 };
+// These codes describe only the requested month's public availability. Do not
+// expose OAuth/Drive implementation errors or arbitrary exception messages.
+const DATA_ERRORS = {
+  DASHBOARD_SOURCE_MISSING: { status: 404, message: '선택한 월의 공식 집계 자료가 없습니다.' },
+  DASHBOARD_SOURCE_AMBIGUOUS: { status: 409, message: '선택한 월의 공식 집계 자료를 하나로 확인할 수 없습니다.' },
+  DASHBOARD_SOURCE_CHANGED: { status: 409, message: '조회 중 월 집계 자료가 변경되었습니다. 다시 조회해 주세요.' },
+  DASHBOARD_SCHEMA_INVALID: { status: 422, message: '월 집계 자료의 형식을 확인할 수 없습니다.' },
+  DASHBOARD_TOTAL_MISMATCH: { status: 422, message: '월 집계 자료의 합계를 확인할 수 없습니다.' },
+  DASHBOARD_RESPONSE_TOO_LARGE: { status: 413, message: '월 집계 자료가 화면 조회 한도를 넘었습니다.' },
+  DASHBOARD_DRIVE_TIMEOUT: { status: 504, message: '월 집계 조회 시간이 초과되었습니다. 다시 조회해 주세요.' },
+};
 // 이 대시보드는 영수증의 카드번호·사업자번호·조원 실명·금액을 노출한다.
 // 6자리 숫자 PIN(100만 조합)으로는 부족 — 최소 12자 패스프레이즈를 권장한다.
 // (부팅 시 진단만 — env 값을 강제로 막으면 의도적으로 정한 값도 잠기므로.)
@@ -92,6 +103,12 @@ export default async function handler(req, res) {
     if (reportError) {
       res.setHeader('Cache-Control', 'private, no-store');
       return res.status(reportError.status).json({ success: false, error: reportError.message });
+    }
+    const dataError = action === 'data' && Object.hasOwn(DATA_ERRORS, err?.code)
+      ? DATA_ERRORS[err.code] : null;
+    if (dataError) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.status(dataError.status).json({ success: false, code: err.code, error: dataError.message });
     }
     return res.status(500).json({ success: false, error: 'internal error' });
   }

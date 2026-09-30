@@ -93,9 +93,12 @@ export async function fetchDashboardData(token, month) {
   } catch {
     return { ok: false, reason: 'error' };
   }
-  if (res.status === 401) return { ok: false, reason: 'expired' };
-  if (!res.ok) return { ok: false, reason: 'error' };
   const body = await res.json().catch(() => null);
+  if (res.status === 401) return { ok: false, reason: 'expired' };
+  if (!res.ok) {
+    if (body?.code === 'DASHBOARD_SOURCE_MISSING') return { ok: false, reason: 'source_missing' };
+    return { ok: false, reason: 'error' };
+  }
   if (!isDashboardPayload(body, month)) return { ok: false, reason: 'error' };
   return { ok: true, data: body };
 }

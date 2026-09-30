@@ -15,6 +15,11 @@ function formatUpdatedAt(data) {
   return `${String(g.getMonth() + 1).padStart(2, '0')}-${String(g.getDate()).padStart(2, '0')} ${String(g.getHours()).padStart(2, '0')}:${String(g.getMinutes()).padStart(2, '0')}`;
 }
 
+function dashboardErrorMessage(reason) {
+  if (reason === 'source_missing') return '선택한 월의 공식 집계 자료가 아직 없습니다.';
+  return '자료를 불러오지 못했습니다. 잠시 후 다시 시도하세요.';
+}
+
 export default function DashboardApp() {
   const [token, setToken] = useState(() => readToken());
   const [month, setMonth] = useState(currentMonth());
@@ -52,7 +57,7 @@ export default function DashboardApp() {
         cache.current.clear();
         setState({ status: 'idle', data: null, error: '' });
       } else {
-        setState({ status: 'error', data: null, error: '자료를 불러오지 못했습니다. 잠시 후 다시 시도하세요.' });
+        setState({ status: 'error', data: null, error: dashboardErrorMessage(res.reason) });
       }
     },
     [token, month],
