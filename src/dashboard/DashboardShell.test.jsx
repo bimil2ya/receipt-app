@@ -7,7 +7,7 @@ vi.mock('react', async importOriginal => ({
   useState: initial => [initial === 'overview' ? selected.tab : initial, () => {}],
 }));
 import DashboardShell from './DashboardShell.jsx';
-import { HBars, StackBars } from './charts.jsx';
+import { HBars, StackBars, DotStrip } from './charts.jsx';
 
 function data(overrides = {}) {
   const byCategory = { 식비: 100, 미정: 25, 교통비: 200, 환급: -10 };
@@ -141,6 +141,12 @@ describe('all ledger categories remain visible', () => {
     const html = renderToStaticMarkup(<HBars rows={[{ label: '환급', value: -200 }]} />);
     expect(html).toContain('width:100%');
     expect(html).toContain('-200');
+  });
+  it('renders transaction points as accessible buttons with hover details', () => {
+    const html = renderToStaticMarkup(<DotStrip label="식비" values={[{ amount: 24000, date: '2026-09-30', store: '한국관' }]} />);
+    expect(html).toContain('식비 2026-09-30 24,000원 한국관');
+    expect(html).toContain('한국관');
+    expect(html).toContain('cursor-pointer');
   });
   it('handles custom categories matching object property names', () => {
     const byCategory = JSON.parse('{"__proto__":100,"constructor":200}');

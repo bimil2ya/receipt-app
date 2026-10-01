@@ -243,7 +243,9 @@ function AnomalyTab({ data }) {
   const dotData = useMemo(() => {
     const byCat = Object.create(null);
     cats.forEach((c) => {
-      byCat[c] = data.ledger.filter((r) => r.category === c).map((r) => r.amount).filter(Boolean);
+      byCat[c] = data.ledger
+        .filter((r) => r.category === c && r.amount)
+        .map((r) => ({ amount: r.amount, date: r.date, store: r.store }));
     });
     return byCat;
   }, [data.ledger, cats]);

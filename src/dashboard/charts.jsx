@@ -1,5 +1,6 @@
 // 대시보드 차트 — 인라인 SVG/CSS, 라이브러리 없음. 착수 키트 §시안.
 import { won, categoryNames, categoryColor } from './format';
+import { useState } from 'react';
 
 // 가로 막대 — { label, value, color? }[]
 export function HBars({ rows, valueFmt = won }) {
@@ -90,25 +91,33 @@ export function StackBars({ trend }) {
 
 // 용도별 금액 점 플롯 — points: number[], 라벨은 category
 export function DotStrip({ label, values, color = '#2a78d6' }) {
+  const [selected, setSelected] = useState(null);
   if (!values.length) return null;
-  const min = Math.min(0, ...values);
-  const max = Math.max(0, ...values);
+  const points = values.map((value) => (typeof value === 'object' ? value : { amount: value }));
+  const amounts = points.map(point => Number(point.amount) || 0);
+  const min = Math.min(0, ...amounts);
+  const max = Math.max(0, ...amounts);
   const span = max - min || 1;
-  const sorted = [...values].sort((a, b) => a - b);
+  const sorted = [...amounts].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   return (
-    <div className="grid grid-cols-[4rem_1fr] items-center gap-2 text-xs">
+    <div className="grid grid-cols-[4rem_1fr] items-start gap-2 text-xs">
       <span className="text-right font-medium text-slate-500">{label}</span>
-      <div className="relative h-5 rounded bg-slate-100">
-        {values.map((v, i) => {
-          const outlier = v > median * 3;
+      <div>
+        <div className="relative h-5 rounded bg-slate-100">
+        {points.map((point, i) => {
+          const amount = amounts[i];
+          const outlier = amount > median * 3;
           return (
-            <span
+            <button
+              type="button"
               key={i}
-              title={`${won(v)}원`}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white"
+              title={`${won(amount)}원${point.store ? ` · ${point.store}` : ''}`}
+              aria-label={`${label} ${point.date || ''} ${won(amount)}원 ${point.store || ''}`}
+              onClick={() => setSelected(selected === i ? null : i)}
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full border-2 border-white p-0 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-1"
               style={{
-                left: `${4 + ((v - min) / span) * 92}%`,
+                left: `${4 + ((amount - min) / span) * 92}%`,
                 width: outlier ? 11 : 8,
                 height: outlier ? 11 : 8,
                 background: color,
@@ -117,6 +126,15 @@ export function DotStrip({ label, values, color = '#2a78d6' }) {
             />
           );
         })}
+        </div>
+        {selected !== null && points[selected] && (
+          <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1.5 text-slate-600">
+            <span className="font-semibold text-slate-700">거래 상세</span>
+            <span className="ml-2">{points[selected].date || '일자 없음'}</span>
+            <span className="ml-2 font-mono">{won(amounts[selected])}원</span>
+            <span className="ml-2">{points[selected].store || '사용처 없음'}</span>
+          </div>
+        )}
       </div>
     </div>
   );
