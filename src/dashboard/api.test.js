@@ -76,6 +76,12 @@ describe('fetchDashboardData', () => {
       expect.objectContaining({ headers: { Authorization: 'Bearer mytoken' } }),
     );
   });
+  it('asks explicitly for progress snapshots only when the provisional mode is enabled', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+    vi.stubGlobal('fetch', f);
+    await expect(fetchDashboardData('mytoken', '2026-09', { includeProgress: true })).resolves.toEqual({ ok: true, data: payload });
+    expect(f.mock.calls[0][0]).toContain('includeProgress=1');
+  });
 });
 
 describe('fetchReportObjectUrl', () => {

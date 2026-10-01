@@ -2,6 +2,7 @@
 import * as XLSX from 'xlsx';
 import { createDrive, driveQueryString, MAIN_FOLDER_ID, normalizeDriveName } from './driveUtils.js';
 import { reportsForMonth } from './_dashboardReports.js';
+import { loadDashboardProgress } from './_dashboardProgress.js';
 
 const SHEET_MIME = 'application/vnd.google-apps.spreadsheet';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -211,6 +212,174 @@ export function parseDashboardWorkbook(bytes, { month, reviewPolicy = defaultRev
     unmatchedLedgerCount, unmatchedReviewCount: reviewsRaw.length - usedReviews.size };
 }
 
+function emptyDashboardData() {
+  return {
+    totals: { spent: 0, core: 0, fuelMed: 0, receiptCount: 0, prevMonthSpent: null },
+    byCategory: Object.assign(Object.create(null), Object.fromEntries(CATEGORIES.map(category => [category, 0]))),
+    teams: [], ledger: [], reviewsRaw: [], unmatchedLedgerCount: 0, unmatchedReviewCount: 0,
+  };
+}
+
+function cloneTeam(team) {
+  return {
+    ...team,
+    byCategory: Object.assign(Object.create(null), team.byCategory),
+    review: { ...team.review },
+    reports: [...(team.reports || [])],
+    officialReceiptCount: team.officialReceiptCount ?? team.receiptCount,
+    provisionalReceiptCount: team.provisionalReceiptCount ?? 0,
+  };
+}
+
+function provisionalRow(record, receipt) {
+  return {
+    date: receipt.date, time: receipt.useTime, team: normalizeDriveName(record.teamNames),
+    category: receipt.category.trim() || '미정', amount: integer(receipt.totalAmount),
+    store: receipt.storeName, approvalNum: receipt.approvalNum, receiptId: receipt.id.trim(), revision: null,
+    reviewStatus: '임시 · 최종 제출 전', reviewState: 'unknown', teamPdfUrl: null,
+    source: 'provisional', sharedAt: record.sharedAt,
+  };
+}
+
+function sameReceiptValues(official, progress) {
+  return official.date === progress.date
+    && official.time === progress.time
+    && official.team === progress.team
+    && official.category === progress.category
+    && official.amount === progress.amount
+    && official.store === progress.store
+    && official.approvalNum === progress.approvalNum;
+}
+
+function receiptFingerprint(row) {
+  return JSON.stringify([row.team, row.date, row.time, row.category, row.amount, row.store, row.approvalNum]);
+}
+
+/**
+ * Adds only identifiable latest progress rows that have no official counterpart.
+ * A duplicate progress ID is excluded entirely rather than guessed into a total.
+ */
+export function mergeDashboardProgress(official, records) {
+  const result = {
+    ...official,
+    totals: { ...official.totals },
+    byCategory: Object.assign(Object.create(null), official.byCategory),
+    teams: official.teams.map(cloneTeam),
+    ledger: official.ledger.map(row => ({ ...row, source: 'official' })),
+  };
+  const officialById = new Map(result.ledger.filter(row => row.receiptId).map(row => [row.receiptId, row]));
+  const legacyOfficialByFingerprint = new Map();
+  for (const row of result.ledger) {
+    if (row.receiptId) continue;
+    const key = receiptFingerprint(row);
+    legacyOfficialByFingerprint.set(key, [...(legacyOfficialByFingerprint.get(key) || []), row]);
+  }
+  const candidates = new Map();
+  const ambiguous = new Set();
+  const exactOfficialIds = new Set();
+  const changedOfficialIds = new Set();
+  const seenProgressIds = new Set();
+  const legacyFingerprintClaims = new Map();
+  let unidentifiedCount = 0;
+  let lastSharedAt = null;
+  const hasUnsubmittedProgress = records.some(record => record.submitted !== true);
+  for (const record of records) {
+    if (!lastSharedAt || record.sharedAt > lastSharedAt) lastSharedAt = record.sharedAt;
+    for (const receipt of record.receipts) {
+      const id = String(receipt.id || '').trim();
+      if (!id) { unidentifiedCount += 1; continue; }
+      const row = provisionalRow(record, receipt);
+      if (ambiguous.has(id)) continue;
+      if (seenProgressIds.has(id)) {
+        candidates.delete(id);
+        exactOfficialIds.delete(id);
+        changedOfficialIds.delete(id);
+        ambiguous.add(id);
+        continue;
+      }
+      seenProgressIds.add(id);
+      const official = officialById.get(id);
+      if (official) {
+        // A later silent snapshot cannot alter a completed aggregate. Exact
+        // matches are safely omitted; different values stay visibly pending
+        // until the team submits a new final XLSX.
+        if (sameReceiptValues(official, row)) exactOfficialIds.add(id);
+        else changedOfficialIds.add(id);
+        continue;
+      }
+      const legacyMatches = legacyOfficialByFingerprint.get(receiptFingerprint(row)) || [];
+      if (legacyMatches.length === 1) {
+        const claimedBy = legacyFingerprintClaims.get(receiptFingerprint(row));
+        if (claimedBy) {
+          exactOfficialIds.delete(claimedBy);
+          ambiguous.add(claimedBy);
+          ambiguous.add(id);
+          continue;
+        }
+        legacyFingerprintClaims.set(receiptFingerprint(row), id);
+        exactOfficialIds.add(id);
+        continue;
+      }
+      if (legacyMatches.length > 1) {
+        ambiguous.add(id);
+        continue;
+      }
+      if (candidates.has(id)) {
+        candidates.delete(id);
+        ambiguous.add(id);
+        continue;
+      }
+      candidates.set(id, row);
+    }
+  }
+  const teams = new Map(result.teams.map(team => [team.names, team]));
+  for (const row of candidates.values()) {
+    result.ledger.push(row);
+    result.totals.spent = add(result.totals.spent, row.amount);
+    result.totals.receiptCount += 1;
+    if (FUEL_MED.has(row.category)) result.totals.fuelMed = add(result.totals.fuelMed, row.amount);
+    else result.totals.core = add(result.totals.core, row.amount);
+    result.byCategory[row.category] = add(result.byCategory[row.category] || 0, row.amount);
+    let team = teams.get(row.team);
+    if (!team) {
+      team = {
+        names: row.team, spent: 0, core: 0,
+        byCategory: Object.assign(Object.create(null), Object.fromEntries(CATEGORIES.map(category => [category, 0]))),
+        receiptCount: 0, submitted: false, submissionStatus: 'unverified', aggregateReflected: false,
+        review: { ok: 0, req: 0, none: 0, unknown: 0 }, reports: [], officialReceiptCount: 0, provisionalReceiptCount: 0,
+      };
+      teams.set(row.team, team);
+      result.teams.push(team);
+    }
+    team.spent = add(team.spent, row.amount);
+    if (!FUEL_MED.has(row.category)) team.core = add(team.core, row.amount);
+    team.byCategory[row.category] = add(team.byCategory[row.category] || 0, row.amount);
+    team.receiptCount += 1;
+    team.provisionalReceiptCount += 1;
+    team.review.unknown += 1;
+    result.unmatchedLedgerCount += 1;
+  }
+  result.provisional = {
+    active: candidates.size > 0 || changedOfficialIds.size > 0 || ambiguous.size > 0 || unidentifiedCount > 0
+      || (hasUnsubmittedProgress && official.totals.receiptCount > 0),
+    generatedFromProgress: true,
+    aggregateReceiptCount: official.totals.receiptCount,
+    provisionalReceiptCount: candidates.size,
+    exactOfficialMatchCount: exactOfficialIds.size,
+    changedOfficialCount: changedOfficialIds.size,
+    ambiguousProgressCount: ambiguous.size,
+    unidentifiedProgressCount: unidentifiedCount,
+    deletionReconciliationUnavailable: hasUnsubmittedProgress && official.totals.receiptCount > 0,
+    lastSharedAt,
+  };
+  if (Object.values(result.byCategory).reduce(add, 0) !== result.totals.spent
+    || add(result.totals.core, result.totals.fuelMed) !== result.totals.spent
+    || result.totals.receiptCount !== result.ledger.length) {
+    fail('DASHBOARD_TOTAL_MISMATCH', '임시 집계 합계를 확인할 수 없습니다.');
+  }
+  return result;
+}
+
 async function requestDrive(operation, deadline) {
   for (let attempt = 0; ; attempt += 1) {
     const remaining = deadline - Date.now();
@@ -289,8 +458,8 @@ export async function loadDashboardMonth(month, { drive = createDrive(), mainFol
 }
 
 /** Dependency injection keeps contract tests independent of credentials and live Drive. */
-export async function buildDashboardPayload({ month, role } = {}, {
-  loadMonth = loadDashboardMonth, loadReports = reportsForMonth, reviewPolicy,
+export async function buildDashboardPayload({ month, role, includeProgress = false } = {}, {
+  loadMonth = loadDashboardMonth, loadReports = reportsForMonth, loadProgress = loadDashboardProgress, reviewPolicy,
   drive, mainFolderId = MAIN_FOLDER_ID, deadline = Date.now() + 45000,
 } = {}) {
   const resolvedMonth = resolveDashboardMonth(month);
@@ -305,16 +474,37 @@ export async function buildDashboardPayload({ month, role } = {}, {
     if (loader === defaultLoader && !context.drive) context.drive = createDrive();
     return context;
   };
-  const source = await loadMonth(resolvedMonth, loaderContext(loadMonth, loadDashboardMonth));
-  checkDeadline();
-  const parsed = parseDashboardWorkbook(source?.bytes, { month: resolvedMonth, reviewPolicy });
+  let source = null;
+  let parsed;
+  try {
+    source = await loadMonth(resolvedMonth, loaderContext(loadMonth, loadDashboardMonth));
+    checkDeadline();
+    parsed = parseDashboardWorkbook(source?.bytes, { month: resolvedMonth, reviewPolicy });
+  } catch (error) {
+    // In progress mode, a missing official month is expected. Any ambiguity,
+    // malformed workbook, or Drive failure still stops the response.
+    if (!includeProgress || error?.code !== 'DASHBOARD_SOURCE_MISSING') throw error;
+    parsed = emptyDashboardData();
+  }
+  if (includeProgress) {
+    const progress = await loadProgress(resolvedMonth, loaderContext(loadProgress, loadDashboardProgress));
+    checkDeadline();
+    parsed = mergeDashboardProgress(parsed, progress);
+    if (!source && parsed.provisional.provisionalReceiptCount === 0) {
+      fail('DASHBOARD_SOURCE_MISSING', '월 공식 집계나 임시 진행 자료가 없습니다.');
+    }
+  }
   checkDeadline();
   for (const team of parsed.teams) {
+    if (!source && team.officialReceiptCount === 0) {
+      team.reports = [];
+      continue;
+    }
     team.reports = await loadReports({ teamNames: team.names, month: resolvedMonth }, loaderContext(loadReports, reportsForMonth));
     checkDeadline();
   }
   const payload = { contractVersion: '1.0', month: resolvedMonth, role: role === 'owner' ? 'owner' : 'staff',
-    generatedAt: new Date().toISOString(), sheetModifiedTime: source.sheetModifiedTime || null, ...parsed,
+    generatedAt: new Date().toISOString(), sheetModifiedTime: source?.sheetModifiedTime || null, ...parsed,
     trend: [{ month: resolvedMonth, total: parsed.totals.spent, byCategory: { ...parsed.byCategory } }] };
   if (role === 'owner') {
     payload.flags = [];

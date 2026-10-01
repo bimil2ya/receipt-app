@@ -82,8 +82,8 @@ export async function fetchReportObjectUrl(token, ref) {
   return { ok: true, url: URL.createObjectURL(blob) };
 }
 
-export async function fetchDashboardData(token, month) {
-  const qs = month ? `&month=${encodeURIComponent(month)}` : '';
+export async function fetchDashboardData(token, month, { includeProgress = false } = {}) {
+  const qs = `${month ? `&month=${encodeURIComponent(month)}` : ''}${includeProgress ? '&includeProgress=1' : ''}`;
   let res;
   try {
     res = await fetch(`/api/dashboard?action=data${qs}`, {

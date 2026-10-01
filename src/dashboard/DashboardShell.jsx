@@ -8,6 +8,11 @@ function analysisAvailable(data) {
 }
 
 function submissionLabel(team) {
+  if (team.provisionalReceiptCount > 0) {
+    return team.officialReceiptCount > 0
+      ? `집계 반영(최종 완료 확인 불가) + 임시 ${team.provisionalReceiptCount}건`
+      : `임시 ${team.provisionalReceiptCount}건`;
+  }
   if (team.submissionStatus !== 'unverified' && team.submitted === true) return '최종 제출 완료';
   return team.aggregateReflected === true ? '집계 반영 · 최종 완료 확인 불가' : '최종 완료 확인 불가';
 }
@@ -290,7 +295,7 @@ function AnomalyTab({ data }) {
   );
 }
 
-export default function DashboardShell({ data: raw, token, month, months, onMonthChange, onRefresh, onLogout, updatedAt }) {
+export default function DashboardShell({ data: raw, token, month, months, onMonthChange, includeProgress, onIncludeProgressChange, onRefresh, onLogout, updatedAt }) {
   // 계약상 배열 필드는 항상 존재하지만, 부분 응답에도 흰 화면 대신 화면이 뜨도록 방어.
   const data = {
     ...raw,
@@ -336,6 +341,12 @@ export default function DashboardShell({ data: raw, token, month, months, onMont
             <button onClick={onRefresh} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600">
               ↻ 새로고침
             </button>
+            <button
+              onClick={() => onIncludeProgressChange(!includeProgress)}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${includeProgress ? 'border-red-300 bg-red-50 font-semibold text-red-700' : 'border-slate-300 text-slate-600'}`}
+            >
+              {includeProgress ? '임시 자료 포함' : '공식 자료만'}
+            </button>
             <button onClick={onLogout} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600">
               로그아웃
             </button>
@@ -343,6 +354,25 @@ export default function DashboardShell({ data: raw, token, month, months, onMont
         </header>
 
         {updatedAt && <p className="mb-3 font-mono text-[11px] text-slate-400">갱신 {updatedAt}</p>}
+
+        {data.provisional?.active && (
+          <section className="mb-4 rounded-xl border-2 border-red-300 bg-red-50 p-4 text-red-900">
+            <h2 className="text-sm font-bold">임시 집계 — 최종 제출 전 자료 포함</h2>
+            <p className="mt-1 text-xs leading-5">
+              공식 월 집계 {data.provisional.aggregateReceiptCount}건에 자동 공유 자료 {data.provisional.provisionalReceiptCount}건을 더해 표시합니다.
+              임시 자료는 사진·PDF·검토가 확인되지 않았으며, 공식 월 집계와 같은 영수증은 제외됩니다.
+              자동 공유 목록에서 사라진 자료는 최종 재제출 전까지 공식 집계에서 자동 차감하지 않습니다.
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-red-700">
+              마지막 자동 공유 {data.provisional.lastSharedAt ? new Date(data.provisional.lastSharedAt).toLocaleString('ko-KR') : '확인 불가'}
+              {data.provisional.exactOfficialMatchCount > 0 ? ` · 공식 집계 일치로 제외 ${data.provisional.exactOfficialMatchCount}건` : ''}
+              {data.provisional.changedOfficialCount > 0 ? ` · 공식 집계와 달라 재제출 대기 ${data.provisional.changedOfficialCount}건` : ''}
+              {data.provisional.ambiguousProgressCount > 0 ? ` · 중복 식별값 제외 ${data.provisional.ambiguousProgressCount}건` : ''}
+              {data.provisional.unidentifiedProgressCount > 0 ? ` · 식별값 없음 제외 ${data.provisional.unidentifiedProgressCount}건` : ''}
+              {data.provisional.deletionReconciliationUnavailable ? ' · 삭제 여부는 최종 재제출 전 확정 불가' : ''}
+            </p>
+          </section>
+        )}
 
         <nav className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
           {tabs.map(([id, label]) => (

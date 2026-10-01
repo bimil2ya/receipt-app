@@ -91,6 +91,33 @@ describe('submission and review uncertainty remain visible', () => {
   });
 });
 
+describe('provisional progress disclosure', () => {
+  it('uses a red, explicit warning and does not describe the data as final', () => {
+    const html = render(data({
+      provisional: {
+        active: true, aggregateReceiptCount: 1, provisionalReceiptCount: 3,
+        exactOfficialMatchCount: 1, changedOfficialCount: 1, ambiguousProgressCount: 1, unidentifiedProgressCount: 1,
+        deletionReconciliationUnavailable: true,
+        lastSharedAt: '2026-09-10T01:02:03.000Z',
+      },
+    }));
+    expect(html).toContain('임시 집계 — 최종 제출 전 자료 포함');
+    expect(html).toContain('사진·PDF·검토가 확인되지 않았으며');
+    expect(html).toContain('공식 집계 일치로 제외 1건');
+    expect(html).toContain('공식 집계와 달라 재제출 대기 1건');
+    expect(html).toContain('중복 식별값 제외 1건');
+    expect(html).toContain('식별값 없음 제외 1건');
+    expect(html).toContain('삭제 여부는 최종 재제출 전 확정 불가');
+  });
+
+  it('labels a team with provisional records without calling it final submission', () => {
+    const body = data();
+    body.teams[0] = { ...body.teams[0], officialReceiptCount: 1, provisionalReceiptCount: 3 };
+    const html = render(body);
+    expect(html).toContain('집계 반영(최종 완료 확인 불가) + 임시 3건');
+  });
+});
+
 describe('all ledger categories remain visible', () => {
   it.each(['overview', 'team', 'anomaly'])('shows custom and undetermined categories in %s', tab => {
     selected.tab = tab;

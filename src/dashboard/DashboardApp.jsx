@@ -15,25 +15,28 @@ function formatUpdatedAt(data) {
   return `${String(g.getMonth() + 1).padStart(2, '0')}-${String(g.getDate()).padStart(2, '0')} ${String(g.getHours()).padStart(2, '0')}:${String(g.getMinutes()).padStart(2, '0')}`;
 }
 
-function dashboardErrorMessage(reason) {
-  if (reason === 'source_missing') return '선택한 월의 공식 집계 자료가 아직 없습니다.';
+function dashboardErrorMessage(reason, includeProgress) {
+  if (reason === 'source_missing') return includeProgress
+    ? '선택한 월의 공식 집계 또는 임시 진행 자료가 아직 없습니다.'
+    : '선택한 월의 공식 집계 자료가 아직 없습니다.';
   return '자료를 불러오지 못했습니다. 잠시 후 다시 시도하세요.';
 }
 
 export default function DashboardApp() {
   const [token, setToken] = useState(() => readToken());
   const [month, setMonth] = useState(currentMonth());
+  const [includeProgress, setIncludeProgress] = useState(true);
   const [state, setState] = useState({ status: 'idle', data: null, error: '' });
   const [updatedAt, setUpdatedAt] = useState('');
-  const cache = useRef(new Map()); // key: month → { data, fetchedAt }
-  const latestMonth = useRef(month);
+  const cache = useRef(new Map()); // key: month/progress mode → { data, fetchedAt }
+  const latestRequestKey = useRef(`${month}:progress`);
   const sessionGeneration = useRef(0);
-  latestMonth.current = month;
+  latestRequestKey.current = `${month}:${includeProgress ? 'progress' : 'official'}`;
 
   const load = useCallback(
     async (force) => {
       if (!token) return;
-      const key = month;
+      const key = `${month}:${includeProgress ? 'progress' : 'official'}`;
       const generation = sessionGeneration.current;
       const cached = cache.current.get(key);
       if (!force && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
@@ -44,9 +47,9 @@ export default function DashboardApp() {
       // 새 월을 선택한 직후 이전 월의 원장을 새 월 선택값 아래에 남기면
       // 담당자가 다른 달 자료를 대조하는 오판이 생긴다. 응답까지 빈 로딩 상태로 둔다.
       setState({ status: 'loading', data: null, error: '' });
-      const res = await fetchDashboardData(token, month);
+      const res = await fetchDashboardData(token, month, { includeProgress });
       // 월을 빠르게 바꾸면 응답이 뒤섞일 수 있다 — 최신 요청만 반영.
-      if (latestMonth.current !== key || sessionGeneration.current !== generation) return;
+      if (latestRequestKey.current !== key || sessionGeneration.current !== generation) return;
       if (res.ok) {
         cache.current.set(key, { data: res.data, fetchedAt: Date.now() });
         setState({ status: 'ready', data: res.data, error: '' });
@@ -57,10 +60,10 @@ export default function DashboardApp() {
         cache.current.clear();
         setState({ status: 'idle', data: null, error: '' });
       } else {
-        setState({ status: 'error', data: null, error: dashboardErrorMessage(res.reason) });
+        setState({ status: 'error', data: null, error: dashboardErrorMessage(res.reason, includeProgress) });
       }
     },
-    [token, month],
+    [token, month, includeProgress],
   );
 
   useEffect(() => {
@@ -106,6 +109,8 @@ export default function DashboardApp() {
       month={month}
       months={MONTHS}
       onMonthChange={setMonth}
+      includeProgress={includeProgress}
+      onIncludeProgressChange={setIncludeProgress}
       onRefresh={() => load(true)}
       onLogout={logout}
       updatedAt={updatedAt}

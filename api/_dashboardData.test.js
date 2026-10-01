@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as XLSX from 'xlsx';
-import { buildDashboardPayload, parseDashboardWorkbook, loadDashboardMonth, resolveDashboardMonth } from './_dashboardData.js';
+import { buildDashboardPayload, mergeDashboardProgress, parseDashboardWorkbook, loadDashboardMonth, resolveDashboardMonth } from './_dashboardData.js';
 
 const month = '2026-09';
 const detail = (overrides = {}) => ({ '날짜': '2026-09-01', '사용시간': '12:01', '이름': '홍길동, 성춘향', '사용처': '식당', '용도': '식비', '금액(원)': 100,
@@ -184,6 +184,87 @@ describe('dashboard payload contract', () => {
   it('rejects a large UTF-8 response without silently truncating Korean notes', async () => {
     const bytes = fixture({ reviews: Array.from({ length: 50 }, (_, index) => review({ '영수증 식별값': `past-${index}`, '담당자 메모': '가'.repeat(30000) })) });
     await expect(buildDashboardPayload({ month }, { loadMonth: async () => ({ bytes }), loadReports })).rejects.toThrow(/조회 크기/);
+  });
+  it('shows only identifiable progress receipts not already present in official submissions', async () => {
+    const official = parseDashboardWorkbook(fixture(), { month });
+    const records = [
+      { teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+        { id: 'r1', date: '2026-09-01', useTime: '12:01', storeName: '식당', category: '식비', totalAmount: 100, approvalNum: 'a', note: '' },
+        { id: 'progress-only', date: '2026-09-02', useTime: '13:00', storeName: '주유소', category: '유류비', totalAmount: 200, approvalNum: 'b', note: '' },
+        { id: '', date: '2026-09-03', useTime: '', storeName: '미확인', category: '기타', totalAmount: 50, approvalNum: '', note: '' },
+      ] },
+      { teamNames: '다른 조', tripStartDate: '2026-09-03', tripEndDate: '', submitterName: '성춘향', submitterDeviceId: 'device-b', submitted: false, sharedAt: '2026-09-10T02:02:03.000Z', receipts: [
+        { id: 'collision', date: '2026-09-03', useTime: '', storeName: 'A', category: '기타', totalAmount: 10, approvalNum: '', note: '' },
+      ] },
+      { teamNames: '또 다른 조', tripStartDate: '2026-09-03', tripEndDate: '', submitterName: '이순신', submitterDeviceId: 'device-c', submitted: false, sharedAt: '2026-09-10T03:02:03.000Z', receipts: [
+        { id: 'collision', date: '2026-09-03', useTime: '', storeName: 'B', category: '기타', totalAmount: 20, approvalNum: '', note: '' },
+      ] },
+    ];
+    const merged = mergeDashboardProgress(official, records);
+    expect(merged.totals).toMatchObject({ spent: 300, core: 100, fuelMed: 200, receiptCount: 2 });
+    expect(merged.ledger.map(row => row.receiptId)).toEqual(['r1', 'progress-only']);
+    expect(merged.provisional).toMatchObject({ active: true, aggregateReceiptCount: 1, provisionalReceiptCount: 1, exactOfficialMatchCount: 1, changedOfficialCount: 0, ambiguousProgressCount: 1, unidentifiedProgressCount: 1 });
+    expect(merged.teams.find(team => team.names === '홍길동, 성춘향')).toMatchObject({ officialReceiptCount: 1, provisionalReceiptCount: 1 });
+  });
+  it('can produce a red provisional payload when the official month sheet is not created yet', async () => {
+    const progress = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+      { id: 'progress-only', date: '2026-09-02', useTime: '13:00', storeName: '식당', category: '식비', totalAmount: 200, approvalNum: 'b', note: '' },
+    ] }];
+    const missing = Object.assign(new Error('missing'), { code: 'DASHBOARD_SOURCE_MISSING' });
+    const loadReportsWhenOfficialMissing = vi.fn(async () => { throw Object.assign(new Error('no month folder'), { code: 'DASHBOARD_REPORT_PATH_AMBIGUOUS' }); });
+    const body = await buildDashboardPayload({ month, role: 'staff', includeProgress: true }, {
+      loadMonth: async () => { throw missing; }, loadProgress: async () => progress, loadReports: loadReportsWhenOfficialMissing,
+    });
+    expect(body).toMatchObject({ sheetModifiedTime: null, totals: { spent: 200, receiptCount: 1 }, provisional: { active: true, aggregateReceiptCount: 0, provisionalReceiptCount: 1 } });
+    expect(loadReportsWhenOfficialMissing).not.toHaveBeenCalled();
+  });
+  it('does not double-count an exact progress receipt that matches one legacy blank-ID official row', () => {
+    const official = parseDashboardWorkbook(fixture({ details: [detail({ '영수증 식별값': '', '수정 버전': '' })], reviews: [review({ '영수증 식별값': '' })] }), { month });
+    const records = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+      { id: 'later-id', date: '2026-09-01', useTime: '12:01', storeName: '식당', category: '식비', totalAmount: 100, approvalNum: 'a', note: '' },
+    ] }];
+    const merged = mergeDashboardProgress(official, records);
+    expect(merged.totals).toMatchObject({ spent: 100, receiptCount: 1 });
+    expect(merged.ledger.map(row => row.receiptId)).toEqual(['']);
+    expect(merged.provisional).toMatchObject({ active: true, exactOfficialMatchCount: 1, provisionalReceiptCount: 0, deletionReconciliationUnavailable: true });
+  });
+  it('excludes duplicate progress IDs even when one duplicate matches a legacy official row', () => {
+    const official = parseDashboardWorkbook(fixture({ details: [detail({ '영수증 식별값': '', '수정 버전': '' })], reviews: [review({ '영수증 식별값': '' })] }), { month });
+    const records = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+      { id: 'dup-id', date: '2026-09-01', useTime: '12:01', storeName: '식당', category: '식비', totalAmount: 100, approvalNum: 'a', note: '' },
+      { id: 'dup-id', date: '2026-09-02', useTime: '13:00', storeName: '주유소', category: '유류비', totalAmount: 200, approvalNum: 'b', note: '' },
+    ] }];
+    const merged = mergeDashboardProgress(official, records);
+    expect(merged.totals).toMatchObject({ spent: 100, receiptCount: 1 });
+    expect(merged.provisional).toMatchObject({ exactOfficialMatchCount: 0, ambiguousProgressCount: 1, provisionalReceiptCount: 0 });
+  });
+  it('does not let multiple progress IDs claim one legacy blank-ID official row', () => {
+    const official = parseDashboardWorkbook(fixture({ details: [detail({ '영수증 식별값': '', '수정 버전': '' })], reviews: [review({ '영수증 식별값': '' })] }), { month });
+    const sameValues = { date: '2026-09-01', useTime: '12:01', storeName: '식당', category: '식비', totalAmount: 100, approvalNum: 'a', note: '' };
+    const records = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+      { id: 'legacy-a', ...sameValues },
+      { id: 'legacy-b', ...sameValues },
+    ] }];
+    const merged = mergeDashboardProgress(official, records);
+    expect(merged.totals).toMatchObject({ spent: 100, receiptCount: 1 });
+    expect(merged.provisional).toMatchObject({ exactOfficialMatchCount: 0, ambiguousProgressCount: 2, provisionalReceiptCount: 0 });
+  });
+  it('keeps a changed same-ID progress receipt out of totals and marks it for final resubmission', () => {
+    const official = parseDashboardWorkbook(fixture(), { month });
+    const changed = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [
+      { id: 'r1', date: '2026-09-01', useTime: '12:01', storeName: '식당', category: '식비', totalAmount: 150, approvalNum: 'a', note: '' },
+    ] }];
+    const merged = mergeDashboardProgress(official, changed);
+    expect(merged.totals).toMatchObject({ spent: 100, receiptCount: 1 });
+    expect(merged.provisional).toMatchObject({ active: true, exactOfficialMatchCount: 0, changedOfficialCount: 1, provisionalReceiptCount: 0, deletionReconciliationUnavailable: true });
+  });
+  it('does not subtract official rows when a progress snapshot no longer carries them', () => {
+    const official = parseDashboardWorkbook(fixture(), { month });
+    const emptied = [{ teamNames: '홍길동, 성춘향', tripStartDate: '2026-09-01', tripEndDate: '', submitterName: '홍길동', submitterDeviceId: 'device-a', submitted: false, sharedAt: '2026-09-10T01:02:03.000Z', receipts: [] }];
+    const merged = mergeDashboardProgress(official, emptied);
+    expect(merged.totals).toMatchObject({ spent: 100, receiptCount: 1 });
+    expect(merged.ledger.map(row => row.receiptId)).toEqual(['r1']);
+    expect(merged.provisional).toMatchObject({ active: true, deletionReconciliationUnavailable: true, provisionalReceiptCount: 0 });
   });
 });
 

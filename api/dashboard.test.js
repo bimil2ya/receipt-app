@@ -42,6 +42,7 @@ vi.mock('./_dashboardData.js', async (importOriginal) => {
     ...real,
     buildDashboardPayload: vi.fn(options => real.buildDashboardPayload(options, {
       loadMonth: async month => ({ bytes: monthlyWorkbook(month), sheetModifiedTime: '2026-09-29T00:00:00Z' }),
+      loadProgress: async () => [],
       loadReports: async ({ teamNames, month }) => {
         const id = teamNames === '홍길동, 성춘향' ? 'fixture-report-team-1' : 'fixture-report-team-2';
         return [{ id, label: `정산서 · ${teamNames}`, date: `${month}-03`, available: true, ref: signReportRef(id) }];
@@ -135,6 +136,15 @@ describe('dashboard router', () => {
     const res = await call({ method: 'OPTIONS', action: 'auth' });
     expect(res.statusCode).toBe(200);
     expect(res.ended).toBe(true);
+  });
+});
+
+describe('action=data', () => {
+  it('passes the explicit provisional-progress mode to the payload builder', async () => {
+    const token = signToken({ role: 'owner' }, { ttlSec: 3600 });
+    const res = await call({ method: 'GET', action: 'data', query: { month: '2026-09', includeProgress: '1' }, headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(200);
+    expect(buildDashboardPayload).toHaveBeenLastCalledWith(expect.objectContaining({ month: '2026-09', role: 'owner', includeProgress: true }));
   });
 });
 

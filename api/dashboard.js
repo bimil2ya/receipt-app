@@ -45,6 +45,8 @@ const DATA_ERRORS = {
   DASHBOARD_TOTAL_MISMATCH: { status: 422, message: '월 집계 자료의 합계를 확인할 수 없습니다.' },
   DASHBOARD_RESPONSE_TOO_LARGE: { status: 413, message: '월 집계 자료가 화면 조회 한도를 넘었습니다.' },
   DASHBOARD_DRIVE_TIMEOUT: { status: 504, message: '월 집계 조회 시간이 초과되었습니다. 다시 조회해 주세요.' },
+  DASHBOARD_PROGRESS_INVALID: { status: 422, message: '임시 집계 자료의 형식을 확인할 수 없습니다.' },
+  DASHBOARD_PROGRESS_CHANGED: { status: 409, message: '조회 중 임시 집계 자료가 변경되었습니다. 다시 조회해 주세요.' },
 };
 // 이 대시보드는 영수증의 카드번호·사업자번호·조원 실명·금액을 노출한다.
 // 6자리 숫자 PIN(100만 조합)으로는 부족 — 최소 12자 패스프레이즈를 권장한다.
@@ -184,8 +186,9 @@ async function handleData(req, res) {
   const month = /^\d{4}-\d{2}$/.test(String((req.query && req.query.month) || ''))
     ? req.query.month
     : undefined;
+  const includeProgress = String((req.query && req.query.includeProgress) || '') === '1';
 
-  const payload = await buildDashboardPayload({ month, role });
+  const payload = await buildDashboardPayload({ month, role, includeProgress });
 
   res.setHeader('Cache-Control', 'private, no-store');
   return res.status(200).json(payload);
