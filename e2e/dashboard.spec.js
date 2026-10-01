@@ -73,6 +73,7 @@ test('공식 월 집계가 없을 때 자료 없음으로 구분해 표시한다
   await page.getByPlaceholder('비밀번호').fill('fixture');
   await page.getByRole('button', { name: '들어가기' }).click();
   await expect(page.getByText('선택한 월의 공식 집계 또는 임시 진행 자료가 아직 없습니다.')).toBeVisible();
+  await expect(page.getByLabel('조회 월')).toBeVisible();
 });
 
 test('최종 제출 전 자동 공유 자료는 빨간 임시 집계로만 표시한다', async ({ page }) => {

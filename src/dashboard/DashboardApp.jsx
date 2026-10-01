@@ -89,7 +89,23 @@ export default function DashboardApp() {
   if (state.status === 'error') {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50 px-4 text-center text-slate-600">
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500">조회 월</span>
+          <select
+            value={month}
+            onChange={event => setMonth(event.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2"
+          >
+            {MONTHS.map(value => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
         <p className="text-sm">{state.error}</p>
+        <button
+          onClick={() => setIncludeProgress(value => !value)}
+          className={`rounded-lg border px-3 py-2 text-xs ${includeProgress ? 'border-red-300 bg-red-50 text-red-700' : 'border-slate-300 bg-white text-slate-600'}`}
+        >
+          {includeProgress ? '임시 자료 포함 중' : '공식 자료만 조회 중'}
+        </button>
         <button onClick={() => load(true)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm">
           다시 시도
         </button>
