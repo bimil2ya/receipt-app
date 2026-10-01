@@ -150,3 +150,19 @@ describe('all ledger categories remain visible', () => {
     expect(html).not.toContain('[object Object]');
   });
 });
+
+describe('team ledger ordering', () => {
+  it('sorts rows by date ascending and keeps blank dates last', () => {
+    selected.tab = 'team';
+    const body = data({
+      ledger: [
+        { team: '홍길동, 성춘향', date: '2026-10-01', time: '09:00', category: '식비', amount: 30, store: '늦은날' },
+        { team: '홍길동, 성춘향', date: '2026-09-30', time: '18:00', category: '식비', amount: 20, store: '이른날' },
+        { team: '홍길동, 성춘향', date: '', time: '', category: '기타', amount: 10, store: '날짜없음' },
+      ],
+    });
+    const html = render(body);
+    expect(html.indexOf('이른날')).toBeLessThan(html.indexOf('늦은날'));
+    expect(html.indexOf('늦은날')).toBeLessThan(html.indexOf('날짜없음'));
+  });
+});

@@ -128,7 +128,22 @@ function TeamTab({ data, token }) {
   const [selectedName, setSelectedName] = useState(null);
   const team = data.teams.find((tm) => tm.names === selectedName) || data.teams[0];
   if (!team) return <p className="text-sm text-slate-500">자료가 없습니다.</p>;
-  const rows = data.ledger.filter((r) => r.team === team.names);
+  const rows = data.ledger
+    .filter((r) => r.team === team.names)
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const dateA = String(a.row.date || '');
+      const dateB = String(b.row.date || '');
+      if (!dateA && dateB) return 1;
+      if (dateA && !dateB) return -1;
+      const dateOrder = dateA.localeCompare(dateB);
+      if (dateOrder) return dateOrder;
+      const timeOrder = String(a.row.time || '').localeCompare(String(b.row.time || ''));
+      if (timeOrder) return timeOrder;
+      const storeOrder = String(a.row.store || '').localeCompare(String(b.row.store || ''));
+      return storeOrder || a.index - b.index;
+    })
+    .map(({ row }) => row);
   return (
     <>
       <div className="mb-4">
