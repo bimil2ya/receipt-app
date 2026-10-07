@@ -103,6 +103,8 @@ export default async function handler(req) {
 
     // 우선순위가 높은 모델부터 계정 가용 여부 확인
     const candidates = [
+      // Anthropic 계정에 새 모델이 먼저 노출되는 경우를 우선 지원한다.
+      'claude-sonnet-5-5',
       'claude-sonnet-4-6',
       'claude-opus-4-7',
       'claude-haiku-4-5-20251001',
