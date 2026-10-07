@@ -10,6 +10,14 @@ import {
   repairReceiptDates,
 } from './_analyzeUtils.js';
 
+function anthropicText(data) {
+  return (Array.isArray(data?.content) ? data.content : [])
+    .filter(block => block?.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text)
+    .join('\n')
+    .trim();
+}
+
 export default async function handler(req) {
   const corsPreFlight = handleCorsPreFlight(req);
   if (corsPreFlight) return corsPreFlight;
@@ -200,14 +208,14 @@ ${tripDateContext}
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
           body: JSON.stringify({
             model: modelId,
-            max_tokens: 2048,
+            max_tokens: 4096,
             messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }, { type: 'text', text: prompt }] }]
           })
         }, 40000);
 
         const data = await response.json();
         if (response.ok) {
-          const match = (data.content?.[0]?.text || '').match(/\{[\s\S]*\}/);
+          const match = anthropicText(data).match(/\{[\s\S]*\}/);
           if (match) {
             try {
               finalData = JSON.parse(match[0]);
@@ -260,13 +268,13 @@ ${tripDateContext}
             headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
             body: JSON.stringify({
               model: finalModelId || modelsToTry[0],
-              max_tokens: 1024,
+              max_tokens: 2048,
               messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }, { type: 'text', text: approvalRepairPrompt }] }]
             })
           }, 30000);
           const data = await response.json();
           if (response.ok) {
-            const match = (data.content?.[0]?.text || '').match(/\{[\s\S]*\}/);
+            const match = anthropicText(data).match(/\{[\s\S]*\}/);
             if (match) {
               const parsed = JSON.parse(match[0]);
               const approvalNums = Array.isArray(parsed.approvalNums) ? parsed.approvalNums : [];
